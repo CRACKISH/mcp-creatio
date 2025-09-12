@@ -1,0 +1,13 @@
+{
+  "editor.formatOnSave": true,
+  "editor.insertSpaces": false,
+  "editor.tabSize": 4,
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "eslint.validate": ["typescript", "typescriptreact"],
+  "editor.codeActionsOnSave": {
+    "source.fixAll": true,
+    "source.fixAll.eslint": true
+  }
+}
