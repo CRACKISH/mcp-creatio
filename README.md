@@ -11,38 +11,6 @@ Environment
 Run
 
 ````markdown
-MCP Creatio — мінімальне рішення (scaffold)
-
-## Коротко
-
-Цей репозиторій містить мінімальну реалізацію MCP (Model Context Provider) сервера з адаптером до Creatio OData API. Мета — надати простий стартовий шаблон для інтеграції сторонніх сервісів з платформою Creatio через MCP-протокол.
-
-## Для чого це потрібно
-
-- Швидкий старт для розробки розширень/інтеграцій, які потребують доступу до даних Creatio.
-- Демонстрація базової структури сервера, маршрутизації та викликів OData.
-
-## Як це працює (високо рівнем)
-
-1. MCP-сервер приймає HTTP-запити на визначені ендпоїнти (наприклад, `/mcp/*`).
-2. Сервер обробляє тіло запиту, будує запити до Creatio OData через `src/creatio/odataClient.ts`.
-3. Отримані дані повертаються клієнту у форматі MCP відповіді.
-
-## Серед файлів/модулів
-
-- `src/server` — HTTP-сервер і маршрути MCP.
-- `src/creatio` — клієнт для викликів Creatio OData та допоміжні методи.
-- `src/utils` — утиліти (мережа, логування).
-- `src/index.ts`, `src/version.ts` — точка входу та версія.
-
-## Налаштування оточення
-
-- `CREATIO_BASE_URL` — URL вашого інстансу Creatio (наприклад: `https://your-creatio.com`).
-- `CREATIO_TOKEN` — опціональний Bearer token (якщо Creatio використовує токенну автентифікацію).
-- `PORT` — порт, на якому слухає сервер (за замовчуванням `3000`).
-
-## Установка та запуск
-
 # MCP Creatio (scaffold)
 
 ## Overview
@@ -114,4 +82,3 @@ The server will query the Creatio OData endpoint (via `src/creatio/odataClient.t
 ## Contributing
 
 Open issues or PRs if you want to contribute or need help.
-````
