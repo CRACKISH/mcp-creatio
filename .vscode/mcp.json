@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"creatio_local": {
+			"url": "http://localhost:3000/mcp",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}

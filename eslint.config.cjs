@@ -1,6 +1,3 @@
-/**
- * ESLint flat config (eslint.config.cjs)
- */
 module.exports = [
   {
     ignores: ['node_modules/**', 'dist/**', 'coverage/**'],
@@ -25,7 +22,29 @@ module.exports = [
           singleQuote: true,
           trailingComma: 'all',
           semi: true,
-          printWidth: 100
+          printWidth: 100,
+          useTabs: true,
+          tabWidth: 4,
+          endOfLine: 'crlf'
+        }
+      ],
+  indent: ['error', 'tab', { SwitchCase: 1, VariableDeclarator: { var: 1, let: 1, const: 1 } }],
+      'linebreak-style': ['error', 'windows']
+      ,
+      '@typescript-eslint/explicit-member-accessibility': ['error', { accessibility: 'explicit' }],
+      '@typescript-eslint/naming-convention': [
+        'error',
+        {
+          selector: 'method',
+          modifiers: ['private'],
+          format: ['camelCase'],
+          leadingUnderscore: 'require'
+        },
+        {
+          selector: 'method',
+          modifiers: ['public'],
+          format: ['camelCase'],
+          leadingUnderscore: 'forbid'
         }
       ]
     }

@@ -2,12 +2,15 @@
   "editor.formatOnSave": true,
   "editor.insertSpaces": false,
   "editor.tabSize": 4,
+  "files.eol": "\r\n",
+  "files.encoding": "utf8",
+  "editor.detectIndentation": false,
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "eslint.validate": ["typescript", "typescriptreact"],
   "editor.codeActionsOnSave": {
-    "source.fixAll": true,
-    "source.fixAll.eslint": true
+    "source.fixAll": "explicit",
+    "source.fixAll.eslint": "explicit"
   }
 }
