@@ -148,6 +148,7 @@ export class ODataCreatioClient implements CreatioClient {
 				body && typeof body === 'object' && 'value' in body ? (body as any).value : body;
 			return val;
 		} catch (e: any) {
+			log.error('odata.read.error', { entity, url, error: String(e?.message ?? e) });
 			throw e;
 		}
 	}
@@ -163,6 +164,7 @@ export class ODataCreatioClient implements CreatioClient {
 		});
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
+			log.error('odata.create.error', { entity, url, status: res.status, error: t });
 			throw new Error(`odata_create_failed:${res.status} ${t}`);
 		}
 		return res.json().catch(() => ({}));
@@ -179,6 +181,7 @@ export class ODataCreatioClient implements CreatioClient {
 		});
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
+			log.error('odata.update.error', { entity, url, status: res.status, error: t });
 			throw new Error(`odata_update_failed:${res.status} ${t}`);
 		}
 		return res.text();
@@ -194,6 +197,7 @@ export class ODataCreatioClient implements CreatioClient {
 		});
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
+			log.error('odata.delete.error', { entity, url, status: res.status, error: t });
 			throw new Error(`odata_delete_failed:${res.status} ${t}`);
 		}
 		return res.text();
@@ -211,8 +215,18 @@ export class ODataCreatioClient implements CreatioClient {
 					return body.value.map((x: any) => String(x.name));
 				}
 			}
+			// non-OK HTTP status
+			if (!res.ok) {
+				log.error('odata.list-entity-sets.error', { url, status: res.status });
+			}
 			// if unexpected shape - fallback to metadata parse
-		} catch {}
+		} catch (e: any) {
+			// record error then fallback to metadata parse
+			log.error('odata.list-entity-sets.error', {
+				url: `${this._root()}/`,
+				error: String(e?.message ?? e),
+			});
+		}
 
 		const md = await this._getParsedMetadata();
 		const ds = md['edmx:Edmx']?.['edmx:DataServices'];
@@ -255,7 +269,13 @@ export class ODataCreatioClient implements CreatioClient {
 				}
 			}
 		}
-		if (!fullType) throw new Error(`entity_not_found:${entitySet}`);
+		if (!fullType) {
+			log.error('odata.describe-entity.error', {
+				entitySet,
+				error: `entity_not_found:${entitySet}`,
+			});
+			throw new Error(`entity_not_found:${entitySet}`);
+		}
 		const typeName = fullType.split('.').pop()!;
 
 		let entityTypeNode: any | undefined;
@@ -270,6 +290,10 @@ export class ODataCreatioClient implements CreatioClient {
 			if (entityTypeNode) break;
 		}
 		if (!entityTypeNode) {
+			log.error('odata.describe-entity.error', {
+				entitySet,
+				error: `entity_type_not_found:${typeName}`,
+			});
 			throw new Error(`entity_type_not_found:${typeName}`);
 		}
 
