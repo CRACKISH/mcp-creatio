@@ -23,7 +23,6 @@ function literalFor(field: string, value: any): string {
 		if (isGuid(v) && isIdish(field)) return `guid'${v}'`;
 		return `'${escapeStr(v)}'`;
 	}
-	// Fallback JSON stringified as quoted literal
 	return `'${escapeStr(JSON.stringify(value))}'`;
 }
 

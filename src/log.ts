@@ -69,10 +69,7 @@ export function sessionDisconnect(sessionId: string, ip?: string, meta?: Record<
 	info('session.disconnect', { sessionId, ip, ...meta });
 }
 
-// MCP tool invocation
-// (removed) Per UX: avoid over-logging tool invocation lifecycle
-
-// Creatio (OData) client logging
+// ...existing code...
 export function creatioAuthStart(baseUrl: string) {
 	info('creatio.auth.start', { baseUrl });
 }
@@ -84,8 +81,6 @@ export function creatioAuthOk(baseUrl: string) {
 export function creatioAuthFailed(baseUrl: string, error: string) {
 	warn('creatio.auth.failed', { baseUrl, error });
 }
-
-// (removed) Per UX: avoid over-logging OData request/metadata lifecycle
 
 export default {
 	info,

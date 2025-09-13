@@ -202,7 +202,6 @@ export class Server {
 
 	private _normalizeToToolHandler(handler: ToolHandler) {
 		return async (args: any) => {
-			// Minimal wrapper: keep result normalization; no per-invocation logs
 			try {
 				const result = await handler(args);
 				if (result && (result.content || result.contents)) return result;

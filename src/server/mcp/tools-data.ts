@@ -12,7 +12,6 @@ function makeToolDescriptor(opts: {
 	};
 }
 
-// Structured filters (designed for LLMs)
 const Op = z.enum(['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'contains', 'startswith', 'endswith']);
 const Value = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const BaseCondition = z.object({

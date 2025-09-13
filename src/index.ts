@@ -1,26 +1,30 @@
-import { ODataCreatioClient } from './creatio';
+import { CreatioClientConfig, ODataCreatioClient } from './creatio';
 import log from './log';
 import { HttpServer, Server } from './server';
 let _httpInstance: HttpServer | undefined;
 
-async function main() {
-	log.appStart({ env: { node: process.version, port: process.env.PORT } });
+function getCreatioClientConfig(): CreatioClientConfig {
 	const baseUrl = process.env.CREATIO_BASE_URL;
 	if (!baseUrl) {
 		throw new Error('Environment variable CREATIO_BASE_URL is required but not set');
+	}
+	const apiKey = process.env.CREATIO_API_KEY;
+	if (apiKey) {
+		return { baseUrl, apiKey };
 	}
 	const login = process.env.CREATIO_LOGIN;
 	const password = process.env.CREATIO_PASSWORD;
 	if (!login || !password) {
 		throw new Error(
-			'Environment variables CREATIO_LOGIN and CREATIO_PASSWORD are required but not set',
+			'You must set either CREATIO_API_KEY or both CREATIO_LOGIN and CREATIO_PASSWORD environment variables',
 		);
 	}
-	const client = new ODataCreatioClient({
-		baseUrl,
-		login,
-		password,
-	});
+	return { baseUrl, login: String(login), password: String(password) };
+}
+
+async function main() {
+	log.appStart({ env: { node: process.version, port: process.env.PORT } });
+	const client = new ODataCreatioClient(getCreatioClientConfig());
 	const server = new Server(client);
 	const http = new HttpServer(server);
 	_httpInstance = http;

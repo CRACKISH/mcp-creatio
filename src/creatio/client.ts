@@ -1,7 +1,8 @@
 export interface CreatioClientConfig {
 	baseUrl: string;
-	login: string;
-	password: string;
+	login?: string;
+	password?: string;
+	apiKey?: string;
 }
 
 export interface CreatioClient {

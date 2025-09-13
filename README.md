@@ -25,10 +25,13 @@ Set the environment variables (see next section), then start the server.
 | Variable           | Required | Description                                                         |
 | ------------------ | -------- | ------------------------------------------------------------------- |
 | `CREATIO_BASE_URL` | ✅       | Base URL of your Creatio instance (e.g. `https://your-creatio.com`) |
-| `CREATIO_LOGIN`    | ✅       | Username                                                            |
-| `CREATIO_PASSWORD` | ✅       | Password                                                            |
+| `CREATIO_LOGIN`    | —        | Username (required if no API key)                                   |
+| `CREATIO_PASSWORD` | —        | Password (required if no API key)                                   |
+| `CREATIO_API_KEY`  | —        | API key (alternative to login/password)                             |
 
 ## Run
+
+### Using login/password
 
 ```powershell
 $env:CREATIO_BASE_URL="https://your-creatio.com"
@@ -37,9 +40,19 @@ $env:CREATIO_PASSWORD="Supervisor"
 npm run start
 ```
 
+### Using API key
+
+```powershell
+$env:CREATIO_BASE_URL="https://your-creatio.com"
+$env:CREATIO_API_KEY="your_api_key_here"
+npm run start
+```
+
 ## Docker
 
 Build and run:
+
+### Docker (login/password)
 
 ```powershell
 docker build -t mcp-creatio .
@@ -50,7 +63,19 @@ docker run --rm -p 3000:3000 `
   mcp-creatio
 ```
 
+### Docker (API key)
+
+```powershell
+docker build -t mcp-creatio .
+docker run --rm -p 3000:3000 `
+  -e CREATIO_BASE_URL="https://your-creatio.com" `
+  -e CREATIO_API_KEY="your_api_key_here" `
+  mcp-creatio
+```
+
 Prebuilt image from Docker Hub:
+
+### Prebuilt image (login/password)
 
 ```powershell
 docker pull crackish/mcp-creatio:latest
@@ -58,6 +83,16 @@ docker run --rm -p 3000:3000 `
   -e CREATIO_BASE_URL="https://your-creatio.com" `
   -e CREATIO_LOGIN="Supervisor" `
   -e CREATIO_PASSWORD="Supervisor" `
+  crackish/mcp-creatio:latest
+```
+
+### Prebuilt image (API key)
+
+```powershell
+docker pull crackish/mcp-creatio:latest
+docker run --rm -p 3000:3000 `
+  -e CREATIO_BASE_URL="https://your-creatio.com" `
+  -e CREATIO_API_KEY="your_api_key_here" `
   crackish/mcp-creatio:latest
 ```
 

@@ -98,7 +98,6 @@ export class HttpServer {
 				log.httpStart(port);
 				resolve();
 			});
-			// Tighten timeouts so keep-alive sockets don't delay shutdown
 			this._srv.keepAliveTimeout = 5000; // 5s
 			this._srv.headersTimeout = Math.max(this._srv.keepAliveTimeout + 1000, 6000);
 			this._srv.on('error', (err) => {
