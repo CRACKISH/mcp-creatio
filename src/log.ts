@@ -1,3 +1,9 @@
+type ODataRequestEndMeta = {
+	durationMs: number;
+	status?: number;
+	url?: string;
+	error?: string;
+} & Record<string, any>;
 export type LogLevel = 'info' | 'warn' | 'error';
 
 export interface LogConfig {
@@ -63,6 +69,24 @@ export function sessionDisconnect(sessionId: string, ip?: string, meta?: Record<
 	info('session.disconnect', { sessionId, ip, ...meta });
 }
 
+// MCP tool invocation
+// (removed) Per UX: avoid over-logging tool invocation lifecycle
+
+// Creatio (OData) client logging
+export function creatioAuthStart(baseUrl: string) {
+	info('creatio.auth.start', { baseUrl });
+}
+
+export function creatioAuthOk(baseUrl: string) {
+	info('creatio.auth.ok', { baseUrl });
+}
+
+export function creatioAuthFailed(baseUrl: string, error: string) {
+	warn('creatio.auth.failed', { baseUrl, error });
+}
+
+// (removed) Per UX: avoid over-logging OData request/metadata lifecycle
+
 export default {
 	info,
 	warn,
@@ -75,4 +99,7 @@ export default {
 	httpStop,
 	sessionConnect,
 	sessionDisconnect,
+	creatioAuthStart,
+	creatioAuthOk,
+	creatioAuthFailed,
 };

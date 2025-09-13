@@ -5,6 +5,7 @@ import log from '../../log';
 import { withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
 
+import { buildFilterFromStructured } from './filters';
 import {
 	CreateInput,
 	DeleteInput,
@@ -43,8 +44,11 @@ export class Server {
 		this._registerHandlerWithDescriptor(
 			'read',
 			readDescriptor,
-			withValidation(ReadInput, async ({ entity, filter, select, top }) => {
-				return client.read(entity, filter, select, top);
+			withValidation(ReadInput, async ({ entity, filter, filters, select, top }) => {
+				const structured = buildFilterFromStructured(filters);
+				let finalFilter = filter || structured;
+				if (filter && structured) finalFilter = `(${filter}) and (${structured})`;
+				return client.read(entity, finalFilter, select, top);
 			}),
 		);
 
@@ -198,16 +202,21 @@ export class Server {
 
 	private _normalizeToToolHandler(handler: ToolHandler) {
 		return async (args: any) => {
-			const result = await handler(args);
-			if (result && (result.content || result.contents)) return result;
-			return {
-				content: [
-					{
-						type: 'text',
-						text: typeof result === 'string' ? result : JSON.stringify(result),
-					},
-				],
-			};
+			// Minimal wrapper: keep result normalization; no per-invocation logs
+			try {
+				const result = await handler(args);
+				if (result && (result.content || result.contents)) return result;
+				return {
+					content: [
+						{
+							type: 'text',
+							text: typeof result === 'string' ? result : JSON.stringify(result),
+						},
+					],
+				};
+			} catch (err: any) {
+				throw err;
+			}
 		};
 	}
 
@@ -222,7 +231,9 @@ export class Server {
 					inputSchema: {},
 				} as any);
 
-			this.mcp.registerTool(name, descriptor, this._normalizeToToolHandler(handler));
+			this.mcp.registerTool(name, descriptor, async (args: any) => {
+				return this._normalizeToToolHandler(handler)(args);
+			});
 			log.info('mcp.tool.register', { tool: name });
 		} catch (err) {
 			log.warn('mcp.tool.register.failed', { tool: name, error: String(err) });

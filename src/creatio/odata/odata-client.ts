@@ -1,5 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 
+import log from '../../log';
 import { parseSetCookie } from '../../utils';
 import { CreatioClient, CreatioClientConfig } from '../client';
 
@@ -27,6 +28,8 @@ export class ODataCreatioClient implements CreatioClient {
 			UserPassword: this._config.password,
 		});
 
+		log.creatioAuthStart(this._config.baseUrl);
+		const t0 = Date.now();
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -36,8 +39,10 @@ export class ODataCreatioClient implements CreatioClient {
 
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
+			log.creatioAuthFailed(this._config.baseUrl, `${res.status} ${t}`);
 			throw new Error(`auth_failed:${res.status} ${t}`);
 		}
+		log.creatioAuthOk(this._config.baseUrl);
 
 		const setCookie = (res.headers.getSetCookie?.() ??
 			(res.headers as any).raw?.()['set-cookie'] ??
@@ -136,15 +141,21 @@ export class ODataCreatioClient implements CreatioClient {
 
 		const url = this._entityUrl(entity) + this._query(qs);
 		const headers = await this._jsonHeaders();
-		const body = await this._fetchJson(url, { headers });
-
-		if (body && typeof body === 'object' && 'value' in body) return (body as any).value;
-		return body;
+		const t0 = Date.now();
+		try {
+			const body = await this._fetchJson(url, { headers });
+			const val =
+				body && typeof body === 'object' && 'value' in body ? (body as any).value : body;
+			return val;
+		} catch (e: any) {
+			throw e;
+		}
 	}
 
 	public async create(entity: string, data: any) {
 		const url = this._entityUrl(entity);
 		const headers = await this._jsonHeaders();
+		const t0 = Date.now();
 		const res = await fetch(url, {
 			method: 'POST',
 			headers,
@@ -160,6 +171,7 @@ export class ODataCreatioClient implements CreatioClient {
 	public async update(entity: string, id: string, data: any) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
 		const headers = await this._jsonHeaders();
+		const t0 = Date.now();
 		const res = await fetch(url, {
 			method: 'PATCH',
 			headers,
@@ -175,6 +187,7 @@ export class ODataCreatioClient implements CreatioClient {
 	public async delete(entity: string, id: string) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
 		const headers = await this._jsonHeaders();
+		const t0 = Date.now();
 		const res = await fetch(url, {
 			method: 'DELETE',
 			headers,
@@ -190,6 +203,7 @@ export class ODataCreatioClient implements CreatioClient {
 		try {
 			const url = `${this._root()}/`;
 			const headers = await this._jsonHeaders();
+			const t0 = Date.now();
 			const res = await fetch(url, { headers });
 			if (res.ok) {
 				const body: any = await res.json().catch(() => null);
@@ -197,6 +211,7 @@ export class ODataCreatioClient implements CreatioClient {
 					return body.value.map((x: any) => String(x.name));
 				}
 			}
+			// if unexpected shape - fallback to metadata parse
 		} catch {}
 
 		const md = await this._getParsedMetadata();
@@ -222,6 +237,7 @@ export class ODataCreatioClient implements CreatioClient {
 		key: string[];
 		properties: { name: string; type: string; nullable?: boolean }[];
 	}> {
+		const t0 = Date.now();
 		const md = await this._getParsedMetadata();
 		const ds = md['edmx:Edmx']?.['edmx:DataServices'];
 		const schemas = this._arrify<any>(ds?.Schema);
@@ -253,7 +269,9 @@ export class ODataCreatioClient implements CreatioClient {
 			}
 			if (entityTypeNode) break;
 		}
-		if (!entityTypeNode) throw new Error(`entity_type_not_found:${typeName}`);
+		if (!entityTypeNode) {
+			throw new Error(`entity_type_not_found:${typeName}`);
+		}
 
 		const keyRefs = this._arrify<any>(entityTypeNode.Key?.PropertyRef);
 		const key = keyRefs.map((r) => String(r?.['@_Name'] ?? '')).filter(Boolean) as string[];
@@ -269,6 +287,7 @@ export class ODataCreatioClient implements CreatioClient {
 			return item;
 		});
 
+		// keep local duration for potential future use; no noisy logs
 		return { entitySet, entityType: typeName, key, properties };
 	}
 }

@@ -12,6 +12,55 @@ function makeToolDescriptor(opts: {
 	};
 }
 
+// Structured filters (designed for LLMs)
+const Op = z.enum(['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'contains', 'startswith', 'endswith']);
+const Value = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const BaseCondition = z.object({
+	field: z
+		.string()
+		.min(1)
+		.describe(
+			'Field to filter on. For lookups use navigation like Type/Name; for GUID columns use TypeId or Id.',
+		),
+});
+const CompareCondition = BaseCondition.extend({
+	op: Op.describe(
+		'Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.',
+	),
+	value: Value.describe(
+		"Value to compare with. Strings are escaped; GUIDs formatted as guid'...'.",
+	),
+});
+const InCondition = BaseCondition.extend({
+	in: z
+		.array(z.union([z.string(), z.number(), z.boolean()]))
+		.min(1)
+		.describe(
+			"Set of values (IN emulation with OR). GUIDs auto-formatted to guid'...' when applicable.",
+		),
+});
+const Condition = z.union([CompareCondition, InCondition]);
+const FiltersShape = z
+	.object({
+		all: z
+			.array(Condition)
+			.min(1)
+			.optional()
+			.describe(
+				'All conditions (AND). Example: [{ field:"TypeId", op:"eq", value:"<GUID>" }]',
+			),
+		any: z
+			.array(Condition)
+			.min(1)
+			.optional()
+			.describe(
+				'Any condition (OR). Example: [{ field:"Type/Name", op:"eq", value:"Employee" }, { field:"Type/Name", op:"eq", value:"Manager" }]',
+			),
+	})
+	.describe(
+		'Structured filters to auto-build $filter. Recommended for LLMs. Tip: for lookups prefer GUID in *_Id, or use navigation Field/Name.',
+	);
+
 const ReadInputShape = {
 	entity: z
 		.string()
@@ -26,8 +75,12 @@ const ReadInputShape = {
 			z.string().min(1).optional(),
 		)
 		.describe(
-			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''. Operators: eq, ne, gt, ge, lt, le, and, or, not, contains, startswith, endswith. Example: contains(Name,'Acme') and IsActive eq true.",
+			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''. Operators: eq, ne, gt, ge, lt, le, and, or, not, contains, startswith, endswith. Example: contains(Name,'Acme') and IsActive eq true. Lookup tips: prefer FieldId eq guid'...' (fast); or use navigation Field/Name eq '...'. LLM recipe (lookup by display value): (1) call 'describe-entity' for the base entity (e.g., Contact) and find a '<Field>Id' (e.g., TypeId); (2) infer navigation '<Field>' (e.g., Type) and use '<Field>/Name eq '<Value>'' (e.g., Type/Name eq 'Employee'); (3) optionally add $select and $expand to return the display name.",
 		),
+
+	filters: FiltersShape.optional().describe(
+		"Alternative to raw $filter: structured 'filters' (LLM-friendly). Example: { all:[{ field:'TypeId', op:'eq', value:'<GUID>' }], any:[{ field:'Type/Name', op:'eq', value:'Employee' }] }",
+	),
 
 	select: z
 		.preprocess(
@@ -51,7 +104,7 @@ export const ReadInput = z.object(ReadInputShape);
 export const readDescriptor = makeToolDescriptor({
 	title: 'Read records (OData v4)',
 	description:
-		'Query Creatio records from an entity set. Recommended flow: (1) call "list-entities" → (2) call "describe-entity" to inspect fields → (3) call "read" with a focused $select and optional $filter and $top. Example: entity=Contact, select=["Id","Name","Email"], top=25.',
+		"Query Creatio records from an entity set. Recommended flow: (1) call 'list-entities' → (2) call 'describe-entity' to inspect fields → (3) call 'read' with a focused $select and optional $filter/$top. LLM playbook for lookups: If the user asks 'find contacts with type employee' — (a) describe 'Contact' and locate 'TypeId'; (b) use navigation 'Type/Name eq 'Employee''; (c) if GUID is known, prefer 'TypeId eq guid'...''. You may also use structured 'filters': { all:[{ field:'Type/Name', op:'eq', value:'Employee' }] }.",
 	inputShape: ReadInputShape,
 });
 
