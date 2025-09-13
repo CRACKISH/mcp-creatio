@@ -1,11 +1,14 @@
-import express from 'express';
 import * as http from 'http';
 import { randomUUID } from 'node:crypto';
+import { Socket } from 'node:net';
+
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import { Server } from './server';
-import log from '../log';
-import { getClientIp } from '../utils/network';
+import express from 'express';
+
+import log from '../../log';
+import { getClientIp } from '../../utils/network';
+import { Server } from '../mcp';
 
 function getSessionId(req: any) {
 	return (
@@ -22,6 +25,7 @@ export class HttpServer {
 	private readonly _app = express();
 	private readonly _transports: Record<string, StreamableHTTPServerTransport> = {};
 	private readonly _loggedSessions = new Set<string>();
+	private readonly _connections = new Set<Socket>();
 	private _srv!: http.Server;
 
 	constructor(private readonly _server: Server) {
@@ -94,9 +98,17 @@ export class HttpServer {
 				log.httpStart(port);
 				resolve();
 			});
+			// Tighten timeouts so keep-alive sockets don't delay shutdown
+			this._srv.keepAliveTimeout = 5000; // 5s
+			this._srv.headersTimeout = Math.max(this._srv.keepAliveTimeout + 1000, 6000);
 			this._srv.on('error', (err) => {
 				log.error('http.start.error', { error: String(err), port });
 				reject(err);
+			});
+
+			this._srv.on('connection', (socket: Socket) => {
+				this._connections.add(socket);
+				socket.once('close', () => this._connections.delete(socket));
 			});
 		});
 	}
@@ -104,12 +116,21 @@ export class HttpServer {
 	public async stop() {
 		if (this._srv) {
 			try {
-				this._server.stopMcp();
-				this._srv.close();
+				await this._server.stopMcp();
+				await new Promise<void>((resolve) => {
+					this._srv.close(() => resolve());
+				});
 			} catch (err) {
 				log.error('http.stop.error', { error: String(err) });
 			}
 		}
+
+		for (const socket of Array.from(this._connections)) {
+			try {
+				socket.destroy();
+			} catch {}
+		}
+		this._connections.clear();
 		for (const sid of Object.keys(this._transports)) {
 			try {
 				const t = this._transports[sid];

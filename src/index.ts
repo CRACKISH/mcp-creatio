@@ -1,6 +1,6 @@
-import { HttpServer, Server } from './server';
 import { ODataCreatioClient } from './creatio';
 import log from './log';
+import { HttpServer, Server } from './server';
 let _httpInstance: HttpServer | undefined;
 
 async function main() {

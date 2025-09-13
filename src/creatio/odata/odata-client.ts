@@ -1,34 +1,24 @@
-import type { CreatioClient, CreatioClientConfig } from './client';
+import { XMLParser } from 'fast-xml-parser';
+
+import { parseSetCookie } from '../../utils';
+import { CreatioClient, CreatioClientConfig } from '../client';
 
 const DEFAULT_JSON_HEADERS = {
 	'Content-Type': 'application/json',
 	Accept: 'application/json;odata.metadata=minimal',
 } as const;
 
-type CookieKV = { name: string; value: string };
-
-function parseSetCookie(setCookie: string[]): CookieKV[] {
-	const out: CookieKV[] = [];
-	for (const raw of setCookie || []) {
-		const first = raw.split(';')[0]?.trim();
-		if (!first) continue;
-		const idx = first.indexOf('=');
-		if (idx > 0) {
-			out.push({ name: first.slice(0, idx), value: first.slice(idx + 1) });
-		}
-	}
-	return out;
-}
-
 export class ODataCreatioClient implements CreatioClient {
 	private cookieHeader?: string;
 	private bpmcsrf?: string;
+	private _metadataXml?: string;
+	private _metadataParsed?: any;
 
 	constructor(
 		private readonly _config: CreatioClientConfig & { login: string; password: string },
 	) {}
 
-	private async ensureSession() {
+	private async _ensureSession() {
 		if (this.cookieHeader) return;
 
 		const url = `${this._config.baseUrl.replace(/\/$/, '')}/ServiceModel/AuthService.svc/Login`;
@@ -63,10 +53,21 @@ export class ODataCreatioClient implements CreatioClient {
 		if (csrf) this.bpmcsrf = csrf;
 	}
 
-	private async jsonHeaders(): Promise<Record<string, string>> {
-		await this.ensureSession();
+	private async _jsonHeaders(): Promise<Record<string, string>> {
+		await this._ensureSession();
 		const h: Record<string, string> = {
 			...DEFAULT_JSON_HEADERS,
+			ForceUseSession: 'true',
+			Cookie: this.cookieHeader!,
+		};
+		if (this.bpmcsrf) h['BPMCSRF'] = this.bpmcsrf;
+		return h;
+	}
+
+	private async _xmlHeaders(): Promise<Record<string, string>> {
+		await this._ensureSession();
+		const h: Record<string, string> = {
+			Accept: 'application/xml',
 			ForceUseSession: 'true',
 			Cookie: this.cookieHeader!,
 		};
@@ -103,6 +104,30 @@ export class ODataCreatioClient implements CreatioClient {
 		return res.json();
 	}
 
+	private _arrify<T>(x: T | T[] | undefined | null): T[] {
+		if (x == null) return [];
+		return Array.isArray(x) ? x : [x];
+	}
+
+	private async _getMetadataXml(): Promise<string> {
+		if (this._metadataXml) return this._metadataXml;
+		const headers = await this._xmlHeaders();
+		const res = await fetch(`${this._root()}/$metadata`, { headers });
+		if (!res.ok) {
+			throw new Error(`odata_metadata_failed:${res.status}`);
+		}
+		this._metadataXml = await res.text();
+		return this._metadataXml;
+	}
+
+	private async _getParsedMetadata(): Promise<any> {
+		if (this._metadataParsed) return this._metadataParsed;
+		const xml = await this._getMetadataXml();
+		const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+		this._metadataParsed = parser.parse(xml);
+		return this._metadataParsed;
+	}
+
 	public async read(entity: string, filter?: string, select?: string[], top?: number) {
 		const qs: string[] = [];
 		if (filter) qs.push(`$filter=${encodeURIComponent(filter)}`);
@@ -110,7 +135,7 @@ export class ODataCreatioClient implements CreatioClient {
 		if (top) qs.push(`$top=${top}`);
 
 		const url = this._entityUrl(entity) + this._query(qs);
-		const headers = await this.jsonHeaders();
+		const headers = await this._jsonHeaders();
 		const body = await this._fetchJson(url, { headers });
 
 		if (body && typeof body === 'object' && 'value' in body) return (body as any).value;
@@ -119,7 +144,7 @@ export class ODataCreatioClient implements CreatioClient {
 
 	public async create(entity: string, data: any) {
 		const url = this._entityUrl(entity);
-		const headers = await this.jsonHeaders();
+		const headers = await this._jsonHeaders();
 		const res = await fetch(url, {
 			method: 'POST',
 			headers,
@@ -134,7 +159,7 @@ export class ODataCreatioClient implements CreatioClient {
 
 	public async update(entity: string, id: string, data: any) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
-		const headers = await this.jsonHeaders();
+		const headers = await this._jsonHeaders();
 		const res = await fetch(url, {
 			method: 'PATCH',
 			headers,
@@ -149,7 +174,7 @@ export class ODataCreatioClient implements CreatioClient {
 
 	public async delete(entity: string, id: string) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
-		const headers = await this.jsonHeaders();
+		const headers = await this._jsonHeaders();
 		const res = await fetch(url, {
 			method: 'DELETE',
 			headers,
@@ -162,21 +187,33 @@ export class ODataCreatioClient implements CreatioClient {
 	}
 
 	public async listEntitySets(): Promise<string[]> {
-		const url = `${this._root()}/`;
-		const headers = await this.jsonHeaders();
-		const res = await fetch(url, { headers });
-		if (!res.ok) throw new Error(`odata_service_doc_failed:${res.status}`);
-		const body: any = await res.json().catch(() => null);
+		try {
+			const url = `${this._root()}/`;
+			const headers = await this._jsonHeaders();
+			const res = await fetch(url, { headers });
+			if (res.ok) {
+				const body: any = await res.json().catch(() => null);
+				if (body && Array.isArray(body.value)) {
+					return body.value.map((x: any) => String(x.name));
+				}
+			}
+		} catch {}
 
-		if (body && Array.isArray(body.value)) {
-			return body.value.map((x: any) => String(x.name));
+		const md = await this._getParsedMetadata();
+		const ds = md['edmx:Edmx']?.['edmx:DataServices'];
+		const schemas = this._arrify<any>(ds?.Schema);
+		const allSets: string[] = [];
+		for (const schema of schemas) {
+			const containers = this._arrify<any>(schema.EntityContainer);
+			for (const c of containers) {
+				const sets = this._arrify<any>(c.EntitySet);
+				for (const s of sets) {
+					const name = s?.['@_Name'];
+					if (name) allSets.push(String(name));
+				}
+			}
 		}
-
-		const meta = await (await fetch(`${this._root()}/$metadata`, { headers })).text();
-		const names = Array.from(meta.matchAll(/<EntitySet\s+Name="([^"]+)"/g))
-			.map((m) => m[1])
-			.filter(Boolean) as string[];
-		return names;
+		return Array.from(new Set(allSets));
 	}
 
 	public async describeEntity(entitySet: string): Promise<{
@@ -185,39 +222,53 @@ export class ODataCreatioClient implements CreatioClient {
 		key: string[];
 		properties: { name: string; type: string; nullable?: boolean }[];
 	}> {
-		const headers = await this.jsonHeaders();
-		const xml = await (await fetch(`${this._root()}/$metadata`, { headers })).text();
+		const md = await this._getParsedMetadata();
+		const ds = md['edmx:Edmx']?.['edmx:DataServices'];
+		const schemas = this._arrify<any>(ds?.Schema);
 
-		const setMatch = new RegExp(
-			`<EntitySet\\s+Name="${entitySet}"\\s+EntityType="([^"]+)"`,
-		).exec(xml);
-		if (!setMatch) throw new Error(`entity_not_found:${entitySet}`);
-		const fullType = setMatch[1];
+		let fullType = '' as string;
+		for (const schema of schemas) {
+			const containers = this._arrify<any>(schema.EntityContainer);
+			for (const c of containers) {
+				const sets = this._arrify<any>(c.EntitySet);
+				for (const s of sets) {
+					if (s?.['@_Name'] === entitySet) {
+						fullType = String(s?.['@_EntityType'] ?? '');
+						break;
+					}
+				}
+			}
+		}
 		if (!fullType) throw new Error(`entity_not_found:${entitySet}`);
 		const typeName = fullType.split('.').pop()!;
 
-		const typeBlockMatch = new RegExp(
-			`<EntityType\\s+Name="${typeName}"[\\s\\S]*?<\\/EntityType>`,
-		).exec(xml);
-		const block = typeBlockMatch?.[0] ?? '';
+		let entityTypeNode: any | undefined;
+		for (const schema of schemas) {
+			const types = this._arrify<any>(schema.EntityType);
+			for (const t of types) {
+				if (t?.['@_Name'] === typeName) {
+					entityTypeNode = t;
+					break;
+				}
+			}
+			if (entityTypeNode) break;
+		}
+		if (!entityTypeNode) throw new Error(`entity_type_not_found:${typeName}`);
 
-		const key = Array.from(block.matchAll(/<PropertyRef\s+Name="([^\"]+)"/g))
-			.map((m) => m[1])
-			.filter(Boolean) as string[];
+		const keyRefs = this._arrify<any>(entityTypeNode.Key?.PropertyRef);
+		const key = keyRefs.map((r) => String(r?.['@_Name'] ?? '')).filter(Boolean) as string[];
 
-		const props = Array.from(
-			block.matchAll(
-				/<Property\s+Name="([^\"]+)"\s+Type="([^\"]+)"(?:[^>]*Nullable="(true|false)")?/g,
-			),
-		).map((m) => {
-			const item: { name: string; type: string; nullable?: boolean } = {
-				name: m[1] ?? '',
-				type: m[2] ?? '',
-			};
-			if (m[3]) item.nullable = m[3] === 'true';
+		const propsNodes = this._arrify<any>(entityTypeNode.Property);
+		const properties = propsNodes.map((p) => {
+			const name = String(p?.['@_Name'] ?? '');
+			const type = String(p?.['@_Type'] ?? '');
+			const item: { name: string; type: string; nullable?: boolean } = { name, type };
+			if (Object.prototype.hasOwnProperty.call(p, '@_Nullable')) {
+				item.nullable = String(p['@_Nullable']) === 'true';
+			}
 			return item;
 		});
 
-		return { entitySet, entityType: typeName, key, properties: props };
+		return { entitySet, entityType: typeName, key, properties };
 	}
 }

@@ -1,3 +1,5 @@
+import { CookieKV } from '../types';
+
 import type express from 'express';
 
 export function getClientIp(req: express.Request): string | undefined {
@@ -13,4 +15,15 @@ export function getClientIp(req: express.Request): string | undefined {
 	return undefined;
 }
 
-export default { getClientIp };
+export function parseSetCookie(setCookie: string[]): CookieKV[] {
+	const out: CookieKV[] = [];
+	for (const raw of setCookie || []) {
+		const first = raw.split(';')[0]?.trim();
+		if (!first) continue;
+		const idx = first.indexOf('=');
+		if (idx > 0) {
+			out.push({ name: first.slice(0, idx), value: first.slice(idx + 1) });
+		}
+	}
+	return out;
+}

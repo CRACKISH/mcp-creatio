@@ -1,232 +1,63 @@
 # MCP Creatio Server
 
+Minimal Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/).
+
 ## Overview
 
-The **MCP Creatio Server** is a Model Context Protocol (MCP) provider that exposes **Creatio OData v4** as tools usable by **ChatGPT Connectors**, **Claude MCP apps**, or any MCP-compatible client.
-
-It allows AI assistants to:
-
-- Query Creatio records (`read`, `search`, `fetch`)
-- Create, update, and delete entities (`create`, `update`, `delete`)
-- Inspect the available schema (`list-entities`, `describe-entity`)
-- Work directly with Creatio data in real time
-
-This project is a scaffold: lightweight, easy to extend, and production-ready with minimal configuration.
-
----
+- Exposes Creatio data as MCP tools for MCP-compatible clients (e.g., ChatGPT Connectors, Claude MCP, GitHub Copilot)
+- Supports reading, creating, updating, deleting records and inspecting schema
+- Implementation note: currently uses Creatio OData v4 under the hood
 
 ## Features
 
-- ✅ Full CRUD support for Creatio OData entities  
-- ✅ Automatic schema discovery (`list-entities`, `describe-entity`)  
-- ✅ OpenAI MCP compliance with **search** and **fetch** tools  
-- ✅ Works with **ChatGPT Connectors** and **Claude Desktop MCP**  
-- ✅ Simple configuration via environment variables  
+- CRUD operations on Creatio entities (`read`, `create`, `update`, `delete`)
+- Schema discovery (`list-entities`, `describe-entity`)
+- OpenAI GPT Connector MCP compatibility (`search`, `fetch`)
+- Simple configuration via environment variables
+- Runs locally or in Docker
 
----
+## Setup
 
-## Architecture
-
-```mermaid
-flowchart TD
-    GPT[ChatGPT / Claude MCP client] <--> Server[MCP Creatio Server] <--> OData[Creatio OData v4 API]
-```
-
-- **MCP Server**: Registers tools and translates requests into OData calls  
-- **Creatio OData Client**: Wraps HTTP requests to Creatio’s OData API  
-- **Response Layer**: Returns JSON wrapped in MCP `content[]` format  
-
----
-
-## Project Structure
-
-- `src/server` — MCP server and tool definitions  
-- `src/creatio` — OData client and adapter  
-- `src/log` — logging utilities  
-- `src/version.ts` — server name and version constants  
-- `src/index.ts` — entrypoint  
-
----
+Set the environment variables (see next section), then start the server.
 
 ## Environment Variables
 
-| Variable            | Required | Description |
-|---------------------|----------|-------------|
-| `CREATIO_BASE_URL`  | ✅       | Base URL of your Creatio instance (e.g. `https://your-creatio.com`) |
-| `CREATIO_LOGIN`     | ✅       | Username for Creatio Basic Auth |
-| `CREATIO_PASSWORD`  | ✅       | Password for Creatio Basic Auth |
-| `CREATIO_TOKEN`     | ❌       | Optional Bearer token (overrides login/password) |
-| `PORT`              | ❌       | Port for MCP server (default: `3000`) |
+| Variable           | Required | Description                                                         |
+| ------------------ | -------- | ------------------------------------------------------------------- |
+| `CREATIO_BASE_URL` | ✅       | Base URL of your Creatio instance (e.g. `https://your-creatio.com`) |
+| `CREATIO_LOGIN`    | ✅       | Username                                                            |
+| `CREATIO_PASSWORD` | ✅       | Password                                                            |
 
----
+## Run
 
-## Installation & Run
-
-Clone and install:
-
-```bash
-git clone https://github.com/your-org/mcp-creatio
-cd mcp-creatio
-npm install
-```
-
-Start the server:
-
-```bash
+```powershell
+$env:CREATIO_BASE_URL="https://your-creatio.com"
+$env:CREATIO_LOGIN="Supervisor"
+$env:CREATIO_PASSWORD="Supervisor"
 npm run start
 ```
 
----
+## Docker
 
-## MCP Tools
-
-### 🔎 `read`
-Read records from Creatio OData v4.  
-- Required: `entity`  
-- Optional: `filter`, `select`, `top`  
-
-Example:
-```json
-{
-  "entity": "Contact",
-  "select": ["Id", "Name", "Email"],
-  "top": 10
-}
-```
-
----
-
-### ✏️ `create`
-Create a new record.  
-- Required: `entity`, `data`
-
-Example:
-```json
-{
-  "entity": "Account",
-  "data": { "Name": "Acme Ltd", "Code": "ACM-001" }
-}
-```
-
----
-
-### 🔄 `update`
-Update an existing record.  
-- Required: `entity`, `id`, `data`
-
-Example:
-```json
-{
-  "entity": "Contact",
-  "id": "199a493b-ac55-4944-aece-0a4c1ea8da2f",
-  "data": { "JobTitle": "CTO" }
-}
-```
-
----
-
-### ❌ `delete`
-Delete a record by Id.  
-- Required: `entity`, `id`
-
-Example:
-```json
-{
-  "entity": "Contact",
-  "id": "199a493b-ac55-4944-aece-0a4c1ea8da2f"
-}
-```
-
----
-
-### 📋 `list-entities`
-List all available entity sets.
-
----
-
-### 🧩 `describe-entity`
-Describe the schema of an entity set.  
-- Required: `entitySet`
-
-Example:
-```json
-{ "entitySet": "Contact" }
-```
-
----
-
-### 🔍 `search` (required by OpenAI MCP)
-Lightweight search returning IDs, titles, and URLs.  
-- Required: `query`
-
-Example response:
-```json
-{
-  "results": [
-    {
-      "id": "Contact:c4ed336c-3e9b-40fe-8b82-5632476472b4",
-      "title": "Andrew Baker",
-      "url": "https://your-creatio.com/Contact/c4ed336c"
-    }
-  ]
-}
-```
-
----
-
-### 📥 `fetch` (required by OpenAI MCP)
-Fetch a full document by ID.  
-- Required: `id`
-
-Example response:
-```json
-{
-  "id": "Contact:c4ed336c-3e9b-40fe-8b82-5632476472b4",
-  "title": "Andrew Baker",
-  "text": "Full JSON record...",
-  "url": "https://your-creatio.com/Contact/c4ed336c",
-  "metadata": { "source": "Creatio OData" }
-}
-```
-
----
-
-## Example Requests
-
-cURL example (read 5 contacts):
-
-```bash
-curl -X POST http://localhost:3000/mcp/read   -H "Content-Type: application/json"   -d '{"entity":"Contact","top":5}'
-```
-
-PowerShell:
+Build and run:
 
 ```powershell
-Invoke-RestMethod -Method POST -Uri "http://localhost:3000/mcp/read" `
-  -Body (@{ entity = 'Contact'; top = 5 } | ConvertTo-Json) `
-  -ContentType 'application/json'
+docker build -t mcp-creatio .
+docker run --rm -p 3000:3000 `
+  -e CREATIO_BASE_URL="https://your-creatio.com" `
+  -e CREATIO_LOGIN="Supervisor" `
+  -e CREATIO_PASSWORD="Supervisor" `
+  mcp-creatio
 ```
 
----
+## Tools (short)
 
-## Security Notes
+- `list-entities` — list entity sets
+- `describe-entity` — schema for an entity set (type, keys, properties)
+- `read` — query records: `entity`, optional `$filter`, `$select`, `$top`
+- `create` — create one record: `entity`, `data`
+- `update` — update one record: `entity`, `id`, `data`
+- `delete` — delete one record: `entity`, `id`
+- `search` — simple search; mainly for OpenAI GPT Connector MCP
+- `fetch` — fetch by `EntitySet:GUID`; mainly for OpenAI GPT Connector MCP
 
-- Do **not** commit credentials — always use environment variables.  
-- Restrict access to trusted clients (firewall, reverse proxy, or API gateway).  
-- Add request/response logging for debugging, but sanitize sensitive fields.  
-
----
-
-## Roadmap
-
-- [ ] Add pagination for `read` results  
-- [ ] Support batch operations (bulk create/update)  
-- [ ] Smarter `search` (fuzzy, multi-entity)  
-- [ ] CI/CD with automated tests  
-
----
-
-## Contributing
-
-Contributions are welcome!  
-Open an issue or PR to suggest improvements or report bugs.
