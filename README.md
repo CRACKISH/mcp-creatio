@@ -50,6 +50,22 @@ docker run --rm -p 3000:3000 `
   mcp-creatio
 ```
 
+Prebuilt image from Docker Hub:
+
+```powershell
+docker pull crackish/mcp-creatio:latest
+docker run --rm -p 3000:3000 `
+  -e CREATIO_BASE_URL="https://your-creatio.com" `
+  -e CREATIO_LOGIN="Supervisor" `
+  -e CREATIO_PASSWORD="Supervisor" `
+  crackish/mcp-creatio:latest
+```
+
+CI/CD:
+
+- This repository publishes a multi-arch image (`linux/amd64`, `linux/arm64`) to Docker Hub at `crackish/mcp-creatio` using GitHub Actions.
+- Triggers: on push to `main`, tags `v*.*.*`, or manual `workflow_dispatch`.
+
 ## Tools (short)
 
 - `list-entities` — list entity sets
