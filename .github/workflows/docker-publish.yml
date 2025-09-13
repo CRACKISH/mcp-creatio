@@ -30,16 +30,16 @@ jobs:
                   username: ${{ secrets.DOCKER_USERNAME }}
                   password: ${{ secrets.DOCKER_PASSWORD }}
 
-            - name: Compute Docker tags (latest or release)
+            - name: Compute Docker tags from package.json
               id: vars
               shell: bash
               run: |
-                  if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-                    VERSION="${GITHUB_REF#refs/tags/}"
-                    echo "tags=crackish/mcp-creatio:latest,crackish/mcp-creatio:${VERSION}" >> $GITHUB_OUTPUT
-                  else
-                    echo "tags=crackish/mcp-creatio:latest" >> $GITHUB_OUTPUT
+                  VERSION=$(jq -r .version package.json)
+                  if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
+                    echo "Package version is empty" >&2
+                    exit 1
                   fi
+                  echo "tags=crackish/mcp-creatio:latest,crackish/mcp-creatio:v${VERSION}" >> $GITHUB_OUTPUT
 
             - name: Build and push
               uses: docker/build-push-action@v6
