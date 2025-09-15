@@ -1,4 +1,4 @@
-import { CreatioClientConfig, ODataCreatioClient } from './creatio';
+import { CreatioClientAuthConfig, CreatioClientConfig, ODataCreatioClient } from './creatio';
 import log from './log';
 import { HttpServer, Server } from './server';
 let _httpInstance: HttpServer | undefined;
@@ -8,18 +8,34 @@ function getCreatioClientConfig(): CreatioClientConfig {
 	if (!baseUrl) {
 		throw new Error('Environment variable CREATIO_BASE_URL is required but not set');
 	}
-	const apiKey = process.env.CREATIO_API_KEY;
-	if (apiKey) {
-		return { baseUrl, apiKey };
+
+	const auth = getCreatioClientAuthConfig();
+	// If OAuth2 is used, propagate optional identity service base URL into the auth config
+	if (auth.kind === 'oauth2') {
+		const idBaseUrl = process.env.CREATIO_ID_BASE_URL;
+		if (idBaseUrl) {
+			auth.idBaseUrl = idBaseUrl;
+		}
 	}
+	return { baseUrl, auth } as CreatioClientConfig;
+}
+
+export function getCreatioClientAuthConfig(): CreatioClientAuthConfig {
+	const clientId = process.env.CREATIO_CLIENT_ID;
+	const clientSecret = process.env.CREATIO_CLIENT_SECRET;
+	if (clientId && clientSecret) {
+		return { kind: 'oauth2', clientId: String(clientId), clientSecret: String(clientSecret) };
+	}
+
 	const login = process.env.CREATIO_LOGIN;
 	const password = process.env.CREATIO_PASSWORD;
-	if (!login || !password) {
-		throw new Error(
-			'You must set either CREATIO_API_KEY or both CREATIO_LOGIN and CREATIO_PASSWORD environment variables',
-		);
+	if (login && password) {
+		return { kind: 'legacy', login: String(login), password: String(password) };
 	}
-	return { baseUrl, login: String(login), password: String(password) };
+
+	throw new Error(
+		'You must set either CREATIO_CLIENT_ID/CREATIO_CLIENT_SECRET or both CREATIO_LOGIN and CREATIO_PASSWORD environment variables',
+	);
 }
 
 async function main() {

@@ -28,16 +28,16 @@ import {
 type ToolHandler = (payload: any) => Promise<any>;
 
 export class Server {
-	private handlers = new Map<string, ToolHandler>();
-	private descriptors = new Map<string, any>();
-	private mcp?: McpServer;
+	private _handlers = new Map<string, ToolHandler>();
+	private _descriptors = new Map<string, any>();
+	private _mcp?: McpServer;
 
 	constructor(
-		private client: CreatioClient,
-		private serverName = NAME,
-		private serverVersion = VERSION,
+		private _client: CreatioClient,
+		private _serverName = NAME,
+		private _serverVersion = VERSION,
 	) {
-		this._registerClientTools(client);
+		this._registerClientTools(this._client);
 	}
 
 	private _registerClientTools(client: CreatioClient) {
@@ -195,9 +195,9 @@ export class Server {
 	}
 
 	private _registerHandlerWithDescriptor(name: string, descriptor: any, handler: ToolHandler) {
-		this.handlers.set(name, handler);
-		this.descriptors.set(name, descriptor);
-		if (this.mcp) this._registerAsTool(name, handler);
+		this._handlers.set(name, handler);
+		this._descriptors.set(name, descriptor);
+		if (this._mcp) this._registerAsTool(name, handler);
 	}
 
 	private _normalizeToToolHandler(handler: ToolHandler) {
@@ -220,17 +220,17 @@ export class Server {
 	}
 
 	private _registerAsTool(name: string, handler: ToolHandler) {
-		if (!this.mcp) return;
+		if (!this._mcp) return;
 		try {
 			const descriptor =
-				this.descriptors.get(name) ||
+				this._descriptors.get(name) ||
 				({
 					title: name,
 					description: `Tool ${name}`,
 					inputSchema: {},
 				} as any);
 
-			this.mcp.registerTool(name, descriptor, async (args: any) => {
+			this._mcp.registerTool(name, descriptor, async (args: any) => {
 				return this._normalizeToToolHandler(handler)(args);
 			});
 			log.info('mcp.tool.register', { tool: name });
@@ -240,20 +240,20 @@ export class Server {
 	}
 
 	public async startMcp() {
-		if (this.mcp) return this.mcp;
-		this.mcp = new McpServer({ name: this.serverName, version: this.serverVersion });
-		for (const [name, handler] of this.handlers.entries()) this._registerAsTool(name, handler);
-		log.serverStart(this.serverName, this.serverVersion, {
-			tools: Array.from(this.handlers.keys()),
+		if (this._mcp) return this._mcp;
+		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
+		for (const [name, handler] of this._handlers.entries()) this._registerAsTool(name, handler);
+		log.serverStart(this._serverName, this._serverVersion, {
+			tools: Array.from(this._handlers.keys()),
 		});
-		return this.mcp;
+		return this._mcp;
 	}
 
 	public async stopMcp() {
-		if (!this.mcp) return;
+		if (!this._mcp) return;
 		try {
-			this.mcp.close();
-			log.serverStop(this.serverName, this.serverVersion);
+			this._mcp.close();
+			log.serverStop(this._serverName, this._serverVersion);
 		} catch (err) {
 			log.warn('mcp.stop.failed', { error: String(err) });
 		}

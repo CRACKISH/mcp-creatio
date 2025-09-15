@@ -69,17 +69,18 @@ export function sessionDisconnect(sessionId: string, ip?: string, meta?: Record<
 	info('session.disconnect', { sessionId, ip, ...meta });
 }
 
-// ...existing code...
-export function creatioAuthStart(baseUrl: string) {
-	info('creatio.auth.start', { baseUrl });
+export type CreatioAuthKind = 'oauth2' | 'legacy';
+
+export function creatioAuthStart(baseUrl: string, authKind?: CreatioAuthKind) {
+	info('creatio.auth.start', { baseUrl, authKind });
 }
 
-export function creatioAuthOk(baseUrl: string) {
-	info('creatio.auth.ok', { baseUrl });
+export function creatioAuthOk(baseUrl: string, authKind?: CreatioAuthKind) {
+	info('creatio.auth.ok', { baseUrl, authKind });
 }
 
-export function creatioAuthFailed(baseUrl: string, error: string) {
-	warn('creatio.auth.failed', { baseUrl, error });
+export function creatioAuthFailed(baseUrl: string, error: string, authKind?: CreatioAuthKind) {
+	warn('creatio.auth.failed', { baseUrl, error, authKind });
 }
 
 export default {

@@ -22,12 +22,31 @@ Set the environment variables (see next section), then start the server.
 
 ## Environment Variables
 
-| Variable           | Required | Description                                                         |
-| ------------------ | -------- | ------------------------------------------------------------------- |
-| `CREATIO_BASE_URL` | ✅       | Base URL of your Creatio instance (e.g. `https://your-creatio.com`) |
-| `CREATIO_LOGIN`    | —        | Username (required if no API key)                                   |
-| `CREATIO_PASSWORD` | —        | Password (required if no API key)                                   |
-| `CREATIO_API_KEY`  | —        | API key (alternative to login/password)                             |
+| Variable                | Description                                                                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CREATIO_BASE_URL`      | Base URL of your Creatio instance (e.g. `https://your-creatio.com`)                                                                                                                |
+| `CREATIO_LOGIN`         | Username (required if no API key)                                                                                                                                                  |
+| `CREATIO_PASSWORD`      | Password (required if no API key)                                                                                                                                                  |
+| `CREATIO_CLIENT_ID`     | (Optional) OAuth2 client identifier — used for the `client_credentials` flow (when authenticating via Creatio Identity Service)                                                    |
+| `CREATIO_CLIENT_SECRET` | (Optional) OAuth2 client secret — used with `CREATIO_CLIENT_ID` to obtain access tokens                                                                                            |
+| `CREATIO_ID_BASE_URL`   | (Optional) Identity Service base URL for token requests (use when your `/connect/token` endpoint is served by a separate Identity Service host; e.g. `http://identity-host:5000` ) |
+
+### Authentication
+
+The server supports two authentication modes for connecting to Creatio. Configure one of the following:
+
+- Legacy (username/password): set `CREATIO_LOGIN` and `CREATIO_PASSWORD`.
+- OAuth2 (client_credentials): set `CREATIO_CLIENT_ID` and `CREATIO_CLIENT_SECRET`. If the Identity Service token endpoint is hosted separately, set `CREATIO_ID_BASE_URL` to the host that exposes `/connect/token`.
+
+If both modes are provided, the server will prefer OAuth2 when a valid `CREATIO_CLIENT_ID` and `CREATIO_CLIENT_SECRET` are present; otherwise it will fall back to the legacy username/password credentials.
+
+### OAuth2 / Identity Service
+
+This section covers Creatio Identity Service specifics and where to find setup documentation. The server can request access tokens using the OAuth2 `client_credentials` flow when `CREATIO_CLIENT_ID` and `CREATIO_CLIENT_SECRET` are configured.
+
+See Creatio documentation for Identity Service / OAuth2 configuration:
+
+https://academy.creatio.com/docs/8.x/dev/development-on-creatio-platform/integrations-and-api/authentication/oauth-2-0-authorization/identity-service-overview
 
 ## Run
 
@@ -40,19 +59,23 @@ $env:CREATIO_PASSWORD="Supervisor"
 npm run start
 ```
 
-### Using API key
+### Using OAuth2 (client credentials)
 
 ```powershell
 $env:CREATIO_BASE_URL="https://your-creatio.com"
-$env:CREATIO_API_KEY="your_api_key_here"
+$env:CREATIO_CLIENT_ID="your_client_id"
+$env:CREATIO_CLIENT_SECRET="your_client_secret"
+# optional: if identity service is on a different host
+$env:CREATIO_ID_BASE_URL="https://identity-host:5000"
+
 npm run start
 ```
 
 ## Docker
 
-Build and run:
+Build and run (two examples: legacy and OAuth2).
 
-### Docker (login/password)
+### Docker — legacy (login/password)
 
 ```powershell
 docker build -t mcp-creatio .
@@ -63,37 +86,16 @@ docker run --rm -p 3000:3000 `
   mcp-creatio
 ```
 
-### Docker (API key)
+### Docker — OAuth2 (client_credentials)
 
 ```powershell
 docker build -t mcp-creatio .
 docker run --rm -p 3000:3000 `
   -e CREATIO_BASE_URL="https://your-creatio.com" `
-  -e CREATIO_API_KEY="your_api_key_here" `
+  -e CREATIO_CLIENT_ID="your_client_id" `
+  -e CREATIO_CLIENT_SECRET="your_client_secret" `
+  -e CREATIO_ID_BASE_URL="https://identity-host:5000" `
   mcp-creatio
-```
-
-Prebuilt image from Docker Hub:
-
-### Prebuilt image (login/password)
-
-```powershell
-docker pull crackish/mcp-creatio:latest
-docker run --rm -p 3000:3000 `
-  -e CREATIO_BASE_URL="https://your-creatio.com" `
-  -e CREATIO_LOGIN="Supervisor" `
-  -e CREATIO_PASSWORD="Supervisor" `
-  crackish/mcp-creatio:latest
-```
-
-### Prebuilt image (API key)
-
-```powershell
-docker pull crackish/mcp-creatio:latest
-docker run --rm -p 3000:3000 `
-  -e CREATIO_BASE_URL="https://your-creatio.com" `
-  -e CREATIO_API_KEY="your_api_key_here" `
-  crackish/mcp-creatio:latest
 ```
 
 CI/CD:
@@ -111,4 +113,3 @@ CI/CD:
 - `delete` — delete one record: `entity`, `id`
 - `search` — simple search; mainly for OpenAI GPT Connector MCP
 - `fetch` — fetch by `EntitySet:GUID`; mainly for OpenAI GPT Connector MCP
-

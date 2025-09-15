@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 
 import log from '../../log';
-import { parseSetCookie } from '../../utils';
+import { CreatioAuthManager } from '../auth';
 import { CreatioClient, CreatioClientConfig } from '../client';
 
 const JSON_ACCEPT = 'application/json;odata.metadata=minimal';
@@ -9,80 +9,61 @@ const XML_ACCEPT = 'application/xml';
 const CONTENT_TYPE_JSON = 'application/json';
 
 function buildHeaders({
-	apiKey,
+	token,
 	accept,
 	isJson,
 }: {
-	apiKey?: string;
+	token?: string;
 	accept: string;
 	isJson?: boolean;
-}) {
+}): Record<string, string> {
 	const headers: Record<string, string> = { Accept: accept };
 	if (isJson) headers['Content-Type'] = CONTENT_TYPE_JSON;
-	if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+	if (token) headers['Authorization'] = `Bearer ${token}`;
 	return headers;
 }
 
 export class ODataCreatioClient implements CreatioClient {
-	private cookieHeader?: string;
-	private bpmcsrf?: string;
-	private _metadataXml?: string;
+	private _metadataXml: string | undefined;
 	private _metadataParsed?: any;
+	private readonly _authManager: CreatioAuthManager;
 
-	constructor(private readonly _config: CreatioClientConfig) {}
-
-	private async _ensureSession() {
-		if (this._config.apiKey || this.cookieHeader) return;
-		const url = `${this._config.baseUrl.replace(/\/$/, '')}/ServiceModel/AuthService.svc/Login`;
-		const body = JSON.stringify({
-			UserName: this._config.login,
-			UserPassword: this._config.password,
-		});
-		log.creatioAuthStart(this._config.baseUrl);
-		const res = await fetch(url, {
-			method: 'POST',
-			headers: buildHeaders({ accept: JSON_ACCEPT, isJson: true }),
-			body,
-			redirect: 'manual',
-		});
-		if (!res.ok) {
-			const t = await res.text().catch(() => '');
-			log.creatioAuthFailed(this._config.baseUrl, `${res.status} ${t}`);
-			throw new Error(`auth_failed:${res.status} ${t}`);
-		}
-		log.creatioAuthOk(this._config.baseUrl);
-		const setCookie = (res.headers.getSetCookie?.() ??
-			(res.headers as any).raw?.()['set-cookie'] ??
-			[]) as string[];
-		const pairs = parseSetCookie(setCookie);
-		if (!pairs.length) throw new Error('auth_failed:no_set_cookie');
-		this.cookieHeader = pairs.map((c) => `${c.name}=${c.value}`).join('; ');
-		const csrf = pairs.find((c) => c.name.toUpperCase() === 'BPMCSRF')?.value;
-		if (csrf) this.bpmcsrf = csrf;
+	constructor(private readonly _config: CreatioClientConfig) {
+		this._authManager = new CreatioAuthManager(this._config);
 	}
 
+	// Authorization responsibilities are handled by CreatioAuthManager
+
 	private async _jsonHeaders(): Promise<Record<string, string>> {
-		if (this._config.apiKey) {
-			return buildHeaders({ apiKey: this._config.apiKey, accept: JSON_ACCEPT, isJson: true });
-		}
-		await this._ensureSession();
-		const h = buildHeaders({ accept: JSON_ACCEPT, isJson: true });
-		h['ForceUseSession'] = 'true';
-		h['Cookie'] = this.cookieHeader!;
-		if (this.bpmcsrf) h['BPMCSRF'] = this.bpmcsrf;
-		return h;
+		return this._authManager.getJsonHeaders();
 	}
 
 	private async _xmlHeaders(): Promise<Record<string, string>> {
-		if (this._config.apiKey) {
-			return buildHeaders({ apiKey: this._config.apiKey, accept: XML_ACCEPT });
+		return this._authManager.getXmlHeaders();
+	}
+
+	// session headers and token handling are now delegated to CreatioAuthManager
+
+	/**
+	 * Fetch helper that will attempt the request and, on 401, refresh auth once and retry.
+	 * initFactory should return a fresh RequestInit each attempt (so headers are rebuilt).
+	 */
+	private async _fetchWithAuth(
+		url: string,
+		initFactory: () => Promise<RequestInit>,
+	): Promise<Response> {
+		let triedRefresh = false;
+		while (true) {
+			const init = await initFactory();
+			const res = await fetch(url, init);
+			if (res.status !== 401) return res;
+			if (triedRefresh) return res;
+
+			triedRefresh = true;
+			// Refresh auth via the manager (handles oauth2 token or legacy session)
+			await this._authManager.refresh();
+			continue;
 		}
-		await this._ensureSession();
-		const h = buildHeaders({ accept: XML_ACCEPT });
-		h['ForceUseSession'] = 'true';
-		h['Cookie'] = this.cookieHeader!;
-		if (this.bpmcsrf) h['BPMCSRF'] = this.bpmcsrf;
-		return h;
 	}
 
 	private _formatKey(id: string) {
@@ -105,13 +86,22 @@ export class ODataCreatioClient implements CreatioClient {
 		return params.length ? `?${params.join('&')}` : '';
 	}
 
-	private async _fetchJson(url: string, init?: RequestInit) {
-		const res = await fetch(url, init);
+	private async _fetchJson(url: string, initFactory: () => Promise<RequestInit>) {
+		const res = await this._fetchWithAuth(url, initFactory);
 		if (!res.ok) {
 			const text = await res.text().catch(() => '');
 			throw new Error(`odata_error:${res.status} ${text}`);
 		}
 		return res.json();
+	}
+
+	private async _fetchText(url: string, initFactory: () => Promise<RequestInit>) {
+		const res = await this._fetchWithAuth(url, initFactory);
+		if (!res.ok) {
+			const text = await res.text().catch(() => '');
+			throw new Error(`odata_error:${res.status} ${text}`);
+		}
+		return res.text();
 	}
 
 	private _arrify<T>(x: T | T[] | undefined | null): T[] {
@@ -122,11 +112,8 @@ export class ODataCreatioClient implements CreatioClient {
 	private async _getMetadataXml(): Promise<string> {
 		if (this._metadataXml) return this._metadataXml;
 		const headers = await this._xmlHeaders();
-		const res = await fetch(`${this._root()}/$metadata`, { headers });
-		if (!res.ok) {
-			throw new Error(`odata_metadata_failed:${res.status}`);
-		}
-		this._metadataXml = await res.text();
+		const text = await this._fetchText(`${this._root()}/$metadata`, async () => ({ headers }));
+		this._metadataXml = text;
 		return this._metadataXml;
 	}
 
@@ -147,7 +134,7 @@ export class ODataCreatioClient implements CreatioClient {
 		const url = this._entityUrl(entity) + this._query(qs);
 		const headers = await this._jsonHeaders();
 		try {
-			const body = await this._fetchJson(url, { headers });
+			const body = await this._fetchJson(url, async () => ({ headers }));
 			const val =
 				body && typeof body === 'object' && 'value' in body ? (body as any).value : body;
 			return val;
@@ -160,11 +147,11 @@ export class ODataCreatioClient implements CreatioClient {
 	public async create(entity: string, data: any) {
 		const url = this._entityUrl(entity);
 		const headers = await this._jsonHeaders();
-		const res = await fetch(url, {
+		const res = await this._fetchWithAuth(url, async () => ({
 			method: 'POST',
 			headers,
 			body: JSON.stringify(data),
-		});
+		}));
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
 			log.error('odata.create.error', { entity, url, status: res.status, error: t });
@@ -176,11 +163,11 @@ export class ODataCreatioClient implements CreatioClient {
 	public async update(entity: string, id: string, data: any) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
 		const headers = await this._jsonHeaders();
-		const res = await fetch(url, {
+		const res = await this._fetchWithAuth(url, async () => ({
 			method: 'PATCH',
 			headers,
 			body: JSON.stringify(data),
-		});
+		}));
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
 			log.error('odata.update.error', { entity, url, status: res.status, error: t });
@@ -192,10 +179,7 @@ export class ODataCreatioClient implements CreatioClient {
 	public async delete(entity: string, id: string) {
 		const url = `${this._entityUrl(entity)}(${this._formatKey(id)})`;
 		const headers = await this._jsonHeaders();
-		const res = await fetch(url, {
-			method: 'DELETE',
-			headers,
-		});
+		const res = await this._fetchWithAuth(url, async () => ({ method: 'DELETE', headers }));
 		if (!res.ok) {
 			const t = await res.text().catch(() => '');
 			log.error('odata.delete.error', { entity, url, status: res.status, error: t });
@@ -208,7 +192,7 @@ export class ODataCreatioClient implements CreatioClient {
 		try {
 			const url = `${this._root()}/`;
 			const headers = await this._jsonHeaders();
-			const res = await fetch(url, { headers });
+			const res = await this._fetchWithAuth(url, async () => ({ headers }));
 			if (res.ok) {
 				const body: any = await res.json().catch(() => null);
 				if (body && Array.isArray(body.value)) {

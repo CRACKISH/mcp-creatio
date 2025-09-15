@@ -98,7 +98,7 @@ export class HttpServer {
 				log.httpStart(port);
 				resolve();
 			});
-			this._srv.keepAliveTimeout = 5000; // 5s
+			this._srv.keepAliveTimeout = 5000;
 			this._srv.headersTimeout = Math.max(this._srv.keepAliveTimeout + 1000, 6000);
 			this._srv.on('error', (err) => {
 				log.error('http.start.error', { error: String(err), port });

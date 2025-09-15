@@ -1,8 +1,10 @@
+export type CreatioClientAuthConfig =
+	| { kind: 'legacy'; login: string; password: string }
+	| { kind: 'oauth2'; clientId: string; clientSecret: string; idBaseUrl?: string };
+
 export interface CreatioClientConfig {
 	baseUrl: string;
-	login?: string;
-	password?: string;
-	apiKey?: string;
+	auth: CreatioClientAuthConfig;
 }
 
 export interface CreatioClient {
