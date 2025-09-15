@@ -28,7 +28,7 @@ import {
 type ToolHandler = (payload: any) => Promise<any>;
 
 export interface ServerConfig {
-	readonly?: boolean;
+	readonlyMode?: boolean;
 }
 
 export class Server {
@@ -43,7 +43,7 @@ export class Server {
 		private _client: CreatioClient,
 		config: ServerConfig,
 	) {
-		this._readonly = config.readonly ?? false;
+		this._readonly = config.readonlyMode ?? false;
 		this._registerClientTools(this._client);
 	}
 

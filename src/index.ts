@@ -42,7 +42,7 @@ async function main() {
 	log.appStart({ env: { node: process.version, port: process.env.PORT } });
 	const client = new ODataCreatioClient(getCreatioClientConfig());
 	const server = new Server(client, {
-		readonly: process.env.READONLY === 'true',
+		readonlyMode: process.env.READONLY_MODE === 'true',
 	});
 	const http = new HttpServer(server);
 	_httpInstance = http;
