@@ -25,11 +25,12 @@ Set the environment variables (see next section), then start the server.
 | Variable                | Description                                                                                                                                                                        |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CREATIO_BASE_URL`      | Base URL of your Creatio instance (e.g. `https://your-creatio.com`)                                                                                                                |
-| `CREATIO_LOGIN`         | Username (required if no API key)                                                                                                                                                  |
-| `CREATIO_PASSWORD`      | Password (required if no API key)                                                                                                                                                  |
+| `CREATIO_LOGIN`         | Creatio username (legacy auth). Example: `Supervisor`. Required if not using OAuth2 client_credentials.                                                                            |
+| `CREATIO_PASSWORD`      | Creatio password (legacy auth). Required if not using OAuth2 client_credentials.                                                                                                   |
 | `CREATIO_CLIENT_ID`     | (Optional) OAuth2 client identifier — used for the `client_credentials` flow (when authenticating via Creatio Identity Service)                                                    |
 | `CREATIO_CLIENT_SECRET` | (Optional) OAuth2 client secret — used with `CREATIO_CLIENT_ID` to obtain access tokens                                                                                            |
 | `CREATIO_ID_BASE_URL`   | (Optional) Identity Service base URL for token requests (use when your `/connect/token` endpoint is served by a separate Identity Service host; e.g. `http://identity-host:5000` ) |
+| `READONLY`              | (Optional) When set `true`, the server runs in read-only mode: `create`, `update`, and `delete` operations are disabled.                                                           |
 
 ### Authentication
 

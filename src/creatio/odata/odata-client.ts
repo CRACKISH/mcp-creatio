@@ -4,24 +4,7 @@ import log from '../../log';
 import { CreatioAuthManager } from '../auth';
 import { CreatioClient, CreatioClientConfig } from '../client';
 
-const JSON_ACCEPT = 'application/json;odata.metadata=minimal';
-const XML_ACCEPT = 'application/xml';
 const CONTENT_TYPE_JSON = 'application/json';
-
-function buildHeaders({
-	token,
-	accept,
-	isJson,
-}: {
-	token?: string;
-	accept: string;
-	isJson?: boolean;
-}): Record<string, string> {
-	const headers: Record<string, string> = { Accept: accept };
-	if (isJson) headers['Content-Type'] = CONTENT_TYPE_JSON;
-	if (token) headers['Authorization'] = `Bearer ${token}`;
-	return headers;
-}
 
 export class ODataCreatioClient implements CreatioClient {
 	private _metadataXml: string | undefined;

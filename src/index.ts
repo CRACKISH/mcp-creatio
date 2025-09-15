@@ -41,11 +41,12 @@ export function getCreatioClientAuthConfig(): CreatioClientAuthConfig {
 async function main() {
 	log.appStart({ env: { node: process.version, port: process.env.PORT } });
 	const client = new ODataCreatioClient(getCreatioClientConfig());
-	const server = new Server(client);
+	const server = new Server(client, {
+		readonly: process.env.READONLY === 'true',
+	});
 	const http = new HttpServer(server);
 	_httpInstance = http;
-	const port = Number(process.env.PORT || 3000);
-	await http.start(port);
+	await http.start(Number(3000));
 }
 
 let shuttingDown = false;
@@ -55,7 +56,7 @@ async function shutdown(signal?: string) {
 	shuttingDown = true;
 	try {
 		log.appStop({ reason: signal || 'shutdown' });
-		if (_httpInstance) await _httpInstance.stop();
+		await _httpInstance?.stop();
 	} catch (err) {
 		log.error('shutdown.error', { error: String(err) });
 	} finally {

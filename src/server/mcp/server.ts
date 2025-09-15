@@ -27,16 +27,23 @@ import {
 
 type ToolHandler = (payload: any) => Promise<any>;
 
+export interface ServerConfig {
+	readonly?: boolean;
+}
+
 export class Server {
+	private _serverName = NAME;
+	private _serverVersion = VERSION;
+	private _readonly = false;
 	private _handlers = new Map<string, ToolHandler>();
 	private _descriptors = new Map<string, any>();
 	private _mcp?: McpServer;
 
 	constructor(
 		private _client: CreatioClient,
-		private _serverName = NAME,
-		private _serverVersion = VERSION,
+		config: ServerConfig,
 	) {
+		this._readonly = config.readonly ?? false;
 		this._registerClientTools(this._client);
 	}
 
@@ -52,25 +59,29 @@ export class Server {
 			}),
 		);
 
-		this._registerHandlerWithDescriptor(
-			'create',
-			createDescriptor,
-			withValidation(CreateInput, async ({ entity, data }) => client.create(entity, data)),
-		);
+		if (!this._readonly) {
+			this._registerHandlerWithDescriptor(
+				'create',
+				createDescriptor,
+				withValidation(CreateInput, async ({ entity, data }) =>
+					client.create(entity, data),
+				),
+			);
 
-		this._registerHandlerWithDescriptor(
-			'update',
-			updateDescriptor,
-			withValidation(UpdateInput, async ({ entity, id, data }) =>
-				client.update(entity, id, data),
-			),
-		);
+			this._registerHandlerWithDescriptor(
+				'update',
+				updateDescriptor,
+				withValidation(UpdateInput, async ({ entity, id, data }) =>
+					client.update(entity, id, data),
+				),
+			);
 
-		this._registerHandlerWithDescriptor(
-			'delete',
-			deleteDescriptor,
-			withValidation(DeleteInput, async ({ entity, id }) => client.delete(entity, id)),
-		);
+			this._registerHandlerWithDescriptor(
+				'delete',
+				deleteDescriptor,
+				withValidation(DeleteInput, async ({ entity, id }) => client.delete(entity, id)),
+			);
+		}
 
 		this._registerHandlerWithDescriptor(
 			'list-entities',
