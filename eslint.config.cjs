@@ -60,6 +60,9 @@ module.exports = [
           alphabetize: { order: 'asc', caseInsensitive: false }
         }
       ],
+      // Enforce curly braces for all control statements and a consistent brace style
+      curly: ['warn', 'all'],
+      'brace-style': ['error', '1tbs', { allowSingleLine: false }],
   indent: ['error', 'tab', { SwitchCase: 1, VariableDeclarator: { var: 1, let: 1, const: 1 } }],
       'linebreak-style': ['error', 'windows']
       ,

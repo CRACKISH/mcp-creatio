@@ -1,13 +1,7 @@
-export type CreatioClientAuthConfig =
-	| { kind: 'legacy'; login: string; password: string }
-	| { kind: 'oauth2'; clientId: string; clientSecret: string; idBaseUrl?: string };
-
-export interface CreatioClientConfig {
-	baseUrl: string;
-	auth: CreatioClientAuthConfig;
-}
+import { ICreatioAuthProvider } from './auth';
 
 export interface CreatioClient {
+	authProvider: ICreatioAuthProvider;
 	read(entity: string, filter?: string, select?: string[], top?: number): Promise<any>;
 	create(entity: string, data: any): Promise<any>;
 	update(entity: string, id: string, data: any): Promise<any>;

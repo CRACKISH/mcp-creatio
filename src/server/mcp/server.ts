@@ -1,6 +1,6 @@
-﻿import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { CreatioClient } from '../../creatio';
+import { CreatioClient, ICreatioAuthProvider } from '../../creatio';
 import log from '../../log';
 import { withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
@@ -32,12 +32,21 @@ export interface ServerConfig {
 }
 
 export class Server {
-	private _serverName = NAME;
-	private _serverVersion = VERSION;
-	private _readonly = false;
-	private _handlers = new Map<string, ToolHandler>();
 	private _descriptors = new Map<string, any>();
+
+	private _handlers = new Map<string, ToolHandler>();
+
 	private _mcp?: McpServer;
+
+	private _readonly = false;
+
+	private _serverName = NAME;
+
+	private _serverVersion = VERSION;
+
+	public get authProvider(): ICreatioAuthProvider {
+		return this._client.authProvider;
+	}
 
 	constructor(
 		private _client: CreatioClient,
@@ -47,6 +56,57 @@ export class Server {
 		this._registerClientTools(this._client);
 	}
 
+	private _registerHandlerWithDescriptor(name: string, descriptor: any, handler: ToolHandler) {
+		this._handlers.set(name, handler);
+		this._descriptors.set(name, descriptor);
+		if (this._mcp) {
+			this._registerAsTool(name, handler);
+		}
+	}
+
+	private _normalizeToToolHandler(handler: ToolHandler) {
+		return async (args: any) => {
+			try {
+				const result = await handler(args);
+				if (result && (result.content || result.contents)) {
+					return result;
+				}
+				return {
+					content: [
+						{
+							type: 'text',
+							text: typeof result === 'string' ? result : JSON.stringify(result),
+						},
+					],
+				};
+			} catch (err: any) {
+				log.error('mcp.tool.handler', err);
+				throw err;
+			}
+		};
+	}
+
+	private _registerAsTool(name: string, handler: ToolHandler) {
+		if (!this._mcp) {
+			return;
+		}
+		try {
+			const descriptor =
+				this._descriptors.get(name) ||
+				({
+					title: name,
+					description: `Tool ${name}`,
+					inputSchema: {},
+				} as any);
+			this._mcp.registerTool(name, descriptor, async (args: any) => {
+				return this._normalizeToToolHandler(handler)(args);
+			});
+			log.info('mcp.tool.register', { tool: name });
+		} catch (err) {
+			log.warn('mcp.tool.register.failed', { tool: name, error: String(err) });
+		}
+	}
+
 	private _registerClientTools(client: CreatioClient) {
 		this._registerHandlerWithDescriptor(
 			'read',
@@ -54,11 +114,12 @@ export class Server {
 			withValidation(ReadInput, async ({ entity, filter, filters, select, top }) => {
 				const structured = buildFilterFromStructured(filters);
 				let finalFilter = filter || structured;
-				if (filter && structured) finalFilter = `(${filter}) and (${structured})`;
+				if (filter && structured) {
+					finalFilter = `(${filter}) and (${structured})`;
+				}
 				return client.read(entity, finalFilter, select, top);
 			}),
 		);
-
 		if (!this._readonly) {
 			this._registerHandlerWithDescriptor(
 				'create',
@@ -67,7 +128,6 @@ export class Server {
 					client.create(entity, data),
 				),
 			);
-
 			this._registerHandlerWithDescriptor(
 				'update',
 				updateDescriptor,
@@ -75,14 +135,12 @@ export class Server {
 					client.update(entity, id, data),
 				),
 			);
-
 			this._registerHandlerWithDescriptor(
 				'delete',
 				deleteDescriptor,
 				withValidation(DeleteInput, async ({ entity, id }) => client.delete(entity, id)),
 			);
 		}
-
 		this._registerHandlerWithDescriptor(
 			'list-entities',
 			listEntitiesDescriptor,
@@ -98,7 +156,6 @@ export class Server {
 				};
 			}),
 		);
-
 		this._registerHandlerWithDescriptor(
 			'describe-entity',
 			describeEntityDescriptor,
@@ -114,14 +171,16 @@ export class Server {
 				};
 			}),
 		);
-
 		this._registerHandlerWithDescriptor(
 			'search',
 			searchDescriptor,
 			withValidation(SearchInput, async ({ query }) => {
 				const candidateEntities = ['Contact', 'Account', 'Activity'];
-				const results: Array<{ id: string; title: string; url: string }> = [];
-
+				const results: Array<{
+					id: string;
+					title: string;
+					url: string;
+				}> = [];
 				for (const entity of candidateEntities) {
 					try {
 						const rows = await client.read(
@@ -132,7 +191,9 @@ export class Server {
 						);
 						for (const r of rows ?? []) {
 							const guid = String(r.Id ?? r.id ?? '');
-							if (!guid) continue;
+							if (!guid) {
+								continue;
+							}
 							const nameish = r.Name ?? r.Title ?? r.Code ?? guid;
 							const id = `${entity}:${guid}`;
 							const url = `${(client as any)._root?.() ?? ''}/${entity}(${guid})`;
@@ -144,14 +205,12 @@ export class Server {
 						}
 					} catch {}
 				}
-
 				const payload = JSON.stringify({ results });
 				return {
 					content: [{ type: 'text', text: payload }],
 				};
 			}),
 		);
-
 		this._registerHandlerWithDescriptor(
 			'fetch',
 			fetchDescriptor,
@@ -169,12 +228,12 @@ export class Server {
 				}
 				const entity = m[1] as string;
 				const guid = m[2];
-
 				let record: any = null;
 				try {
 					const rows = await client.read(entity, `Id eq ${guid}`, undefined, 1);
 					record = Array.isArray(rows) && rows.length ? rows[0] : null;
 				} catch (e: any) {
+					log.error('mcp.fetch', { error: String(e?.message ?? e), entity, guid });
 					const payload = JSON.stringify({
 						id,
 						title: `${entity} ${guid}`,
@@ -184,12 +243,10 @@ export class Server {
 					});
 					return { content: [{ type: 'text', text: payload }] };
 				}
-
 				const title =
 					`${entity} ` +
 					String(record?.Name ?? record?.Title ?? record?.Code ?? record?.Id ?? guid);
 				const url = `${(client as any)._root?.() ?? ''}/${entity}(${guid})`;
-
 				const payload = JSON.stringify({
 					id,
 					title,
@@ -197,7 +254,6 @@ export class Server {
 					url,
 					metadata: { entity, guid },
 				});
-
 				return {
 					content: [{ type: 'text', text: payload }],
 				};
@@ -205,55 +261,14 @@ export class Server {
 		);
 	}
 
-	private _registerHandlerWithDescriptor(name: string, descriptor: any, handler: ToolHandler) {
-		this._handlers.set(name, handler);
-		this._descriptors.set(name, descriptor);
-		if (this._mcp) this._registerAsTool(name, handler);
-	}
-
-	private _normalizeToToolHandler(handler: ToolHandler) {
-		return async (args: any) => {
-			try {
-				const result = await handler(args);
-				if (result && (result.content || result.contents)) return result;
-				return {
-					content: [
-						{
-							type: 'text',
-							text: typeof result === 'string' ? result : JSON.stringify(result),
-						},
-					],
-				};
-			} catch (err: any) {
-				throw err;
-			}
-		};
-	}
-
-	private _registerAsTool(name: string, handler: ToolHandler) {
-		if (!this._mcp) return;
-		try {
-			const descriptor =
-				this._descriptors.get(name) ||
-				({
-					title: name,
-					description: `Tool ${name}`,
-					inputSchema: {},
-				} as any);
-
-			this._mcp.registerTool(name, descriptor, async (args: any) => {
-				return this._normalizeToToolHandler(handler)(args);
-			});
-			log.info('mcp.tool.register', { tool: name });
-		} catch (err) {
-			log.warn('mcp.tool.register.failed', { tool: name, error: String(err) });
-		}
-	}
-
 	public async startMcp() {
-		if (this._mcp) return this._mcp;
+		if (this._mcp) {
+			return this._mcp;
+		}
 		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
-		for (const [name, handler] of this._handlers.entries()) this._registerAsTool(name, handler);
+		for (const [name, handler] of this._handlers.entries()) {
+			this._registerAsTool(name, handler);
+		}
 		log.serverStart(this._serverName, this._serverVersion, {
 			tools: Array.from(this._handlers.keys()),
 		});
@@ -261,7 +276,9 @@ export class Server {
 	}
 
 	public async stopMcp() {
-		if (!this._mcp) return;
+		if (!this._mcp) {
+			return;
+		}
 		try {
 			this._mcp.close();
 			log.serverStop(this._serverName, this._serverVersion);

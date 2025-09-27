@@ -1,95 +1,109 @@
 import * as http from 'http';
-import { randomUUID } from 'node:crypto';
 import { Socket } from 'node:net';
 
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';
 
+import { AuthProviderType } from '../../creatio/';
 import log from '../../log';
-import { getClientIp } from '../../utils/network';
-import { Server } from '../mcp';
+import { SessionContext } from '../../services';
+import { OAuthServer } from '../oauth';
 
-function getSessionId(req: any) {
-	return (
-		req.headers['mcp-session-id'] ||
-		req.query?.session_id ||
-		req.headers['x-session-id'] ||
-		req.body?.params?.session_id ||
-		req.body?.session_id ||
-		null
-	);
-}
+import { CreatioOAuthHandlers } from './creatio-oauth-handlers';
+import { McpHandlers } from './mcp-handlers';
+import { MCPOAuthHandlers } from './mcp-oauth-handlers';
+import { HttpMiddleware } from './middleware';
+
+import type { Server } from '../mcp';
 
 export class HttpServer {
 	private readonly _app = express();
-	private readonly _transports: Record<string, StreamableHTTPServerTransport> = {};
-	private readonly _loggedSessions = new Set<string>();
 	private readonly _connections = new Set<Socket>();
 	private _srv!: http.Server;
+	private readonly _sessionContext = SessionContext.instance;
+	private readonly _oauthServer: OAuthServer;
+	private readonly _middleware: HttpMiddleware;
+	private readonly _mcpHandlers: McpHandlers;
+	private readonly _creatioOauthHandlers: CreatioOAuthHandlers;
+	private readonly _mcpOauthHandlers: MCPOAuthHandlers;
 
 	constructor(private readonly _server: Server) {
+		this._oauthServer = new OAuthServer();
+		this._middleware = new HttpMiddleware(this._oauthServer);
+		this._mcpHandlers = new McpHandlers(this._server);
+		this._creatioOauthHandlers = new CreatioOAuthHandlers(this._server, this._oauthServer);
+		this._mcpOauthHandlers = new MCPOAuthHandlers(this._oauthServer);
+		this._setupMiddleware();
+		this._setupRoutes();
+	}
+
+	private _setupMiddleware(): void {
+		// Request correlation and logging - should be first
+		this._app.use(this._middleware.correlationId());
+		this._app.use(this._middleware.requestLogging());
+
+		// Standard Express middleware
 		this._app.use(express.json());
+		this._app.use(express.urlencoded({ extended: true }));
 
-		this._app.post('/mcp', async (req, res) => {
-			const sessionId = getSessionId(req);
-			let transport: StreamableHTTPServerTransport | undefined;
+		// Auth middleware for MCP endpoints (only for OAuth2Code)
+		if (this._isNeedMCPOAuth()) {
+			this._app.use('/mcp', this._middleware.bearerAuth());
+		}
 
-			const remoteIp = getClientIp(req);
-			if (sessionId && this._transports[sessionId]) {
-				transport = this._transports[sessionId];
-				if (!this._loggedSessions.has(sessionId)) {
-					this._loggedSessions.add(sessionId);
-					log.sessionConnect(sessionId, String(remoteIp));
-				}
-			} else if (!sessionId && isInitializeRequest(req.body)) {
-				transport = new StreamableHTTPServerTransport({
-					sessionIdGenerator: () => randomUUID(),
-					onsessioninitialized: (sid) => {
-						if (transport) {
-							this._transports[sid] = transport;
-							if (!this._loggedSessions.has(sid)) {
-								this._loggedSessions.add(sid);
-								log.sessionConnect(sid, String(remoteIp));
-							}
-						}
-					},
-				});
+		// Error handling - should be last
+		this._app.use(this._middleware.errorHandler());
+	}
 
-				transport.onclose = () => {
-					if (transport?.sessionId) {
-						log.sessionDisconnect(transport.sessionId, String(remoteIp));
-						this._loggedSessions.delete(transport.sessionId);
-						delete this._transports[transport.sessionId];
-					}
-				};
+	private _setupRoutes(): void {
+		this._setupMCPEndpoints();
+		if (this._isNeedMCPOAuth()) {
+			this._setupCreatioOAuthEndpoints();
+			this._setupMCPOAuthEndpoints();
+		}
+	}
 
-				const mcp = await this._server.startMcp();
-				await mcp.connect(transport);
-			} else {
-				res.status(400).json({
-					jsonrpc: '2.0',
-					error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
-					id: null,
-				});
-				return;
-			}
+	private _setupMCPEndpoints(): void {
+		this._app.post('/mcp', (req, res) => this._mcpHandlers.handleMcpPost(req, res));
+		this._app.get('/mcp', (req, res) => this._mcpHandlers.handleSessionRequest(req, res));
+		this._app.delete('/mcp', (req, res) => this._mcpHandlers.handleSessionRequest(req, res));
+	}
 
-			await transport!.handleRequest(req, res, req.body);
-		});
+	private _isNeedMCPOAuth(): boolean {
+		return this._server.authProvider.type === AuthProviderType.OAuth2Code;
+	}
 
-		const handleSessionRequest = async (req: express.Request, res: express.Response) => {
-			const sessionId = req.headers['mcp-session-id'] as string | undefined;
-			if (!sessionId || !this._transports[sessionId]) {
-				res.status(400).send('Invalid or missing session ID');
-				return;
-			}
-			const transport = this._transports[sessionId];
-			await transport.handleRequest(req, res);
-		};
+	private _setupCreatioOAuthEndpoints(): void {
+		this._app.get('/oauth/start', (req, res) =>
+			this._creatioOauthHandlers.handleOAuthStart(req, res),
+		);
+		this._app.get('/oauth/callback', (req, res) =>
+			this._creatioOauthHandlers.handleOAuthCallback(req, res),
+		);
+		this._app.post('/oauth/revoke', (req, res) =>
+			this._creatioOauthHandlers.handleOAuthRevoke(req, res),
+		);
+	}
 
-		this._app.get('/mcp', handleSessionRequest);
-		this._app.delete('/mcp', handleSessionRequest);
+	private _setupMCPOAuthEndpoints(): void {
+		// OAuth 2.0 Authorization Server Metadata (RFC 8414)
+		this._app.get('/.well-known/oauth-authorization-server', (req, res) =>
+			this._mcpOauthHandlers.handleMetadata(req, res),
+		);
+
+		// Dynamic Client Registration (RFC 7591)
+		this._app.post('/register', (req, res) =>
+			this._mcpOauthHandlers.handleClientRegistration(req, res),
+		);
+
+		// OAuth Authorization Endpoint
+		this._app.get('/authorize', (req, res) =>
+			this._mcpOauthHandlers.handleAuthorization(req, res),
+		);
+
+		// OAuth Token Endpoint
+		this._app.post('/token', (req, res) =>
+			this._mcpOauthHandlers.handleTokenExchange(req, res),
+		);
 	}
 
 	public start(port: number) {
@@ -104,7 +118,6 @@ export class HttpServer {
 				log.error('http.start.error', { error: String(err), port });
 				reject(err);
 			});
-
 			this._srv.on('connection', (socket: Socket) => {
 				this._connections.add(socket);
 				socket.once('close', () => this._connections.delete(socket));
@@ -113,6 +126,14 @@ export class HttpServer {
 	}
 
 	public async stop() {
+		try {
+			if (this._server.authProvider && 'cancelAllRefresh' in this._server.authProvider) {
+				(this._server.authProvider as any).cancelAllRefresh();
+			}
+		} catch (err) {
+			log.warn('token_refresh_cleanup_failed', { error: String(err) });
+		}
+
 		if (this._srv) {
 			try {
 				await this._server.stopMcp();
@@ -123,22 +144,20 @@ export class HttpServer {
 				log.error('http.stop.error', { error: String(err) });
 			}
 		}
-
 		for (const socket of Array.from(this._connections)) {
 			try {
 				socket.destroy();
 			} catch {}
 		}
 		this._connections.clear();
-		for (const sid of Object.keys(this._transports)) {
+		const sessions = this._sessionContext.getAllSessions();
+		for (const session of sessions) {
 			try {
-				const t = this._transports[sid];
-				t?.close();
+				session.transport?.close();
 			} catch (err) {
-				log.warn('transport.close.failed', { sessionId: sid, error: String(err) });
+				log.warn('transport.close.failed', { sessionId: session.id, error: String(err) });
 			}
-			delete this._transports[sid];
-			this._loggedSessions.delete(sid);
+			this._sessionContext.deleteSession(session.id);
 		}
 	}
 }
