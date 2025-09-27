@@ -1,113 +1,110 @@
 # MCP Creatio Server
 
-Minimal Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/).
+Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - connect Claude Desktop, ChatGPT, and other AI tools to your Creatio data.
 
 ## Overview
 
-- Exposes Creatio data as MCP tools for MCP-compatible clients (e.g., ChatGPT Connectors, Claude MCP, GitHub Copilot)
+- Exposes Creatio data as MCP tools for MCP-compatible clients (Claude Desktop, ChatGPT Connectors, GitHub Copilot)
 - Supports reading, creating, updating, deleting records and inspecting schema
-- Implementation note: currently uses Creatio OData v4 under the hood
+- Uses Creatio OData v4 API under the hood
 
 ## Features
 
-- CRUD operations on Creatio entities (`read`, `create`, `update`, `delete`)
-- Schema discovery (`list-entities`, `describe-entity`)
-- OpenAI GPT Connector MCP compatibility (`search`, `fetch`)
-- **Three Creatio authentication modes**:
-    1. Username/password authentication
-    2. OAuth 2.0 client credentials flow
-    3. OAuth 2.0 authorization code flow
-- **OAuth 2.1 Authorization Server**: Automatic OAuth server for MCP clients
-- Simple configuration via environment variables
-- Runs locally or in Docker
+- **CRUD operations**: `read`, `create`, `update`, `delete` Creatio records
+- **Schema discovery**: `list-entities`, `describe-entity`
+- **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
+- **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
+- **Built-in OAuth server**: Automatic MCP client authentication
+- **Docker ready**: Multi-arch images available
 
-## Setup
+## Quick Start
 
-Set the environment variables (see next section), then start the server.
+1. Set environment variables (see below)
+2. Run: `npm start` or use Docker
 
-## Environment Variables
+## Configuration
 
-| Variable                     | Description                                                                                                                                                                        |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CREATIO_BASE_URL`           | Base URL of your Creatio instance (e.g. `https://your-creatio.com`)                                                                                                                |
-| `CREATIO_LOGIN`              | Creatio username (legacy auth). Example: `Supervisor`. Required if not using OAuth2 client_credentials.                                                                            |
-| `CREATIO_PASSWORD`           | Creatio password (legacy auth). Required if not using OAuth2 client_credentials.                                                                                                   |
-| `CREATIO_CLIENT_ID`          | (Optional) OAuth2 client identifier — used for the `client_credentials` flow (when authenticating via Creatio Identity Service)                                                    |
-| `CREATIO_CLIENT_SECRET`      | (Optional) OAuth2 client secret — used with `CREATIO_CLIENT_ID` to obtain access tokens                                                                                            |
-| `CREATIO_ID_BASE_URL`        | (Optional) Identity Service base URL for token requests (use when your `/connect/token` endpoint is served by a separate Identity Service host; e.g. `http://identity-host:5000` ) |
-| `CREATIO_CODE_CLIENT_ID`     | (Optional) OAuth2 authorization code client ID                                                                                                                                     |
-| `CREATIO_CODE_CLIENT_SECRET` | (Optional) OAuth2 authorization code client secret                                                                                                                                 |
-| `CREATIO_CODE_REDIRECT_URI`  | (Optional) OAuth2 authorization code redirect URI                                                                                                                                  |
-| `CREATIO_CODE_SCOPE`         | (Optional) OAuth2 authorization code scope                                                                                                                                         |
-| `READONLY_MODE`              | (Optional) When set `true`, the server runs in read-only mode: `create`, `update`, and `delete` operations are disabled.                                                           |
+| Variable                     | Description                                                          |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `CREATIO_BASE_URL`           | **Required**. Creatio instance URL (e.g. `https://your-creatio.com`) |
+| `CREATIO_LOGIN`              | Username for legacy auth (e.g. `Supervisor`)                         |
+| `CREATIO_PASSWORD`           | Password for legacy auth                                             |
+| `CREATIO_CLIENT_ID`          | OAuth2 client credentials ID                                         |
+| `CREATIO_CLIENT_SECRET`      | OAuth2 client credentials secret                                     |
+| `CREATIO_ID_BASE_URL`        | Identity Service URL (if separate from main Creatio instance)        |
+| `CREATIO_CODE_CLIENT_ID`     | OAuth2 authorization code client ID                                  |
+| `CREATIO_CODE_CLIENT_SECRET` | OAuth2 authorization code client secret                              |
+| `CREATIO_CODE_REDIRECT_URI`  | OAuth2 redirect URI (e.g. `http://localhost:3000/oauth/callback`)    |
+| `CREATIO_CODE_SCOPE`         | OAuth2 scope (e.g. `offline_access ApplicationAccess_yourappguid`)   |
+| `READONLY_MODE`              | Set `true` to disable create/update/delete operations                |
 
-### Authentication
+## Authentication Modes
 
-The server supports three Creatio authentication modes:
+Choose one of three ways to authenticate with Creatio:
 
-1. **Username/Password**: set `CREATIO_LOGIN` and `CREATIO_PASSWORD`
-2. **OAuth2 Client Credentials**: set `CREATIO_CLIENT_ID` and `CREATIO_CLIENT_SECRET`. If the Identity Service token endpoint is hosted separately, also set `CREATIO_ID_BASE_URL`
-3. **OAuth2 Authorization Code**: set `CREATIO_CODE_CLIENT_ID`, `CREATIO_CODE_CLIENT_SECRET`, `CREATIO_CODE_REDIRECT_URI`, `CREATIO_CODE_SCOPE`
+### 1. Legacy (Username/Password)
 
-If multiple modes are configured, the server will prefer OAuth2 Code > OAuth2 Client Credentials > Username/Password.
-
-### OAuth for MCP Clients
-
-The server includes a built-in OAuth 2.1 Authorization Server that automatically handles MCP client authentication. MCP clients can connect using standard OAuth 2.1 flow with PKCE.
-
-**Automatic Setup**: The server automatically:
-
-- Registers common MCP clients (Claude Desktop, VS Code extensions, etc.)
-- Provides OAuth 2.1 endpoints per [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization#2-4-dynamic-client-registration)
-- Handles authorization flow with Creatio backend
-
-**For MCP Client Developers**: See the [Model Context Protocol Authorization specification](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for implementation details.
-
-## Run
-
-### Using login/password
-
-```powershell
-$env:CREATIO_BASE_URL="https://your-creatio.com"
-$env:CREATIO_LOGIN="Supervisor"
-$env:CREATIO_PASSWORD="Supervisor"
-npm run start
+```bash
+CREATIO_LOGIN=Supervisor
+CREATIO_PASSWORD=Supervisor
 ```
 
-### Using OAuth2 (client credentials)
+### 2. OAuth2 Client Credentials
 
-```powershell
-$env:CREATIO_BASE_URL="https://your-creatio.com"
-$env:CREATIO_CLIENT_ID="your_client_id"
-$env:CREATIO_CLIENT_SECRET="your_client_secret"
-npm run start
+For server-to-server authentication. [Setup guide →](https://academy.creatio.com/docs/8.x/dev/development-on-creatio-platform/integrations-and-api/authentication/oauth-2-0-authorization/identity-service-overview)
+
+```bash
+CREATIO_CLIENT_ID=your_client_id
+CREATIO_CLIENT_SECRET=your_client_secret
 ```
 
-## Docker
+### 3. OAuth2 Authorization Code
 
-Example with username/password authentication:
+For user-delegated access with web authorization. [Setup guide →](https://academy.creatio.com/docs/8.x/dev/development-on-creatio-platform/integrations-and-api/authentication/oauth-2-0-authorization/authorization-code-grant)
 
-```powershell
-docker build -t mcp-creatio .
-docker run --rm -p 3000:3000 `
-  -e CREATIO_BASE_URL="https://your-creatio.com" `
-  -e CREATIO_LOGIN="Supervisor" `
-  -e CREATIO_PASSWORD="Supervisor" `
-  mcp-creatio
+```bash
+CREATIO_CODE_CLIENT_ID=your_client_id
+CREATIO_CODE_CLIENT_SECRET=your_client_secret
+CREATIO_CODE_REDIRECT_URI=http://localhost:3000/oauth/callback
+CREATIO_CODE_SCOPE="offline_access ApplicationAccess_yourappguid"
 ```
 
-CI/CD:
+**Priority**: Authorization Code > Client Credentials > Legacy
 
-- This repository publishes a multi-arch image (`linux/amd64`, `linux/arm64`) to Docker Hub at `crackish/mcp-creatio` using GitHub Actions.
-- Triggers: on push to `main`, tags `v*.*.*`, or manual `workflow_dispatch`.
+## MCP Client Authentication
 
-## Tools (short)
+The server includes OAuth 2.1 Authorization Server for MCP clients (Claude Desktop, etc.). No additional setup required - clients authenticate automatically through standard OAuth flow.
 
-- `list-entities` — list entity sets
-- `describe-entity` — schema for an entity set (type, keys, properties)
-- `read` — query records: `entity`, optional `$filter`, `$select`, `$top`
-- `create` — create one record: `entity`, `data`
-- `update` — update one record: `entity`, `id`, `data`
-- `delete` — delete one record: `entity`, `id`
-- `search` — simple search; mainly for OpenAI GPT Connector MCP
-- `fetch` — fetch by `EntitySet:GUID`; mainly for OpenAI GPT Connector MCP
+## Examples
+
+### Node.js (Legacy Auth)
+
+```bash
+export CREATIO_BASE_URL="https://your-creatio.com"
+export CREATIO_LOGIN="Supervisor"
+export CREATIO_PASSWORD="Supervisor"
+npm start
+```
+
+### Docker (Legacy Auth)
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e CREATIO_BASE_URL="https://your-creatio.com" \
+  -e CREATIO_LOGIN="Supervisor" \
+  -e CREATIO_PASSWORD="Supervisor" \
+  crackish/mcp-creatio
+```
+
+## Available Tools
+
+| Tool              | Description                                 |
+| ----------------- | ------------------------------------------- |
+| `list-entities`   | List all available entity sets              |
+| `describe-entity` | Get schema for entity (fields, types, keys) |
+| `read`            | Query records with optional filters         |
+| `create`          | Create new record                           |
+| `update`          | Update existing record                      |
+| `delete`          | Delete record                               |
+| `search`          | Simple text search across entities          |
+| `fetch`           | Get specific record by EntitySet:GUID       |
