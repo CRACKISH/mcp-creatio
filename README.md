@@ -6,12 +6,14 @@ Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - con
 
 - Exposes Creatio data as MCP tools for MCP-compatible clients (Claude Desktop, ChatGPT Connectors, GitHub Copilot)
 - Supports reading, creating, updating, deleting records and inspecting schema
+- Execute Creatio business processes with parameters
 - Uses Creatio OData v4 API under the hood
 
 ## Features
 
 - **CRUD operations**: `read`, `create`, `update`, `delete` Creatio records
 - **Schema discovery**: `list-entities`, `describe-entity`
+- **Business processes**: `execute-process` to run Creatio workflows
 - **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
 - **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
 - **Built-in OAuth server**: Automatic MCP client authentication
@@ -69,6 +71,8 @@ CREATIO_CODE_REDIRECT_URI=http://localhost:3000/oauth/callback
 CREATIO_CODE_SCOPE="offline_access ApplicationAccess_yourappguid"
 ```
 
+**Note**: Currently uses in-memory storage for OAuth tokens. Tokens will be lost on server restart.
+
 **Priority**: Authorization Code > Client Credentials > Legacy
 
 ## MCP Client Authentication
@@ -108,3 +112,4 @@ docker run --rm -p 3000:3000 \
 | `delete`          | Delete record                               |
 | `search`          | Simple text search across entities          |
 | `fetch`           | Get specific record by EntitySet:GUID       |
+| `execute-process` | Run Creatio business processes              |

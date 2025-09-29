@@ -8,4 +8,5 @@ export interface CreatioClient {
 	delete(entity: string, id: string): Promise<any>;
 	listEntitySets(): Promise<string[]>;
 	describeEntity(entitySet: string): Promise<any>;
+	executeProcess(processName: string, parameters: any): Promise<any>;
 }

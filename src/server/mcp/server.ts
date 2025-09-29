@@ -7,22 +7,24 @@ import { NAME, VERSION } from '../../version';
 
 import { buildFilterFromStructured } from './filters';
 import {
-	CreateInput,
-	DeleteInput,
-	DescribeEntityInput,
-	FetchInput,
-	ListEntitiesInput,
-	ReadInput,
-	SearchInput,
-	UpdateInput,
 	createDescriptor,
+	createInput,
 	deleteDescriptor,
+	deleteInput,
 	describeEntityDescriptor,
+	describeEntityInput,
+	executeProcessDescriptor,
+	executeProcessInput,
 	fetchDescriptor,
+	fetchInput,
 	listEntitiesDescriptor,
+	listEntitiesInput,
 	readDescriptor,
+	readInput,
 	searchDescriptor,
+	searchInput,
 	updateDescriptor,
+	updateInput,
 } from './tools-data';
 
 type ToolHandler = (payload: any) => Promise<any>;
@@ -111,7 +113,7 @@ export class Server {
 		this._registerHandlerWithDescriptor(
 			'read',
 			readDescriptor,
-			withValidation(ReadInput, async ({ entity, filter, filters, select, top }) => {
+			withValidation(readInput, async ({ entity, filter, filters, select, top }) => {
 				const structured = buildFilterFromStructured(filters);
 				let finalFilter = filter || structured;
 				if (filter && structured) {
@@ -124,27 +126,27 @@ export class Server {
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
-				withValidation(CreateInput, async ({ entity, data }) =>
+				withValidation(createInput, async ({ entity, data }) =>
 					client.create(entity, data),
 				),
 			);
 			this._registerHandlerWithDescriptor(
 				'update',
 				updateDescriptor,
-				withValidation(UpdateInput, async ({ entity, id, data }) =>
+				withValidation(updateInput, async ({ entity, id, data }) =>
 					client.update(entity, id, data),
 				),
 			);
 			this._registerHandlerWithDescriptor(
 				'delete',
 				deleteDescriptor,
-				withValidation(DeleteInput, async ({ entity, id }) => client.delete(entity, id)),
+				withValidation(deleteInput, async ({ entity, id }) => client.delete(entity, id)),
 			);
 		}
 		this._registerHandlerWithDescriptor(
 			'list-entities',
 			listEntitiesDescriptor,
-			withValidation(ListEntitiesInput, async () => {
+			withValidation(listEntitiesInput, async () => {
 				const sets = await client.listEntitySets();
 				return {
 					content: [
@@ -159,7 +161,7 @@ export class Server {
 		this._registerHandlerWithDescriptor(
 			'describe-entity',
 			describeEntityDescriptor,
-			withValidation(DescribeEntityInput, async ({ entitySet }) => {
+			withValidation(describeEntityInput, async ({ entitySet }) => {
 				const schema = await client.describeEntity(entitySet);
 				return {
 					content: [
@@ -174,7 +176,7 @@ export class Server {
 		this._registerHandlerWithDescriptor(
 			'search',
 			searchDescriptor,
-			withValidation(SearchInput, async ({ query }) => {
+			withValidation(searchInput, async ({ query }) => {
 				const candidateEntities = ['Contact', 'Account', 'Activity'];
 				const results: Array<{
 					id: string;
@@ -214,7 +216,7 @@ export class Server {
 		this._registerHandlerWithDescriptor(
 			'fetch',
 			fetchDescriptor,
-			withValidation(FetchInput, async ({ id }) => {
+			withValidation(fetchInput, async ({ id }) => {
 				const m = /^([^:]+):(.+)$/.exec(id);
 				if (!m) {
 					const payload = JSON.stringify({
@@ -259,6 +261,24 @@ export class Server {
 				};
 			}),
 		);
+
+		if (!this._readonly) {
+			this._registerHandlerWithDescriptor(
+				'execute-process',
+				executeProcessDescriptor,
+				withValidation(executeProcessInput, async ({ processName, parameters }) => {
+					const result = await client.executeProcess(processName, parameters || {});
+					return {
+						content: [
+							{
+								type: 'text',
+								text: JSON.stringify(result, null, 2),
+							},
+						],
+					};
+				}),
+			);
+		}
 	}
 
 	public async startMcp() {
