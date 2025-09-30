@@ -105,7 +105,7 @@ const readInputShape = {
 export const readInput = z.object(readInputShape);
 
 export const readDescriptor = makeToolDescriptor({
-	title: 'Read records',
+	title: 'Read records in Creatio',
 	description:
 		"Query Creatio records from an entity set. Recommended flow: (1) call 'list-entities' \u2192 (2) call 'describe-entity' to inspect fields \u2192 (3) call 'read' with a focused $select and optional $filter/$top. LLM playbook for lookups: If the user asks 'find contacts with type employee' \u2014 (a) describe 'Contact' and locate 'TypeId'; (b) use navigation 'Type/Name eq 'Employee''; (c) if GUID is known, prefer 'TypeId eq guid'...''. You may also use structured 'filters': { all:[{ field:'Type/Name', op:'eq', value:'Employee' }] }.",
 	inputShape: readInputShape,
@@ -127,7 +127,7 @@ const createInputShape = {
 export const createInput = z.object(createInputShape);
 
 export const createDescriptor = makeToolDescriptor({
-	title: 'Create record',
+	title: 'Create record in Creatio',
 	description:
 		"Create a single Creatio record. Use 'describe-entity' first to verify required fields and types. Examples:\n- entity=Activity, data={ Title:'Call with Andrii', StartDate:'2025-09-12T12:00:00Z' }\n- entity=Account, data={ Name:'Acme UA', Code:'ACM-001' }",
 	inputShape: createInputShape,
@@ -148,7 +148,7 @@ const updateInputShape = {
 export const updateInput = z.object(updateInputShape);
 
 export const updateDescriptor = makeToolDescriptor({
-	title: 'Update record',
+	title: 'Update record in Creatio',
 	description:
 		"Update a single record by Id (PATCH). Example:\n- entity=Account, id='<GUID>', data={ Name:'Acme Europe' }\nUse 'describe-entity' beforehand to ensure field names and types are valid.",
 	inputShape: updateInputShape,
@@ -166,7 +166,7 @@ const deleteInputShape = {
 export const deleteInput = z.object(deleteInputShape);
 
 export const deleteDescriptor = makeToolDescriptor({
-	title: 'Delete record',
+	title: 'Delete record in Creatio',
 	description:
 		'Delete a single record by Id. Consider soft-delete (via update of status flags) when appropriate.',
 	inputShape: deleteInputShape,
@@ -175,7 +175,7 @@ export const deleteDescriptor = makeToolDescriptor({
 export const listEntitiesInput = z.object({});
 
 export const listEntitiesDescriptor = makeToolDescriptor({
-	title: 'List entity sets',
+	title: 'Get entities from Creatio',
 	description:
 		'Return all available Creatio OData entity sets. Start here, then use "describe-entity" to inspect fields and keys before performing CRUD.',
 	inputShape: {},
@@ -192,7 +192,7 @@ const describeEntityInputShape = {
 export const describeEntityInput = z.object(describeEntityInputShape);
 
 export const describeEntityDescriptor = makeToolDescriptor({
-	title: 'Describe entity set',
+	title: 'Get entity description from Creatio',
 	description:
 		'Inspect schema for the given entity set: entity type, primary key(s), and properties with types/nullable. Use this before CRUD to avoid invalid fields.',
 	inputShape: describeEntityInputShape,
@@ -209,7 +209,7 @@ const searchInputShape = {
 export const searchInput = z.object(searchInputShape);
 
 export const searchDescriptor = makeToolDescriptor({
-	title: 'Search (ids/titles)',
+	title: 'Search in Creatio',
 	description:
 		'Lightweight search across common entities (e.g., Contact, Account, Activity). Returns an array of {id, title, url}. The "id" is formatted as "EntitySet:GUID" and is consumable by the "fetch" tool. Note: Provided primarily for OpenAI GPT Connector MCP compatibility.',
 	inputShape: searchInputShape,
@@ -226,7 +226,7 @@ const fetchInputShape = {
 export const fetchInput = z.object(fetchInputShape);
 
 export const fetchDescriptor = makeToolDescriptor({
-	title: 'Fetch by id',
+	title: 'Fetch by id from Creatio',
 	description:
 		'Retrieve a full record by an id in the form "EntitySet:GUID" (e.g., "Contact:c4ed336c-..."). Returns { id, title, text, url, metadata } suitable for display. Note: Provided primarily for OpenAI GPT Connector MCP compatibility.',
 	inputShape: fetchInputShape,
