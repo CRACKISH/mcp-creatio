@@ -28,6 +28,10 @@ export class ODataCreatioClient implements CreatioClient {
 		return `${this._getNormalizedBaseUrl()}/0/odata`;
 	}
 
+	private _getUserInfoServiceUrl(): string {
+		return `${this._getNormalizedBaseUrl()}/0/ServiceModel/UserInfoService.svc/GetCurrentUserInfo`;
+	}
+
 	private _getProcessServiceUrl(): string {
 		return `${this._getNormalizedBaseUrl()}/0/ServiceModel/ProcessEngineService.svc/RunProcess`;
 	}
@@ -156,6 +160,23 @@ export class ODataCreatioClient implements CreatioClient {
 
 	private async _getXmlHeaders(): Promise<Record<string, string>> {
 		return this.authProvider.getHeaders(XML_ACCEPT, false);
+	}
+
+	private async _getPostHeaders(): Promise<Record<string, string>> {
+		const headers = await this._getJsonHeaders();
+		return {
+			...headers,
+			'Content-Type': 'application/json',
+		};
+	}
+
+	private async _createPostRequest(body?: any): Promise<RequestInit> {
+		const headers = await this._getPostHeaders();
+		return {
+			method: 'POST',
+			headers,
+			body: body ? JSON.stringify(body) : JSON.stringify({}),
+		};
 	}
 
 	private _logRequest(url: string, requestInit: RequestInit): void {
@@ -365,6 +386,31 @@ export class ODataCreatioClient implements CreatioClient {
 		return { key, properties };
 	}
 
+	public async getCurrentUserInfo() {
+		const url = this._getUserInfoServiceUrl();
+		return this._executeWithTiming(
+			'getCurrentUserInfo',
+			url,
+			async () => {
+				const requestInit = await this._createPostRequest();
+				return this._fetchWithAuth(url, async () => requestInit);
+			},
+			async (response, duration) => {
+				this._logSuccess('getCurrentUserInfo', response.status, duration);
+				return response.json().catch(() => ({}));
+			},
+			async (response, duration) => {
+				return this._handleErrorResponse(
+					'getCurrentUserInfo',
+					response,
+					duration,
+					'odata_get_current_user_info_failed',
+					{},
+				);
+			},
+		);
+	}
+
 	public async create(entity: string, data: any) {
 		const url = this._buildEntityUrl(entity);
 		return this._executeWithTiming(
@@ -548,21 +594,13 @@ export class ODataCreatioClient implements CreatioClient {
 			'execute-process',
 			url,
 			async () => {
-				return this._fetchWithAuth(url, async () => {
-					const headers = await this._getJsonHeaders();
-					return {
-						method: 'POST',
-						headers: {
-							...headers,
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							schemaName: processName,
-							parameterValues: this._createProcessParameterValues(parameters),
-							resultParameterNames: [],
-						}),
-					};
-				});
+				const body = {
+					schemaName: processName,
+					parameterValues: this._createProcessParameterValues(parameters),
+					resultParameterNames: [],
+				};
+				const requestInit = await this._createPostRequest(body);
+				return this._fetchWithAuth(url, async () => requestInit);
 			},
 			async (response, duration) => {
 				this._logSuccess('execute-process', response.status, duration, { processName });

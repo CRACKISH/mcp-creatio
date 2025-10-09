@@ -18,6 +18,8 @@ import {
 	executeProcessInput,
 	fetchDescriptor,
 	fetchInput,
+	getCurrentUserInfoDescriptor,
+	getCurrentUserInfoInput,
 	listEntitiesDescriptor,
 	listEntitiesInput,
 	readDescriptor,
@@ -36,15 +38,10 @@ export interface ServerConfig {
 
 export class Server {
 	private _descriptors = new Map<string, any>();
-
 	private _handlers = new Map<string, ToolHandler>();
-
 	private _mcp?: McpServer;
-
 	private _readonly = false;
-
 	private _serverName = NAME;
-
 	private _serverVersion = VERSION;
 
 	public get authProvider(): ICreatioAuthProvider {
@@ -53,19 +50,22 @@ export class Server {
 
 	constructor(
 		private _client: CreatioClient,
-
 		config: ServerConfig,
 	) {
 		this._readonly = config.readonlyMode ?? false;
-
 		this._registerClientTools(this._client);
+	}
+
+	private _registerData() {
+		for (const [name, handler] of this._handlers.entries()) {
+			this._registerAsTool(name, handler);
+		}
+		this._registerPrompts();
 	}
 
 	private _registerHandlerWithDescriptor(name: string, descriptor: any, handler: ToolHandler) {
 		this._handlers.set(name, handler);
-
 		this._descriptors.set(name, descriptor);
-
 		if (this._mcp) {
 			this._registerAsTool(name, handler);
 		}
@@ -75,23 +75,19 @@ export class Server {
 		return async (args: any) => {
 			try {
 				const result = await handler(args);
-
 				if (result && (result.content || result.contents)) {
 					return result;
 				}
-
 				return {
 					content: [
 						{
 							type: 'text',
-
 							text: typeof result === 'string' ? result : JSON.stringify(result),
 						},
 					],
 				};
 			} catch (err: any) {
 				log.error('mcp.tool.handler', err);
-
 				throw err;
 			}
 		};
@@ -101,22 +97,17 @@ export class Server {
 		if (!this._mcp) {
 			return;
 		}
-
 		try {
 			const descriptor =
 				this._descriptors.get(name) ||
 				({
 					title: name,
-
 					description: `Tool ${name}`,
-
 					inputSchema: {},
 				} as any);
-
 			this._mcp.registerTool(name, descriptor, async (args: any) => {
 				return this._normalizeToToolHandler(handler)(args);
 			});
-
 			log.info('mcp.tool.register', { tool: name });
 		} catch (err) {
 			log.warn('mcp.tool.register.failed', { tool: name, error: String(err) });
@@ -127,23 +118,17 @@ export class Server {
 		if (!this._mcp) {
 			return;
 		}
-
 		try {
 			for (const prompt of ALL_PROMPTS) {
 				this._mcp.registerPrompt(
 					prompt.name,
-
 					{
 						title: prompt.title,
-
 						description: prompt.description,
-
 						argsSchema: prompt.argsSchema,
 					},
-
 					prompt.callback,
 				);
-
 				log.info('mcp.prompt.register', { prompt: prompt.name });
 			}
 		} catch (err) {
@@ -153,143 +138,70 @@ export class Server {
 
 	private _registerClientTools(client: CreatioClient) {
 		this._registerHandlerWithDescriptor(
-			'read',
-
-			readDescriptor,
-
-			withValidation(
-				readInput,
-
-				async ({ entity, filter, filters, select, top, expand, orderBy }) => {
-					const structured = buildFilterFromStructured(filters);
-
-					let finalFilter = filter || structured;
-
-					if (filter && structured) {
-						finalFilter = `(${filter}) and (${structured})`;
-					}
-
-					return client.read(entity, finalFilter, select, top, expand, orderBy);
-				},
-			),
+			'get-current-user-info',
+			getCurrentUserInfoDescriptor,
+			withValidation(getCurrentUserInfoInput, () => client.getCurrentUserInfo()),
 		);
-
-		if (!this._readonly) {
-			this._registerHandlerWithDescriptor(
-				'create',
-
-				createDescriptor,
-
-				withValidation(createInput, async ({ entity, data }) =>
-					client.create(entity, data),
-				),
-			);
-
-			this._registerHandlerWithDescriptor(
-				'update',
-
-				updateDescriptor,
-
-				withValidation(updateInput, async ({ entity, id, data }) =>
-					client.update(entity, id, data),
-				),
-			);
-
-			this._registerHandlerWithDescriptor(
-				'delete',
-
-				deleteDescriptor,
-
-				withValidation(deleteInput, async ({ entity, id }) => client.delete(entity, id)),
-			);
-		}
-
 		this._registerHandlerWithDescriptor(
 			'list-entities',
-
 			listEntitiesDescriptor,
-
 			withValidation(listEntitiesInput, async () => {
 				const sets = await client.listEntitySets();
-
 				return {
 					content: [
 						{
 							type: 'text',
-
 							text: JSON.stringify({ results: sets }),
 						},
 					],
 				};
 			}),
 		);
-
 		this._registerHandlerWithDescriptor(
 			'describe-entity',
-
 			describeEntityDescriptor,
-
 			withValidation(describeEntityInput, async ({ entitySet }) => {
 				const schema = await client.describeEntity(entitySet);
-
 				return {
 					content: [
 						{
 							type: 'text',
-
 							text: JSON.stringify(schema),
 						},
 					],
 				};
 			}),
 		);
-
 		this._registerHandlerWithDescriptor(
 			'search',
-
 			searchDescriptor,
-
 			withValidation(searchInput, async ({ query }) => {
 				const candidateEntities = ['Contact', 'Account', 'Activity'];
-
 				const results: Array<{
 					id: string;
-
 					title: string;
-
 					url: string;
 				}> = [];
-
 				for (const entity of candidateEntities) {
 					try {
 						const rows = await client.read(
 							entity,
-
 							`contains(Name,'${query.replace(/'/g, "''")}')`,
-
 							['Id', 'Name', 'Email', 'Code', 'Title'],
-
 							5,
 						);
 
 						for (const r of rows ?? []) {
 							const guid = String(r.Id ?? r.id ?? '');
-
 							if (!guid) {
 								continue;
 							}
-
 							const nameish = r.Name ?? r.Title ?? r.Code ?? guid;
-
 							const id = `${entity}:${guid}`;
-
 							const url = `${(client as any)._root?.() ?? ''}/${entity}(${guid})`;
-
 							results.push({
 								id,
-
 								title: `${entity}: ${nameish}`,
-
 								url,
 							});
 						}
@@ -297,7 +209,6 @@ export class Server {
 				}
 
 				const payload = JSON.stringify(results);
-
 				return {
 					content: [{ type: 'text', text: payload }],
 				};
@@ -306,56 +217,36 @@ export class Server {
 
 		this._registerHandlerWithDescriptor(
 			'fetch',
-
 			fetchDescriptor,
-
 			withValidation(fetchInput, async ({ id }) => {
 				const m = /^([^:]+):(.+)$/.exec(id);
-
 				if (!m) {
 					const payload = JSON.stringify({
 						id,
-
 						title: 'Invalid id format',
-
 						text: 'Expected "EntitySet:GUID".',
-
 						url: '',
-
 						metadata: { error: 'bad_id' },
 					});
-
 					return { content: [{ type: 'text', text: payload }] };
 				}
-
 				const entity = m[1] as string;
-
 				const guid = m[2];
-
 				let record: any = null;
-
 				try {
 					const rows = await client.read(entity, `Id eq ${guid}`, undefined, 1);
-
 					record = Array.isArray(rows) && rows.length ? rows[0] : null;
 				} catch (e: any) {
 					log.error('mcp.fetch', { error: String(e?.message ?? e), entity, guid });
-
 					const payload = JSON.stringify({
 						id,
-
 						title: `${entity} ${guid}`,
-
 						text: '',
-
 						url: `${(client as any)._root?.() ?? ''}/${entity}(${guid})`,
-
 						metadata: { error: String(e?.message ?? e) },
 					});
-
 					return { content: [{ type: 'text', text: payload }] };
 				}
-
 				const title =
 					`${entity} ` +
 					String(record?.Name ?? record?.Title ?? record?.Code ?? record?.Id ?? guid);
@@ -364,36 +255,60 @@ export class Server {
 
 				const payload = JSON.stringify({
 					id,
-
 					title,
-
 					text: JSON.stringify(record ?? {}, null, 2),
-
 					url,
-
 					metadata: { entity, guid },
 				});
-
 				return {
 					content: [{ type: 'text', text: payload }],
 				};
 			}),
 		);
-
+		this._registerHandlerWithDescriptor(
+			'read',
+			readDescriptor,
+			withValidation(
+				readInput,
+				async ({ entity, filter, filters, select, top, expand, orderBy }) => {
+					const structured = buildFilterFromStructured(filters);
+					let finalFilter = filter || structured;
+					if (filter && structured) {
+						finalFilter = `(${filter}) and (${structured})`;
+					}
+					return client.read(entity, finalFilter, select, top, expand, orderBy);
+				},
+			),
+		);
 		if (!this._readonly) {
 			this._registerHandlerWithDescriptor(
+				'create',
+				createDescriptor,
+				withValidation(createInput, async ({ entity, data }) =>
+					client.create(entity, data),
+				),
+			);
+			this._registerHandlerWithDescriptor(
+				'update',
+				updateDescriptor,
+				withValidation(updateInput, async ({ entity, id, data }) =>
+					client.update(entity, id, data),
+				),
+			);
+			this._registerHandlerWithDescriptor(
+				'delete',
+				deleteDescriptor,
+				withValidation(deleteInput, async ({ entity, id }) => client.delete(entity, id)),
+			);
+			this._registerHandlerWithDescriptor(
 				'execute-process',
-
 				executeProcessDescriptor,
-
 				withValidation(executeProcessInput, async ({ processName, parameters }) => {
 					const result = await client.executeProcess(processName, parameters || {});
-
 					return {
 						content: [
 							{
 								type: 'text',
-
 								text: JSON.stringify(result, null, 2),
 							},
 						],
@@ -407,21 +322,12 @@ export class Server {
 		if (this._mcp) {
 			return this._mcp;
 		}
-
 		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
-
-		for (const [name, handler] of this._handlers.entries()) {
-			this._registerAsTool(name, handler);
-		}
-
-		this._registerPrompts();
-
+		this._registerData();
 		log.serverStart(this._serverName, this._serverVersion, {
 			tools: Array.from(this._handlers.keys()),
-
 			prompts: ALL_PROMPTS.length,
 		});
-
 		return this._mcp;
 	}
 
@@ -429,10 +335,8 @@ export class Server {
 		if (!this._mcp) {
 			return;
 		}
-
 		try {
 			this._mcp.close();
-
 			log.serverStop(this._serverName, this._serverVersion);
 		} catch (err) {
 			log.warn('mcp.stop.failed', { error: String(err) });

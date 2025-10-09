@@ -51,6 +51,50 @@ function makeToolDescriptor(opts: {
 	};
 }
 
+const getCurrentUserInfoInputShape = {};
+export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
+
+export const getCurrentUserInfoDescriptor = makeToolDescriptor({
+	title: '🔑 Get Current User Info - CALL THIS FIRST!',
+	description:
+		'⚠️⚠️⚠️ MANDATORY FIRST STEP ⚠️⚠️⚠️\n\n' +
+		'🚨 YOU MUST CALL THIS TOOL FIRST before creating ANY Activity, Lead, Opportunity, Case, or other CRM record!\n\n' +
+		'WHY CALL FIRST:\n' +
+		'- Returns the ContactId needed for OwnerId and AuthorId fields\n' +
+		'- Without this, you CANNOT create activities or CRM records correctly\n' +
+		'- Activities MUST have valid OwnerId and AuthorId (both = ContactId)\n' +
+		'- By default, ALL activities/leads/tasks are created FOR THE CURRENT USER\n\n' +
+		'📋 REQUIRED WORKFLOW:\n' +
+		'Step 1: Call get-current-user-info (no parameters) ← DO THIS NOW!\n' +
+		'Step 2: Extract contactId from response\n' +
+		'Step 3: Store contactId in memory for this conversation\n' +
+		'Step 4: Use contactId as OwnerId and AuthorId in ALL create operations\n\n' +
+		'Returns:\n' +
+		'{\n' +
+		'  "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",\n' +
+		'  "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← SAVE THIS!\n' +
+		'  "userName": "Supervisor",\n' +
+		'  "cultureName": "en-US"\n' +
+		'}\n\n' +
+		'USE CASES (when to call):\n' +
+		'✅ User asks to create activity/meeting/task/call → CALL THIS FIRST!\n' +
+		'✅ User asks to create lead/opportunity/case → CALL THIS FIRST!\n' +
+		'✅ User asks who they are → CALL THIS!\n' +
+		'✅ Beginning of ANY CRM workflow → CALL THIS FIRST!\n' +
+		'❌ Simple queries (read/search) → Not required\n\n' +
+		'CRITICAL RULES:\n' +
+		'- ContactId (NOT userId) goes into OwnerId/AuthorId fields\n' +
+		"- Cache the ContactId - don't call repeatedly\n" +
+		'- Default assumption: create records FOR current user\n' +
+		'- Only change owner if user explicitly says "for [someone else]"\n\n' +
+		'Example usage:\n' +
+		'User: "Create a meeting for tomorrow"\n' +
+		'YOU: 1) Call get-current-user-info\n' +
+		'     2) Use contactId for OwnerId and AuthorId\n' +
+		'     3) Create activity with those IDs',
+	inputShape: getCurrentUserInfoInputShape,
+});
+
 const op = z.enum(['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'contains', 'startswith', 'endswith']);
 
 const value = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -267,6 +311,7 @@ export const createDescriptor = makeToolDescriptor({
 		'Provide entity and data map. Only include fields you need. ' +
 		'ALL DATE/TIME FIELDS: For ANY date/time field (StartDate, DueDate, RemindToOwnerDate, CreatedOn overrides, custom date columns) ALWAYS use /datetime-guide for UTC conversion & formatting. ' +
 		'ALL CONTACT / USER LOOKUP FIELDS: For ANY field pointing to a user/contact (OwnerId, AuthorId, CreatedById, ModifiedById, ResponsibleId, ManagerId, SupervisorId, and similar *Id fields referencing sys users) use /contactid-guide to resolve correct ContactId. Avoid guessing IDs. ' +
+		'🎯 DEFAULT OWNER/AUTHOR: Activities and tasks are ALWAYS created for the CURRENT USER by default! Set OwnerId and AuthorId to current user\'s ContactId (from get-current-user-info or SysAdminUnit.ContactId) unless user EXPLICITLY says "for [another person]". Don\'t ask "for whom?" - default to current user! ' +
 		'Activities (Task/Meeting/Call/Email): HARD RULE → Always set TypeId to Task (fbe0acdc-cfc0-df11-b00f-001d60e938c6) and vary only ActivityCategoryId for meeting/call/email intent unless user explicitly says phrases like: "real meeting type", "true call type", "not a task", "use Visit type". Do NOT look up ActivityType for ordinary meeting/call/email requests. To intentionally allow a non-Task type, caller must add meta flag __allowNonTaskType=true. See /create-activity-guide prompt. ' +
 		'Tagging: use /tagging-guide prompt. ' +
 		"Examples: Account → data={ Name:'Acme Corp', Phone:'+1-234-567' }; Contact → data={ Name:'John Doe', Email:'john@example.com' }",

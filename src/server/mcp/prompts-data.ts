@@ -19,6 +19,16 @@ const ACTIVITY_TYPE_TABLE = `
 const CREATE_ACTIVITY_WORKFLOW = `
 # 🆕 Create Activity in Creatio (Optimized 99% Case)
 
+⚠️⚠️⚠️ FIRST STEP - ALWAYS CALL get-current-user-info FIRST! ⚠️⚠️⚠️
+
+Before creating ANY activity, you MUST:
+1. Call 'get-current-user-info' tool (no parameters)
+2. Extract contactId from response
+3. Store contactId in memory
+4. Use contactId as OwnerId and AuthorId in the activity
+
+DO NOT skip this step! Activities require valid OwnerId and AuthorId (both = contactId).
+
 ## Why Simplified?
 Business usage: almost all activities should just appear in calendar quickly. So we hardcode **Type = Task** and only adjust the **Category** to reflect intent (meeting / call / email / todo). This minimizes API calls and cognitive load.
 
@@ -55,10 +65,29 @@ If category ≠ To do (e.g. Meeting / Call / Email) and you don't have its GUID 
 Do NOT query ActivityType unless user demands non-Task type explicitly.
 
 ---
-## 👤 STEP 2: Resolve ContactId (Owner/Author)
+## 👤 STEP 2: Resolve ContactId (Owner/Author) - USE get-current-user-info!
 
-Get current user's ContactId once (SysAdminUnit → ContactId). Store and reuse for OwnerId & AuthorId.
-Never use SysAdminUnit.Id for Owner/Author.
+🎯 **DEFAULT BEHAVIOR: Activities are ALWAYS created for the current user!**
+
+Unless the user **explicitly** requests to create an activity for someone else (e.g., "create a task for John", "schedule meeting for Anna"), 
+**ALWAYS** use the current user's ContactId as both OwnerId and AuthorId.
+
+### Get Current User ContactId:
+
+**MANDATORY FIRST CALL:** Use \`get-current-user-info\` tool:
+
+STEP 1: Call \`get-current-user-info\` (no parameters) ← DO THIS NOW if not done yet!
+STEP 2: Extract \`contactId\` from response
+STEP 3: Use contactId for OwnerId & AuthorId
+
+**Alternative (Legacy):** Query SysAdminUnit once for ContactId (NOT Id!). Store and reuse.
+
+⚠️ CRITICAL: 
+- Never use SysAdminUnit.Id for Owner/Author fields. Always use ContactId!
+- By default, OwnerId = AuthorId = current user's ContactId
+- Only change if user explicitly says "for [other person]"
+
+See /contactid-guide prompt for detailed explanation.
 
 ---
 ## ⏰ STEP 3: Timezone Handling
@@ -81,12 +110,59 @@ Base payload:
     "StatusId": "${DEFAULT_ACTIVITY_IDS.STATUS_NOT_STARTED}",
     "OwnerId": "<contactId>",
     "AuthorId": "<contactId>",
-    "PriorityId": "${DEFAULT_ACTIVITY_IDS.PRIORITY_MEDIUM}"
+    "PriorityId": "${DEFAULT_ACTIVITY_IDS.PRIORITY_MEDIUM}",
+    "ShowInScheduler": true
   }
 }
 \`\`\`
 
+**CRITICAL:** Always set \`"ShowInScheduler": true\` for meetings/calls/events so they appear in the calendar!
+Only set to false if user explicitly requests the activity to be hidden from calendar.
+
 If user supplies duration only (e.g. 30m) → compute DueDate = StartDate + duration.
+
+---
+## 👥 STEP 5: Add Participants (Optional)
+
+If user requests to add participants to a meeting/call/activity:
+- User says: "add John to the meeting", "invite Anna", "add participant [Name]"
+
+### How to Add Participants:
+
+1. **Find the Contact:** Query Contact entity by Name to get ContactId
+   \`\`\`json
+   {
+     "entity": "Contact",
+     "filter": "contains(Name, 'John')",
+     "select": ["Id", "Name"],
+     "top": 1
+   }
+   \`\`\`
+
+2. **Create ActivityParticipant record:**
+   \`\`\`json
+   {
+     "entity": "ActivityParticipant",
+     "data": {
+       "ActivityId": "<activity-guid>",
+       "ParticipantId": "<contact-guid>"
+     }
+   }
+   \`\`\`
+
+⚠️ **IMPORTANT:**
+- ActivityId = GUID of the Activity (meeting/call/task)
+- ParticipantId = ContactId of the person to add
+- **NO other fields needed!** Just these two fields are sufficient.
+- You can add multiple participants by creating multiple ActivityParticipant records
+
+### Example:
+User: "Add John and Mary to tomorrow's meeting"
+1. Create Activity → get activityId
+2. Find Contact "John" → get johnContactId
+3. Create ActivityParticipant { ActivityId: activityId, ParticipantId: johnContactId }
+4. Find Contact "Mary" → get maryContactId
+5. Create ActivityParticipant { ActivityId: activityId, ParticipantId: maryContactId }
 
 ---
 ## ✅ Example (Meeting intent, fast mode)
@@ -111,6 +187,8 @@ If triggered:
 ❌ Skipping timezone confirmation
 ❌ Forgetting Z suffix
 ❌ Mismatching explicit non-Task request (ignore only if user accepts fast mode)
+❌ Adding extra fields to ActivityParticipant (only ActivityId + ParticipantId needed!)
+❌ Forgetting to create ActivityParticipant records when user asks to add participants
 
 ---
 ## 🧠 Decision Heuristics
@@ -253,11 +331,46 @@ This applies to **ALL entities**, not just Activity:
 
 ---
 
-## 🎯 The Workflow (Do This Once!)
+## 🎯 The Workflow (RECOMMENDED!)
 
-### Step 1: Get ContactId at the Start of Session
+### 🔑 DEFAULT RULE: Current User by Default!
 
-Query SysAdminUnit to get the ContactId:
+**ALWAYS assume activities/tasks/leads/opportunities are for the CURRENT USER unless explicitly told otherwise!**
+
+Examples:
+- ❌ "Create task" → DO NOT ask "for whom?" → Create for current user!
+- ❌ "Schedule meeting tomorrow" → DO NOT ask "whose meeting?" → Current user's meeting!
+- ✅ "Create task for John" → Only THEN create for someone else
+- ✅ "Schedule meeting with Anna as owner" → Only THEN change owner
+
+**This is the expected behavior! Don't annoy users by asking obvious questions.**
+
+### Step 1: Use get-current-user-info Tool (BEST METHOD!)
+
+**RECOMMENDED:** Use the dedicated tool to get user information:
+
+Call \`get-current-user-info\` tool (no parameters needed)
+
+**Returns:**
+\`\`\`json
+{
+  "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",
+  "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← USE THIS!
+  "userName": "Supervisor",
+  "cultureName": "en-US"
+}
+\`\`\`
+
+**Why this is better:**
+- ✅ Single call, all info
+- ✅ No need to know username
+- ✅ Gets ContactId directly
+- ✅ More reliable
+- ✅ Use contactId for ALL Owner/Author fields by default
+
+### Alternative: Query SysAdminUnit (Legacy Method)
+
+If you need to query manually:
 
 \`\`\`json
 {
@@ -275,7 +388,9 @@ Query SysAdminUnit to get the ContactId:
 }]
 \`\`\`
 
-### Step 2: Store ContactId in Variable
+### Step 2: Store ContactId in Memory
+
+Remember the ContactId for the entire conversation:
 
 \`\`\`typescript
 const currentUserContactId = "76929f8c-7e15-4c64-bfb1-40c705d25fcd";
@@ -416,90 +531,196 @@ Remember: **ContactId, not Id!** 🎯
 `.trim();
 
 const TAGGING_GUIDE = `
-# 🏷️ Tagging Records in Creatio (New + Legacy Systems)
+# 🏷️ Tagging Records in Creatio
 
-User intents: "tag this record with <tag>", "add tag <tag> to <entity>", "label this activity as <tag>".
+## 🚨 CRITICAL DECISION: Which Tag System?
 
-## 🔎 Step 1: Identify Target Entity & Record
-1. Extract the entity name from context or user text (e.g. Activity, Contact, Account, Opportunity, Case...).
-2. If user did not supply the record Id:
-	- Ask clarifying question (preferred), OR
-	- Use search/read to locate by unique field (Title/Number/Name) and confirm with user.
-3. Store the resolved record GUID → recordId.
+Creatio has TWO tagging systems that may coexist:
 
-## 🧭 Step 2: Detect Available Tag System(s)
-Creatio now has a **new universal tag system** plus some entities may retain a **legacy per-entity tag schema**.
+### 1️⃣ LEGACY System (Entity-Specific) - **DEFAULT & RECOMMENDED**
+- Uses: \`<Entity>Tag\` and \`<Entity>InTag\` tables
+- Examples: \`ActivityTag\` + \`ActivityInTag\`, \`AccountTag\` + \`AccountInTag\`
+- Fields: \`TagId\` (from <Entity>Tag), \`EntityId\` (record GUID)
+- **Use this by DEFAULT unless user explicitly asks for universal tags!**
 
-| System  | Entities (core)                  | Linking Entity  | Tag Entity    | Link Fields (core)                 |
-|---------|----------------------------------|-----------------|--------------|-----------------------------------|
-| New     | Tag, TagInRecord                 | TagInRecord     | Tag          | TagId, RecordId, RecordSchemaName |
-| Legacy  | <Entity>Tag, <Entity>InTag       | <Entity>InTag   | <Entity>Tag  | TagId, EntityId                   |
+### 2️⃣ NEW System (Universal)
+- Uses: \`Tag\` and \`TagInRecord\` tables
+- Fields: \`TagId\`, \`RecordId\`, \`RecordSchemaName\`
+- Only use if user specifically says "use universal tags" or "use new tag system"
 
-### 2.1 Check Presence
-Assume new system (Tag, TagInRecord) exists.
-Then probe for legacy pair: <Entity>Tag AND <Entity>InTag (e.g. ActivityTag, ActivityInTag).
+---
 
-### 2.2 Choose System
-- Only new present → use new (no question).
-- Both present → ask user: "Which tagging system should be used: new (universal) or legacy (entity-specific)?" (default = new if indifferent).
+## ⚡ Quick Decision Flow
 
-Persist decision: useLegacy = true|false.
+**MANDATORY behavior:**
+1. Check if \`<Entity>Tag\` exists (e.g., \`ActivityTag\`)
+2. If BOTH systems exist (Legacy AND Universal):
+   → **ALWAYS ASK USER**: "Which tagging system should I use: legacy (ActivityTag/ActivityInTag) or universal (Tag/TagInRecord)?"
+   → Wait for explicit user response - NO DEFAULT!
+   → User must choose: "legacy" or "universal"
+3. If ONLY legacy exists → Use legacy (no question needed)
+4. If ONLY universal exists → Use universal (no question needed)
 
-## 🏷️ Step 3: Normalize & Resolve Tag(s)
-1. Extract tag phrase(s) (quoted, comma‑separated, or single words).
-2. Normalize: trim whitespace; keep natural case.
-3. For each tagName:
-	- New: read Tag where Name eq 'tagName' select Id.
-	- Legacy: read <Entity>Tag where Name eq 'tagName' select Id.
-4. If not found → ask: "Create new tag 'tagName'?" (unless user explicitly instructed creation) then:
-	- New: create Tag { Name: 'tagName' }
-	- Legacy: create <Entity>Tag { Name: 'tagName' }
-5. Keep map tagName → tagId.
+**CRITICAL:** Never auto-choose when both systems are available! Always ask and wait for clear answer!
 
-## ✅ Step 4: Check Existing Link
-For each tagId:
-- New: read TagInRecord (TagId, RecordId, RecordSchemaName) to detect existing link.
-- Legacy: read <Entity>InTag with TagId & EntityId.
-Skip creation if already linked.
+---
 
-## ➕ Step 5: Create Link(s)
-- New: create TagInRecord { TagId, RecordId, RecordSchemaName: 'EntityName' }.
-- Legacy: create <Entity>InTag { TagId, EntityId: recordId }.
+## 📋 STEP-BY-STEP WORKFLOW
 
-## 🧾 Step 6: Report
-Return summary: entity, recordId (or human label), added tags, skipped (already existed), system used.
+### Step 1: Identify Target Entity & Record
+- Extract entity name (Activity, Contact, Account, etc.)
+- Get record GUID (from context or ask user)
+- Store as: \`entityName\`, \`recordId\`
 
-## 🔁 Multiple Tags
-Split, de‑duplicate, resolve sequentially; escape single quotes in OData filters (replace ' with '').
+### Step 2: Choose System (MANDATORY CHECK!)
 
-## 🧪 Examples
-New system:
-1) Read Tag (not found) → create Tag.
-2) Read TagInRecord (none) → create TagInRecord.
-Legacy system:
-1) Read ActivityTag (found) → read ActivityInTag (none) → create ActivityInTag.
+**Always perform this check:**
 
-## ⚠️ Edge Cases
-- Duplicate tag names in request → process once.
-- Mixed language or ambiguous phrase → confirm before creating new tag.
-- User gives natural key (e.g. Title) → resolve record Id first.
-- Tag already linked → do not create again.
+1. Try describe-entity on \`<Entity>Tag\` (e.g., "ActivityTag")
+2. Try describe-entity on \`Tag\` 
+3. Determine availability:
+   - BOTH exist → **ASK USER MANDATORY**: "I found both tagging systems. Which one should I use: legacy (<Entity>Tag) or universal (Tag)?"
+   - ONLY legacy exists → Use legacy automatically
+   - ONLY universal exists → Use universal automatically
+   - NEITHER exists → Error (cannot tag)
 
-## ❌ Avoid
-- Blind tag creation without checking existence.
-- Using wrong record field (must be RecordId / EntityId as per system).
-- Skipping system choice when legacy also exists.
+**User response handling:**
+- "legacy" / "old" / "entity-specific" / "<Entity>Tag" → useLegacy = true
+- "universal" / "new" / "Tag" / "TagInRecord" → useLegacy = false
+- If unclear response → Ask again for clarification
 
-## ✅ Checklist
-- [ ] Entity resolved
-- [ ] Record Id
-- [ ] System chosen
-- [ ] Tag(s) resolved/created
-- [ ] Existing links checked
-- [ ] Missing links created
-- [ ] Summary output
+**NEVER skip the question when both systems are present!**
+**NEVER assume a default - wait for explicit user choice!**
 
-Prefer structured filters for reliability and reuse tagId cache within one request.
+### Step 3: Resolve or Create Tag
+
+**Tag name can be ANY value provided by user** (e.g., "VIP", "Urgent", "Follow-up", "Important", etc.)
+
+**For LEGACY system:**
+1. Try to find existing tag: read <Entity>Tag where Name eq '<TagName>' select Id top 1
+2. If not found, create it: create <Entity>Tag with Name: "<TagName>"
+3. Returns tag Id (GUID)
+
+**For UNIVERSAL system:**
+1. Try to find existing tag: read Tag where Name eq '<TagName>' and EntitySchemaName eq '<Entity>' select Id top 1
+2. If not found, create it: create Tag with Name: "<TagName>", EntitySchemaName: "<Entity>"
+3. Returns tag Id (GUID)
+
+### Step 4: Check if Already Tagged
+Avoid duplicate links!
+
+**LEGACY:**
+- read <Entity>InTag where TagId eq <tag-guid> and EntityId eq <record-guid> select Id top 1
+
+**UNIVERSAL:**
+- read TagInRecord where TagId eq <tag-guid> and RecordId eq <record-guid> select Id top 1
+
+### Step 5: Create Link (if not exists)
+
+**LEGACY:**
+- create <Entity>InTag with TagId: <tag-guid>, EntityId: <record-guid>
+
+**UNIVERSAL:**
+- create TagInRecord with TagId: <tag-guid>, RecordId: <record-guid>, RecordSchemaName: "<Entity>"
+
+---
+
+## 💡 Examples
+
+### Example 1: Add "VIP" tag to Activity (Standard Request)
+
+User: "Add tag VIP to this meeting"
+
+LLM Actions:
+1. Detect: Entity = Activity, recordId from context
+2. Check: ActivityTag exists? YES. Tag exists? YES (BOTH found!)
+3. ASK USER: "Which tagging system should I use: legacy (ActivityTag) or universal (Tag)?"
+4. User: "legacy"
+5. Query: ActivityTag where Name='VIP' (found: "9dd32c9f...")
+6. Check: ActivityInTag link exists? NO
+7. Create: ActivityInTag with TagId: "9dd32c9f...", EntityId: "meeting-id"
+8. Report: "Added VIP tag to meeting using legacy system"
+
+### Example 2: User explicitly wants universal system
+
+User: "Add tag Important using the new universal tag system"
+
+LLM Actions:
+1. User specified "new universal" (useLegacy = false, skip question!)
+2. Query: Tag where Name='Important' and EntitySchemaName='Activity'
+3. If not found: Create Tag with Name: "Important", EntitySchemaName: "Activity"
+4. Create: TagInRecord with TagId, RecordId, RecordSchemaName: "Activity"
+5. Report: "Added Important tag using universal system"
+
+### Example 3: Legacy system doesn't exist
+
+User: "Add tag to CustomEntity"
+
+LLM Actions:
+1. Check: CustomEntityTag exists? NO
+2. Auto-fallback: Use universal system
+3. Query/Create in Tag table
+4. Link via TagInRecord
+
+---
+
+## 🚨 Common Mistakes to Avoid
+
+❌ **WRONG:** Auto-choosing system when both exist
+✅ **RIGHT:** ALWAYS ask user when both legacy and universal are available
+
+❌ **WRONG:** Creating duplicate tags without checking
+✅ **RIGHT:** Always check existence first
+
+❌ **WRONG:** Not checking if link already exists
+✅ **RIGHT:** Query <Entity>InTag or TagInRecord before creating
+
+❌ **WRONG:** Skipping the mandatory question
+✅ **RIGHT:** If both systems exist, MUST ask user which one to use
+
+---
+
+## 📊 Quick Reference Table
+
+| Entity    | Tag Table      | Link Table        | Tag Field | Record Field |
+|-----------|----------------|-------------------|-----------|--------------|
+| Activity  | ActivityTag    | ActivityInTag     | TagId     | EntityId     |
+| Account   | AccountTag     | AccountInTag      | TagId     | EntityId     |
+| Contact   | ContactTag     | ContactInTag      | TagId     | EntityId     |
+| Lead      | LeadTag        | LeadInTag         | TagId     | EntityId     |
+| Case      | CaseTag        | CaseInTag         | TagId     | EntityId     |
+| *Universal* | Tag          | TagInRecord       | TagId     | RecordId     |
+
+---
+
+## ✅ Final Checklist
+
+Before creating a tag link:
+- [ ] Entity and record GUID identified
+- [ ] System auto-detected (legacy preferred)
+- [ ] Tag resolved or created in correct table
+- [ ] Existing link checked (no duplicates)
+- [ ] Link created in correct table
+- [ ] User notified of success
+
+---
+
+## 🎯 Remember
+
+**The Golden Rule:** When BOTH systems exist - ALWAYS ASK USER (no defaults!)
+
+Question format: "I found both tagging systems for <Entity>. Which should I use: legacy (<Entity>Tag) or universal (Tag)?"
+
+**Wait for explicit answer!** Do not proceed until user chooses.
+
+Only skip question if:
+- ONLY legacy exists → Use legacy automatically
+- ONLY universal exists → Use universal automatically
+- User already specified in original request (e.g., "use new tag system")
+
+**Tag names:** Can be ANY value user provides (VIP, Urgent, Important, Follow-up, etc.)
+
+**DO NOT assume or auto-choose when both are present!**
 `.trim();
 
 export const CREATE_ACTIVITY_PROMPT = {
