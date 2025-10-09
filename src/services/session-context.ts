@@ -96,11 +96,9 @@ export class SessionContext {
 		if (this._deletingSessions.has(sessionId)) {
 			return;
 		}
-
 		this._deletingSessions.add(sessionId);
 		const session = this._sessions.get(sessionId);
 		this._sessions.delete(sessionId);
-
 		if (session?.transport) {
 			try {
 				session.transport.close();
@@ -108,7 +106,6 @@ export class SessionContext {
 				log.warn('transport.close.failed', { sessionId, error: String(err) });
 			}
 		}
-
 		this._deletingSessions.delete(sessionId);
 	}
 
@@ -151,7 +148,9 @@ export class SessionContext {
 		return state;
 	}
 
-	public validateOAuthState(state: string): { userKey: string } | null {
+	public validateOAuthState(state: string): {
+		userKey: string;
+	} | null {
 		const stateInfo = this._oauthStates.get(state);
 		if (!stateInfo) {
 			return null;

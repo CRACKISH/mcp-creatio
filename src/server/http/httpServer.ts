@@ -37,20 +37,13 @@ export class HttpServer {
 	}
 
 	private _setupMiddleware(): void {
-		// Request correlation and logging - should be first
 		this._app.use(this._middleware.correlationId());
 		this._app.use(this._middleware.requestLogging());
-
-		// Standard Express middleware
 		this._app.use(express.json());
 		this._app.use(express.urlencoded({ extended: true }));
-
-		// Auth middleware for MCP endpoints (only for OAuth2Code)
 		if (this._isNeedMCPOAuth()) {
 			this._app.use('/mcp', this._middleware.bearerAuth());
 		}
-
-		// Error handling - should be last
 		this._app.use(this._middleware.errorHandler());
 	}
 
@@ -85,22 +78,15 @@ export class HttpServer {
 	}
 
 	private _setupMCPOAuthEndpoints(): void {
-		// OAuth 2.0 Authorization Server Metadata (RFC 8414)
 		this._app.get('/.well-known/oauth-authorization-server', (req, res) =>
 			this._mcpOauthHandlers.handleMetadata(req, res),
 		);
-
-		// Dynamic Client Registration (RFC 7591)
 		this._app.post('/register', (req, res) =>
 			this._mcpOauthHandlers.handleClientRegistration(req, res),
 		);
-
-		// OAuth Authorization Endpoint
 		this._app.get('/authorize', (req, res) =>
 			this._mcpOauthHandlers.handleAuthorization(req, res),
 		);
-
-		// OAuth Token Endpoint
 		this._app.post('/token', (req, res) =>
 			this._mcpOauthHandlers.handleTokenExchange(req, res),
 		);
@@ -133,7 +119,6 @@ export class HttpServer {
 		} catch (err) {
 			log.warn('token_refresh_cleanup_failed', { error: String(err) });
 		}
-
 		if (this._srv) {
 			try {
 				await this._server.stopMcp();

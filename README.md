@@ -102,14 +102,16 @@ docker run --rm -p 3000:3000 \
 
 ## Available Tools
 
-| Tool              | Description                                 |
-| ----------------- | ------------------------------------------- |
-| `list-entities`   | List all available entity sets              |
-| `describe-entity` | Get schema for entity (fields, types, keys) |
-| `read`            | Query records with optional filters         |
-| `create`          | Create new record                           |
-| `update`          | Update existing record                      |
-| `delete`          | Delete record                               |
-| `search`          | Simple text search across entities          |
-| `fetch`           | Get specific record by EntitySet:GUID       |
-| `execute-process` | Run Creatio business processes              |
+| Tool              | Description                                           |
+| ----------------- | ----------------------------------------------------- |
+| `list-entities`   | List all available entity sets                        |
+| `describe-entity` | Get schema for entity (fields, types, keys)           |
+| `read`            | Query records with optional filters                   |
+| `create`          | Create new record                                     |
+| `update`          | Update existing record                                |
+| `delete`          | Delete record                                         |
+| `search`          | Text search across entities (returns id, title, url)  |
+| `fetch`           | Get full record by EntitySet:GUID from search results |
+| `execute-process` | Run Creatio business processes                        |
+
+> **Note**: `search` and `fetch` tools are designed for OpenAI GPT Connector compatibility. Use `search` to find records, then `fetch` with the returned ID to get complete details.

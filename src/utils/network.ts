@@ -46,12 +46,10 @@ export function getUserKeyFromRequest(req: express.Request): string | undefined 
 	if (typeof fromQuery === 'string' && fromQuery) {
 		return fromQuery;
 	}
-
 	const sessionId = getSessionIdFromRequest(req as any);
 	if (sessionId) {
-		return `user_${sessionId}`; // session-based userKey
+		return `user_${sessionId}`;
 	}
-
 	return undefined;
 }
 

@@ -51,28 +51,35 @@ export class ODataCreatioClient implements CreatioClient {
 		const GUID_PATTERN =
 			/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 		const NUMERIC_PATTERN = /^\d+$/;
-
 		if (NUMERIC_PATTERN.test(id) || GUID_PATTERN.test(id)) {
 			return id;
 		}
 		return `'${id.replace(/'/g, "''")}'`;
 	}
 
-	private _buildODataQueryParams(filter?: string, select?: string[], top?: number): string[] {
+	private _buildODataQueryParams(
+		filter?: string,
+		select?: string[],
+		top?: number,
+		expand?: string[],
+		orderBy?: string,
+	): string[] {
 		const params: string[] = [];
-
 		if (filter) {
 			params.push(`$filter=${encodeURIComponent(filter)}`);
 		}
-
 		if (select && select.length > 0) {
 			params.push(`$select=${encodeURIComponent(select.join(','))}`);
 		}
-
+		if (expand && expand.length > 0) {
+			params.push(`$expand=${encodeURIComponent(expand.join(','))}`);
+		}
+		if (orderBy) {
+			params.push(`$orderby=${encodeURIComponent(orderBy)}`);
+		}
 		if (top) {
 			params.push(`$top=${top}`);
 		}
-
 		return params;
 	}
 
@@ -80,17 +87,19 @@ export class ODataCreatioClient implements CreatioClient {
 		return body && typeof body === 'object' && 'value' in body ? body.value : body;
 	}
 
-	private _createProcessParameterValues(
-		parameters?: Record<string, any>,
-	): Array<{ name: string; value: any }> {
-		const parameterValues: Array<{ name: string; value: any }> = [];
+	private _createProcessParameterValues(parameters?: Record<string, any>): Array<{
+		name: string;
+		value: any;
+	}> {
+		const parameterValues: Array<{
+			name: string;
+			value: any;
+		}> = [];
 		if (!parameters) {
 			return parameterValues;
 		}
-
 		Object.entries(parameters).forEach(([name, value]) => {
 			let encodedValue = value;
-			// Handle dates - convert to ISO string if needed
 			if (value instanceof Date) {
 				encodedValue = value.toISOString();
 			}
@@ -99,7 +108,6 @@ export class ODataCreatioClient implements CreatioClient {
 				value: encodedValue,
 			});
 		});
-
 		return parameterValues;
 	}
 
@@ -126,23 +134,17 @@ export class ODataCreatioClient implements CreatioClient {
 		initFactory: () => Promise<RequestInit>,
 	): Promise<Response> {
 		let hasTriedRefresh = false;
-
 		while (true) {
 			const requestInit = await initFactory();
 			this._logRequest(url, requestInit);
-
 			const response = await fetch(url, requestInit);
-
 			if (response.status !== 401) {
 				return response;
 			}
-
 			this._logUnauthorizedResponse(url, response, hasTriedRefresh);
-
 			if (hasTriedRefresh) {
 				return response;
 			}
-
 			hasTriedRefresh = true;
 			await this.authProvider.refresh();
 		}
@@ -194,11 +196,9 @@ export class ODataCreatioClient implements CreatioClient {
 		if (this._metadataXml) {
 			return this._metadataXml;
 		}
-
 		const headers = await this._getXmlHeaders();
 		const metadataUrl = `${this._getODataRoot()}/$metadata`;
 		const xmlContent = await this._fetchText(metadataUrl, async () => ({ headers }));
-
 		this._metadataXml = xmlContent;
 		return this._metadataXml;
 	}
@@ -207,13 +207,11 @@ export class ODataCreatioClient implements CreatioClient {
 		if (this._metadataParsed) {
 			return this._metadataParsed;
 		}
-
 		const xmlContent = await this._getMetadataXml();
 		const parser = new XMLParser({
 			ignoreAttributes: false,
 			attributeNamePrefix: '@_',
 		});
-
 		this._metadataParsed = parser.parse(xmlContent);
 		return this._metadataParsed;
 	}
@@ -232,15 +230,12 @@ export class ODataCreatioClient implements CreatioClient {
 		logContext: Record<string, any> = {},
 	): Promise<T> {
 		const startTime = Date.now();
-
 		try {
 			const response = await request();
 			const duration = Date.now() - startTime;
-
 			if (!response.ok) {
 				return await errorHandler(response, duration);
 			}
-
 			return await successHandler(response, duration);
 		} catch (error: any) {
 			const duration = Date.now() - startTime;
@@ -276,14 +271,12 @@ export class ODataCreatioClient implements CreatioClient {
 			const serviceUrl = `${this._getODataRoot()}/`;
 			const headers = await this._getJsonHeaders();
 			const response = await this._fetchWithAuth(serviceUrl, async () => ({ headers }));
-
 			if (response.ok) {
 				const body: any = await response.json().catch(() => null);
 				if (body && Array.isArray(body.value)) {
 					return body.value.map((item: any) => String(item.name));
 				}
 			}
-
 			if (!response.ok) {
 				log.error('odata.list-entity-sets.error', {
 					url: serviceUrl,
@@ -303,7 +296,6 @@ export class ODataCreatioClient implements CreatioClient {
 		const metadata = await this._getParsedMetadata();
 		const schemas = this._extractSchemas(metadata);
 		const entitySets: string[] = [];
-
 		for (const schema of schemas) {
 			const containers = this._arrayify<any>(schema.EntityContainer);
 			for (const container of containers) {
@@ -316,7 +308,6 @@ export class ODataCreatioClient implements CreatioClient {
 				}
 			}
 		}
-
 		return Array.from(new Set(entitySets));
 	}
 
@@ -357,7 +348,6 @@ export class ODataCreatioClient implements CreatioClient {
 	} {
 		const keyRefs = this._arrayify<any>(entityTypeNode.Key?.PropertyRef);
 		const key = keyRefs.map((ref) => String(ref?.['@_Name'] ?? '')).filter(Boolean) as string[];
-
 		const propertyNodes = this._arrayify<any>(entityTypeNode.Property);
 		const properties = propertyNodes.map((prop) => {
 			const name = String(prop?.['@_Name'] ?? '');
@@ -367,14 +357,11 @@ export class ODataCreatioClient implements CreatioClient {
 				type: string;
 				nullable?: boolean;
 			} = { name, type };
-
 			if (Object.prototype.hasOwnProperty.call(prop, '@_Nullable')) {
 				result.nullable = String(prop['@_Nullable']) === 'true';
 			}
-
 			return result;
 		});
-
 		return { key, properties };
 	}
 
@@ -411,27 +398,33 @@ export class ODataCreatioClient implements CreatioClient {
 		);
 	}
 
-	public async read(entity: string, filter?: string, select?: string[], top?: number) {
+	public async read(
+		entity: string,
+		filter?: string,
+		select?: string[],
+		top?: number,
+		expand?: string[],
+		orderBy?: string,
+	) {
 		const startTime = Date.now();
-		const queryParams = this._buildODataQueryParams(filter, select, top);
+		const queryParams = this._buildODataQueryParams(filter, select, top, expand, orderBy);
 		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
 		const headers = await this._getJsonHeaders();
-
 		try {
 			const body = await this._fetchJson(url, async () => ({ headers }));
 			const result = this._extractODataValue(body);
 			const duration = Date.now() - startTime;
 			const resultCount = Array.isArray(result) ? result.length : result ? 1 : 0;
-
 			log.info('odata.read.success', {
 				entity,
 				filter,
 				select: select?.join(','),
+				expand: expand?.join(','),
+				orderBy,
 				top,
 				resultCount,
 				duration,
 			});
-
 			return result;
 		} catch (error: any) {
 			const duration = Date.now() - startTime;
@@ -529,14 +522,12 @@ export class ODataCreatioClient implements CreatioClient {
 	}> {
 		const metadata = await this._getParsedMetadata();
 		const schemas = this._extractSchemas(metadata);
-
 		const fullType = this._findEntityType(schemas, entitySet);
 		if (!fullType) {
 			const error = `entity_not_found:${entitySet}`;
 			log.error('odata.describe-entity.error', { entitySet, error });
 			throw new Error(error);
 		}
-
 		const typeName = fullType.split('.').pop()!;
 		const entityTypeNode = this._findEntityTypeNode(schemas, typeName);
 		if (!entityTypeNode) {
@@ -544,7 +535,6 @@ export class ODataCreatioClient implements CreatioClient {
 			log.error('odata.describe-entity.error', { entitySet, error });
 			throw new Error(error);
 		}
-
 		const { key, properties } = this._parseEntityProperties(entityTypeNode);
 		return { entitySet, entityType: typeName, key, properties };
 	}

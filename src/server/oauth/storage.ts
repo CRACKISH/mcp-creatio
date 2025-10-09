@@ -1,5 +1,3 @@
-import crypto from 'crypto';
-
 import log from '../../log';
 
 import type { OAuthClient } from './types';
@@ -23,7 +21,6 @@ export class OAuthStorage {
 	private readonly _authorizationCodes = new Map<string, AuthorizationCodeData>();
 	private readonly _authorizationStates = new Map<string, StateData>();
 
-	// Client management
 	public addClient(client: OAuthClient): void {
 		this._clients.set(client.client_id, client);
 	}
@@ -36,7 +33,6 @@ export class OAuthStorage {
 		return this._clients.has(client_id);
 	}
 
-	// Authorization code management
 	public storeAuthorizationCode(
 		code: string,
 		client_id: string,
@@ -44,10 +40,9 @@ export class OAuthStorage {
 		code_challenge: string,
 		code_challenge_method: string,
 		userKey: string,
-		expiresInMs: number = 10 * 60 * 1000, // 10 minutes
+		expiresInMs: number = 10 * 60 * 1000,
 	): void {
 		const expires_at = Date.now() + expiresInMs;
-
 		this._authorizationCodes.set(code, {
 			client_id,
 			redirect_uri,
@@ -66,11 +61,10 @@ export class OAuthStorage {
 		this._authorizationCodes.delete(code);
 	}
 
-	// State management
 	public storeState(
 		state: string,
 		client_id: string,
-		expiresInMs: number = 30 * 60 * 1000, // 30 minutes
+		expiresInMs: number = 30 * 60 * 1000,
 	): void {
 		const expires_at = Date.now() + expiresInMs;
 		this._authorizationStates.set(state, { client_id, expires_at });
@@ -92,24 +86,18 @@ export class OAuthStorage {
 		return Array.from(this._authorizationCodes.keys());
 	}
 
-	// Cleanup expired items
 	public cleanup(): void {
 		const now = Date.now();
-
-		// Clean expired authorization codes
 		for (const [code, data] of this._authorizationCodes.entries()) {
 			if (now > data.expires_at) {
 				this._authorizationCodes.delete(code);
 			}
 		}
-
-		// Clean expired states
 		for (const [state, data] of this._authorizationStates.entries()) {
 			if (now > data.expires_at) {
 				this._authorizationStates.delete(state);
 			}
 		}
-
 		log.info('oauth.storage.cleanup.completed', {
 			remaining_codes: this._authorizationCodes.size,
 			remaining_states: this._authorizationStates.size,

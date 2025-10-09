@@ -6,6 +6,7 @@ export const NAME: string =
 			name?: string;
 		}
 	).name || 'creatio-mcp';
+
 export const VERSION: string =
 	(
 		pkg as {

@@ -1,6 +1,5 @@
 import log from '../log';
 import { SessionContext } from '../services';
-
 export type TokenRefreshCallback = (userKey: string) => Promise<void>;
 
 export class TokenRefreshScheduler {
@@ -12,17 +11,14 @@ export class TokenRefreshScheduler {
 		if (!this._refreshCallback) {
 			throw new Error('no_refresh_callback');
 		}
-
 		const tokens = await this._sessionContext.getTokensForUser(userKey);
 		if (!tokens?.refreshToken) {
 			throw new Error('no_refresh_token');
 		}
-
 		const sessions = this._sessionContext.getSessionsForUser(userKey);
 		if (sessions.length === 0) {
 			throw new Error('no_active_sessions');
 		}
-
 		await this._refreshCallback(userKey);
 		log.info('background_token_refresh_success', { userKey, sessionsCount: sessions.length });
 	}
@@ -33,7 +29,6 @@ export class TokenRefreshScheduler {
 
 	public scheduleRefresh(userKey: string): void {
 		this.cancelRefresh(userKey);
-
 		const refreshInterval = setInterval(
 			async () => {
 				try {
@@ -45,7 +40,6 @@ export class TokenRefreshScheduler {
 			},
 			15 * 60 * 1000,
 		);
-
 		this._refreshIntervals.set(userKey, refreshInterval);
 		log.info('token_refresh_scheduled', { userKey });
 	}

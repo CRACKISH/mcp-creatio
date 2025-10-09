@@ -3,6 +3,10 @@
 		"creatio_local": {
 			"url": "http://localhost:3000/mcp",
 			"type": "http"
+		},
+		"creatio_demo": {
+			"url": "http://a_vanikhin:7700/mcp",
+			"type": "http"
 		}
 	},
 	"inputs": []

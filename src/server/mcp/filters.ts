@@ -26,8 +26,9 @@ function literalFor(field: string, value: any): string {
 	}
 	if (t === 'string') {
 		const v = String(value);
-		if (isGuid(v) && isIdish(field)) {
-			return `guid'${v}'`;
+		const isNavigationProperty = field.includes('/');
+		if (isGuid(v) && isIdish(field) && !isNavigationProperty) {
+			return v;
 		}
 		return `'${escapeStr(v)}'`;
 	}

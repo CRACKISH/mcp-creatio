@@ -6,27 +6,17 @@ import { OAuthValidators } from '../oauth/validators';
 import type { OAuthServer } from '../oauth';
 import type { Request, Response } from 'express';
 
-/**
- * OAuth 2.1 server endpoints handlers
- */
 export class MCPOAuthHandlers {
 	constructor(private readonly _oauthServer: OAuthServer) {}
 
-	/**
-	 * OAuth 2.0 Authorization Server Metadata (RFC 8414)
-	 */
 	public handleMetadata(req: Request, res: Response): void {
 		const metadata = this._oauthServer.getAuthorizationServerMetadata();
 		res.json(metadata);
 	}
 
-	/**
-	 * Dynamic Client Registration (RFC 7591)
-	 */
 	public handleClientRegistration(req: Request, res: Response): Response | void {
 		try {
 			const { redirect_uris } = req.body;
-
 			const validationError = OAuthValidators.validateClientRegistration(redirect_uris);
 			if (validationError) {
 				return res.status(400).json({
@@ -34,7 +24,6 @@ export class MCPOAuthHandlers {
 					error_description: validationError,
 				});
 			}
-
 			const client = this._oauthServer.registerClient(redirect_uris);
 			res.status(201).json(client);
 		} catch (error) {
@@ -46,9 +35,6 @@ export class MCPOAuthHandlers {
 		}
 	}
 
-	/**
-	 * OAuth Authorization Endpoint
-	 */
 	public async handleAuthorization(req: Request, res: Response): Promise<void> {
 		try {
 			const params = {
@@ -60,7 +46,6 @@ export class MCPOAuthHandlers {
 				code_challenge_method: req.query.code_challenge_method as string,
 				scope: req.query.scope as string,
 			};
-
 			const validationError = this._oauthServer.validateAuthorizationRequest(params);
 			if (validationError) {
 				const errorUrl = new URL(params.redirect_uri);
@@ -76,22 +61,11 @@ export class MCPOAuthHandlers {
 				}
 				return res.redirect(errorUrl.toString());
 			}
-
-			// Store state for CSRF protection
 			if (params.state) {
 				this._oauthServer.storeState(params.state, params.client_id);
 			}
-
-			// Store authorization request for later completion
 			const authKey = randomUUID();
-			// We'll use this authKey as temporary userKey for now
-
-			// Redirect to our OAuth start endpoint with the auth key
-			const creatioAuthUrl = `/oauth/start?authKey=${authKey}&client_id=${
-				params.client_id
-			}&redirect_uri=${encodeURIComponent(params.redirect_uri)}&code_challenge=${
-				params.code_challenge
-			}&code_challenge_method=${params.code_challenge_method}&state=${params.state || ''}`;
+			const creatioAuthUrl = `/oauth/start?authKey=${authKey}&client_id=${params.client_id}&redirect_uri=${encodeURIComponent(params.redirect_uri)}&code_challenge=${params.code_challenge}&code_challenge_method=${params.code_challenge_method}&state=${params.state || ''}`;
 			res.redirect(creatioAuthUrl);
 		} catch (error) {
 			log.error('oauth.authorize.error', { error: String(error) });
@@ -99,14 +73,9 @@ export class MCPOAuthHandlers {
 		}
 	}
 
-	/**
-	 * OAuth Token Endpoint
-	 */
 	public async handleTokenExchange(req: Request, res: Response): Promise<Response | void> {
 		try {
-			// Support both JSON and form-encoded requests
 			const tokenParams = req.body || {};
-
 			log.info('oauth.token.request', {
 				contentType: req.headers['content-type'],
 				hasBody: !!req.body,
@@ -119,13 +88,10 @@ export class MCPOAuthHandlers {
 					has_code_verifier: !!tokenParams.code_verifier,
 				},
 			});
-
 			const result = await this._oauthServer.exchangeCodeForToken(tokenParams);
-
 			if ('error' in result) {
 				return res.status(400).json(result);
 			}
-
 			res.json(result);
 		} catch (error) {
 			log.error('oauth.token.error', { error: String(error) });

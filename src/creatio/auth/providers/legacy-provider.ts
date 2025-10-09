@@ -8,6 +8,7 @@ import { BaseProvider } from './base-provider';
 
 export class LegacyProvider extends BaseProvider<LegacyAuthConfig> {
 	private _bpmCsrf: string | undefined;
+
 	private _cookieHeader: string | undefined;
 
 	private async _ensureSession() {

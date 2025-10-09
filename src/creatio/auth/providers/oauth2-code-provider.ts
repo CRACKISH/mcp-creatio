@@ -180,7 +180,6 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		await this._sessionContext.setTokensForUser(userKey, tokens);
 		this.accessToken = tokens.accessToken;
 		this.accessTokenExpiryMs = tokens.accessTokenExpiryMs;
-
 		this._tokenRefreshScheduler.scheduleRefresh(userKey);
 		log.info('oauth2_code.authorization_complete', { userKey });
 	}
@@ -246,10 +245,8 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		if (!saved?.refreshToken) {
 			throw new Error('oauth2_no_refresh_token');
 		}
-
 		const updated = await this._refreshTokens(saved.refreshToken);
 		await this._sessionContext.setTokensForUser(userKey, updated);
-
 		log.info('oauth2_code.background_refresh_success', { userKey });
 	}
 }

@@ -5,7 +5,6 @@ export interface LogConfig {
 	level?: LogLevel;
 }
 
-// Correlation ID context
 let _correlationId: string | undefined;
 
 export function setCorrelationId(correlationId: string) {
@@ -26,12 +25,9 @@ function timestamp() {
 
 function output(level: LogLevel, msg: string, meta?: Record<string, any>) {
 	const entry: any = { ts: timestamp(), level, msg };
-
-	// Add correlation ID if present
 	if (_correlationId) {
 		entry.correlationId = _correlationId;
 	}
-
 	if (meta && Object.keys(meta).length) {
 		entry.meta = meta;
 	}

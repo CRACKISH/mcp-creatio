@@ -15,23 +15,16 @@ import {
 import type { Server } from '../mcp';
 import type { Request, Response } from 'express';
 
-/**
- * MCP request handlers
- */
 export class McpHandlers {
 	private readonly _sessionContext = SessionContext.instance;
 
 	constructor(private readonly _server: Server) {}
 
-	/**
-	 * Handle MCP POST requests
-	 */
 	public async handleMcpPost(req: Request, res: Response): Promise<void> {
 		const sessionId = getSessionIdFromRequest(req);
-		const bearerUserKey = (req as any).userKey; // From Bearer token middleware
+		const bearerUserKey = (req as any).userKey;
 		let transport: StreamableHTTPServerTransport | undefined;
 		const remoteIp = getClientIp(req);
-
 		if (sessionId && this._sessionContext.hasSession(sessionId)) {
 			const session = this._sessionContext.getSession(sessionId);
 			transport = session?.transport;
@@ -44,7 +37,6 @@ export class McpHandlers {
 				sessionIdGenerator: () => randomUUID(),
 				onsessioninitialized: (sid) => {
 					if (transport) {
-						// Use userKey from Bearer token instead of auto-generated
 						const session = this._sessionContext.createSession(
 							sid,
 							bearerUserKey,
@@ -72,18 +64,13 @@ export class McpHandlers {
 			});
 			return;
 		}
-
 		const session = this._sessionContext.getSession(sessionId);
-		// Prefer userKey from Bearer token, fallback to session userKey
 		const userKey = bearerUserKey || session?.userKey;
 		await runWithContext({ userKey, sessionId }, async () =>
 			transport!.handleRequest(req, res, req.body),
 		);
 	}
 
-	/**
-	 * Handle MCP GET/DELETE requests (session-based)
-	 */
 	public async handleSessionRequest(req: Request, res: Response): Promise<void> {
 		const sessionId = req.headers['mcp-session-id'] as string | undefined;
 		if (!sessionId || !this._sessionContext.hasSession(sessionId)) {

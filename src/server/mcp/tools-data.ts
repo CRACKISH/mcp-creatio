@@ -1,5 +1,44 @@
 import { z } from 'zod';
 
+const CRITICAL_WARNINGS = {
+	FILTER_SELECT_SYNC:
+		'⚠️ CRITICAL: When using $filter with $select:\n' +
+		'- ALWAYS include filtered fields in $select array\n' +
+		"- Example: filter by AccountId → select=['Id','AccountId',...]\n" +
+		'- Creatio returns error "Column by path X not found" if field filtered but not selected\n' +
+		'- This does NOT apply to expanded entities - those are separate',
+	GUID_NO_QUOTES:
+		'⚠️ IMPORTANT GUID SYNTAX:\n' +
+		'- GUID fields (Id, AccountId, ContactId, etc.): NO quotes, NO guid prefix!\n' +
+		'  ✅ CORRECT: AccountId eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
+		"  ❌ WRONG: AccountId eq guid'...' or AccountId eq '...'\n" +
+		"- String/Text fields: WITH single quotes! Example: Name eq 'John'\n" +
+		"- Navigation properties: WITH single quotes! Example: Type/Name eq 'Employee'",
+	TIME_CONVERSION:
+		'⏰ TIME CONVERSION CRITICAL:\nWhen updating StartDate/DueDate, convert local time to UTC!',
+} as const;
+
+const DATA_TYPES_DESC = {
+	BASIC:
+		'DATA TYPES:\n' +
+		'- Strings: "John Doe", "john@example.com"\n' +
+		'- Numbers: 1000, 25.99\n' +
+		'- Booleans: true, false\n' +
+		'- Dates: ISO 8601 format with Z for UTC: "2025-10-08T19:00:00Z"\n' +
+		'- GUIDs (lookups): "8ecab4a1-0ca3-4515-9399-efe0a19390bd" (no quotes in value!)',
+	LOOKUPS:
+		'LOOKUP FIELDS:\n' +
+		'- Use field name ending with Id: AccountId, ContactId, TypeId, etc.\n' +
+		'- Value must be valid GUID from related entity\n' +
+		'- Example: AccountId: "8ecab4a1-0ca3-4515-9399-efe0a19390bd"',
+	DATES:
+		'⏰ DATES & TIME:\n' +
+		'- Always use UTC time with Z suffix\n' +
+		'- Convert local time to UTC: subtract timezone offset\n' +
+		'- Format: "YYYY-MM-DDTHH:mm:ssZ"\n' +
+		'- Example: "2025-10-08T19:00:00Z" for 22:00 local (UTC+3)',
+} as const;
+
 function makeToolDescriptor(opts: {
 	title: string;
 	description: string;
@@ -63,7 +102,13 @@ const filtersShape = z
 			),
 	})
 	.describe(
-		'Structured filters to auto-build $filter. Recommended for LLMs. Tip: for lookups prefer GUID in *_Id, or use navigation Field/Name.',
+		'Structured filters - alternative to raw $filter. Automatically handles OData syntax, escaping, etc.\n' +
+			'Tip: For lookups, prefer navigation properties (Field/Name) over IDs for better readability.\n\n' +
+			'Examples:\n' +
+			'- Lookup by name: { all:[{ field:"Type/Name", op:"eq", value:"Employee" }] }\n' +
+			'- By GUID: { all:[{ field:"TypeId", op:"eq", value:"60733efc-..." }] }\n' +
+			'- Multiple AND: { all:[{ field:"IsActive", op:"eq", value:true }, { field:"Name", op:"contains", value:"John" }] }\n' +
+			'- Multiple OR: { any:[{ field:"Status/Name", op:"eq", value:"Active" }, { field:"Status/Name", op:"eq", value:"Pending" }] }',
 	);
 
 const readInputShape = {
@@ -79,12 +124,35 @@ const readInputShape = {
 			z.string().min(1).optional(),
 		)
 		.describe(
-			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''. Operators: eq, ne, gt, ge, lt, le, and, or, not, contains, startswith, endswith. Example: contains(Name,'Acme') and IsActive eq true. Lookup tips: prefer FieldId eq guid'...' (fast); or use navigation Field/Name eq '...'. LLM recipe (lookup by display value): (1) call 'describe-entity' for the base entity (e.g., Contact) and find a '<Field>Id' (e.g., TypeId); (2) infer navigation '<Field>' (e.g., Type) and use '<Field>/Name eq '<Value>'' (e.g., Type/Name eq 'Employee'); (3) optionally add $select and $expand to return the display name.",
+			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
+				'Operators: eq, ne, gt, ge, lt, le, and, or, not, contains, startswith, endswith.\n\n' +
+				CRITICAL_WARNINGS.GUID_NO_QUOTES +
+				'\n\n' +
+				'⚠️ IMPORTANT: When using $filter with $select:\n' +
+				'- Include ALL fields from filter in $select if possible\n' +
+				'- Example: filter by AccountId? Include AccountId in select array\n' +
+				'- Creatio may fail if filtered field is not in select list\n\n' +
+				'Examples:\n' +
+				'- By GUID: AccountId eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
+				"- Text search: contains(Name,'Acme')\n" +
+				"- Multiple: contains(Name,'Baker') and IsActive eq true\n" +
+				"- Lookup by name: Type/Name eq 'Employee' (RECOMMENDED!)\n\n" +
+				'💡 BEST PRACTICE: Use structured filters parameter instead of raw $filter - it handles syntax automatically!',
 		),
 	filters: filtersShape
 		.optional()
 		.describe(
-			"Alternative to raw $filter: structured 'filters' (LLM-friendly). Example: { all:[{ field:'TypeId', op:'eq', value:'<GUID>' }], any:[{ field:'Type/Name', op:'eq', value:'Employee' }] }",
+			'Structured filters (alternative to raw $filter). Automatically handles proper OData syntax including GUID formatting.\n' +
+				'System automatically removes quotes from GUID values for Id fields.\n\n' +
+				'⚠️ IMPORTANT: When using filters with select parameter:\n' +
+				'- ALWAYS include filtered fields in select array\n' +
+				'- Creatio OData may fail if field is in filter but not in select\n\n' +
+				'Examples:\n' +
+				"- By GUID: { all:[{ field:'AccountId', op:'eq', value:'60733efc-f36b-1410-a883-16d83cab0980' }] }\n" +
+				"- By lookup name: { all:[{ field:'Type/Name', op:'eq', value:'Employee' }] } (RECOMMENDED!)\n" +
+				"- Multiple AND: { all:[{ field:'IsActive', op:'eq', value:true }, { field:'Name', op:'contains', value:'John' }] }\n" +
+				"- Multiple OR: { any:[{ field:'StatusId', op:'eq', value:'guid1' }, { field:'StatusId', op:'eq', value:'guid2' }] }\n\n" +
+				'💡 If filtering by AccountId, ContactId, etc - include that field in select!',
 		),
 	select: z
 		.preprocess(
@@ -92,7 +160,61 @@ const readInputShape = {
 			z.array(z.string()).optional(),
 		)
 		.describe(
-			"Fields to return. Strongly recommended for performance. Example: ['Id','Name','Email']. Use 'describe-entity' to discover field names.",
+			'Fields to return from the main entity. Strongly recommended for performance.\n\n' +
+				'⚠️ IMPORTANT: $select works ONLY for direct properties of the entity!\n' +
+				"- ✅ CORRECT: select=['Id','Name','AccountId','Email']\n" +
+				"- ❌ WRONG: select=['Account/Name'] - navigation paths NOT supported\n\n" +
+				CRITICAL_WARNINGS.FILTER_SELECT_SYNC +
+				'\n\n' +
+				'💡 TO GET RELATED DATA: Use expand parameter (RECOMMENDED)!\n' +
+				"- expand=['Account'] loads full Account object automatically\n" +
+				'- No need to include expanded fields in select\n' +
+				'- Much better than making separate requests\n\n' +
+				"Use 'describe-entity' to discover available field names.",
+		),
+	expand: z
+		.preprocess(
+			(v) => (Array.isArray(v) && v.length === 0 ? undefined : v),
+			z.array(z.string()).optional(),
+		)
+		.describe(
+			'Navigation properties to expand (load related entities in one request).\n\n' +
+				'This is the OData $expand parameter. Loads related entity objects.\n' +
+				'Very useful to get complete data without multiple requests!\n\n' +
+				'✅ HOW TO USE:\n' +
+				"- Find field ending with 'Id' (e.g., AccountId, ContactId, OwnerId)\n" +
+				"- Remove 'Id' suffix to get navigation name: AccountId → Account\n" +
+				"- Add to expand array: expand=['Account']\n\n" +
+				'� EXAMPLES:\n' +
+				"- Get orders with account info: expand=['Account']\n" +
+				"- Get contacts with account info: expand=['Account']\n" +
+				"- Multiple relations: expand=['Account','Owner']\n" +
+				"- Nested expansion: expand=['Account($expand=PrimaryContact)']\n\n" +
+				'💡 EXAMPLE REQUEST:\n' +
+				"  entity: 'Order'\n" +
+				"  expand: ['Account']\n" +
+				"  select: ['Id','Number','Amount','AccountId']\n" +
+				'Result includes full Account object with all its fields for each order!\n\n' +
+				'⚠️ NOTE: When combining $expand with $filter:\n' +
+				'- Still include filtered fields in select if using $select\n' +
+				'- Expanded entities are added to response, not to select',
+		),
+	orderBy: z
+		.preprocess(
+			(v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+			z.string().optional(),
+		)
+		.describe(
+			'OData $orderby clause for sorting results.\n\n' +
+				'Syntax: "FieldName asc" or "FieldName desc"\n' +
+				'Multiple fields: "Field1 asc, Field2 desc"\n\n' +
+				'✅ EXAMPLES:\n' +
+				'- orderBy: "Name asc" - sort by name ascending\n' +
+				'- orderBy: "CreatedOn desc" - newest first\n' +
+				'- orderBy: "Amount desc" - highest amount first\n' +
+				'- orderBy: "Name asc, Amount desc" - sort by multiple fields\n\n' +
+				'⚠️ NOTE: You can only sort by direct properties of the entity.\n' +
+				'Sorting by navigation properties (like Account/Name) is NOT supported in Creatio OData.',
 		),
 	top: z.coerce
 		.number()
@@ -107,7 +229,12 @@ export const readInput = z.object(readInputShape);
 export const readDescriptor = makeToolDescriptor({
 	title: 'Read records in Creatio',
 	description:
-		"Query Creatio records from an entity set. Recommended flow: (1) call 'list-entities' \u2192 (2) call 'describe-entity' to inspect fields \u2192 (3) call 'read' with a focused $select and optional $filter/$top. LLM playbook for lookups: If the user asks 'find contacts with type employee' \u2014 (a) describe 'Contact' and locate 'TypeId'; (b) use navigation 'Type/Name eq 'Employee''; (c) if GUID is known, prefer 'TypeId eq guid'...''. You may also use structured 'filters': { all:[{ field:'Type/Name', op:'eq', value:'Employee' }] }.",
+		'Query Creatio records. Workflow: 1) list-entities 2) describe-entity 3) read with select, optional expand, filters/orderBy/top. ' +
+		'Key params: select (fields to return), filters or filter (conditions), expand (related entities), orderBy (sorting), top (limit). ' +
+		'Always include fields used in filters in select when select is provided. Use structured filters over raw $filter when possible. ' +
+		"Use expand to load related entities in one request (e.g. expand:['Account']). " +
+		'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
+		"Example: entity:'Order', select:['Id','Number','Amount','AccountId'], filters:{ all:[{ field:'AccountId', op:'eq', value:'<guid>' }] }, expand:['Account'], orderBy:'Amount desc', top:10",
 	inputShape: readInputShape,
 });
 
@@ -121,7 +248,14 @@ const createInputShape = {
 	data: z
 		.record(z.string(), z.any())
 		.describe(
-			'Field map for new record. Dates in ISO 8601; booleans true/false; lookups as GUIDs in *_Id fields (e.g., AccountId). Prefer minimal fields required by the schema.',
+			'Field map for new record.\n\n' +
+				DATA_TYPES_DESC.BASIC +
+				'\n\n' +
+				DATA_TYPES_DESC.LOOKUPS +
+				'\n\n' +
+				DATA_TYPES_DESC.DATES +
+				'\n\n' +
+				"💡 TIP: Call 'describe-entity' first to see required fields and their types!",
 		),
 } as const;
 export const createInput = z.object(createInputShape);
@@ -129,7 +263,13 @@ export const createInput = z.object(createInputShape);
 export const createDescriptor = makeToolDescriptor({
 	title: 'Create record in Creatio',
 	description:
-		"Create a single Creatio record. Use 'describe-entity' first to verify required fields and types. Examples:\n- entity=Activity, data={ Title:'Call with Andrii', StartDate:'2025-09-12T12:00:00Z' }\n- entity=Account, data={ Name:'Acme UA', Code:'ACM-001' }",
+		"Create a single Creatio record. Use 'describe-entity' first to confirm required fields & types. " +
+		'Provide entity and data map. Only include fields you need. ' +
+		'ALL DATE/TIME FIELDS: For ANY date/time field (StartDate, DueDate, RemindToOwnerDate, CreatedOn overrides, custom date columns) ALWAYS use /datetime-guide for UTC conversion & formatting. ' +
+		'ALL CONTACT / USER LOOKUP FIELDS: For ANY field pointing to a user/contact (OwnerId, AuthorId, CreatedById, ModifiedById, ResponsibleId, ManagerId, SupervisorId, and similar *Id fields referencing sys users) use /contactid-guide to resolve correct ContactId. Avoid guessing IDs. ' +
+		'Activities (Task/Meeting/Call/Email): HARD RULE → Always set TypeId to Task (fbe0acdc-cfc0-df11-b00f-001d60e938c6) and vary only ActivityCategoryId for meeting/call/email intent unless user explicitly says phrases like: "real meeting type", "true call type", "not a task", "use Visit type". Do NOT look up ActivityType for ordinary meeting/call/email requests. To intentionally allow a non-Task type, caller must add meta flag __allowNonTaskType=true. See /create-activity-guide prompt. ' +
+		'Tagging: use /tagging-guide prompt. ' +
+		"Examples: Account → data={ Name:'Acme Corp', Phone:'+1-234-567' }; Contact → data={ Name:'John Doe', Email:'john@example.com' }",
 	inputShape: createInputShape,
 });
 
@@ -143,14 +283,30 @@ const updateInputShape = {
 		),
 	data: z
 		.record(z.string(), z.any())
-		.describe('Partial fields to change. Only include properties that should be updated.'),
+		.describe(
+			'Partial fields to change. Only include properties that should be updated.\n\n' +
+				DATA_TYPES_DESC.BASIC +
+				' (same as create)\n\n' +
+				DATA_TYPES_DESC.DATES +
+				'\n\n' +
+				'COMMON UPDATE SCENARIOS:\n' +
+				'- Change Activity time: { StartDate: "2025-10-09T14:00:00Z" }\n' +
+				'- Update status: { StatusId: "<GUID from ActivityStatus>" }\n' +
+				'- Reschedule with reminder: { StartDate: "...", RemindToOwnerDate: "..." }\n' +
+				'- Change account: { AccountId: "guid..." }\n\n' +
+				'💡 For Activities: Query lookup tables (ActivityStatus, ActivityPriority) to get new IDs dynamically!',
+		),
 } as const;
 export const updateInput = z.object(updateInputShape);
 
 export const updateDescriptor = makeToolDescriptor({
 	title: 'Update record in Creatio',
 	description:
-		"Update a single record by Id (PATCH). Example:\n- entity=Account, id='<GUID>', data={ Name:'Acme Europe' }\nUse 'describe-entity' beforehand to ensure field names and types are valid.",
+		'Update a record by Id (PATCH). Supply entity, id, and partial data containing only changed fields. ' +
+		"Examples: Account → data={ Name:'Updated Name' }; Contact → data={ Email:'new@example.com' }. " +
+		'DATE/TIME: For ANY date/time modifications (reschedule StartDate, set DueDate, reminders, custom date columns, CreatedOn override when allowed) consult /datetime-guide prompt (always send UTC). ' +
+		'CONTACT/USER FIELDS: When changing OwnerId, AuthorId, ModifiedById (rare), ResponsibleId, ManagerId, etc use /contactid-guide prompt to resolve valid ContactId. Do NOT invent or reuse unrelated IDs. ' +
+		'Activities: /create-activity-guide prompt (overall), /datetime-guide prompt (time changes), /contactid-guide prompt (participants/Owner).',
 	inputShape: updateInputShape,
 });
 
@@ -168,7 +324,14 @@ export const deleteInput = z.object(deleteInputShape);
 export const deleteDescriptor = makeToolDescriptor({
 	title: 'Delete record in Creatio',
 	description:
-		'Delete a single record by Id. Consider soft-delete (via update of status flags) when appropriate.',
+		'Delete a single record by Id.\n\n' +
+		'⚠️ ALWAYS confirm with user before deleting!\n' +
+		'1. Show what will be deleted (entity, ID, identifying info)\n' +
+		'2. Ask: "Are you sure you want to delete this record?"\n' +
+		'3. Wait for explicit confirmation\n\n' +
+		'💡 SAFER ALTERNATIVE - Soft Delete:\n' +
+		'Instead of permanent deletion, update status: IsActive=false, IsDeleted=true\n' +
+		"Example: Use 'update' tool with data={ IsActive: false }",
 	inputShape: deleteInputShape,
 });
 
@@ -203,7 +366,7 @@ const searchInputShape = {
 		.string()
 		.min(1)
 		.describe(
-			'Free-text search query. The server will look up common entities (e.g., Contact, Account, Activity) using contains(Name, <query>) and return top matches.',
+			'Free-text search query. The server will search across common entities (Contact, Account, Activity) using contains(Name, <query>) and return top matches.',
 		),
 } as const;
 export const searchInput = z.object(searchInputShape);
@@ -211,7 +374,19 @@ export const searchInput = z.object(searchInputShape);
 export const searchDescriptor = makeToolDescriptor({
 	title: 'Search in Creatio',
 	description:
-		'Lightweight search across common entities (e.g., Contact, Account, Activity). Returns an array of {id, title, url}. The "id" is formatted as "EntitySet:GUID" and is consumable by the "fetch" tool. Note: Provided primarily for OpenAI GPT Connector MCP compatibility.',
+		'Performs a lightweight text search across common Creatio entities (Contact, Account, Activity).\n\n' +
+		'Returns: JSON array of search results, each with structure:\n' +
+		'- id: Unique identifier in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-...")\n' +
+		'- title: Display name (e.g., "Contact: John Doe")\n' +
+		'- url: Direct link to the record in Creatio\n\n' +
+		'Example return format: [{"id":"Contact:abc-123...","title":"Contact: John Doe","url":"https://..."}]\n\n' +
+		'Use the "id" field from results with the "fetch" tool to retrieve full record details.\n\n' +
+		'Typical workflow:\n' +
+		'1. search({ query: "John" }) → Returns array of matching records\n' +
+		'2. Get "id" from a result (e.g., "Contact:abc-123...")\n' +
+		'3. fetch({ id: "Contact:abc-123..." }) → Returns complete record data\n\n' +
+		'Note: This tool is optimized for OpenAI GPT Connector MCP compatibility.',
+
 	inputShape: searchInputShape,
 });
 
@@ -220,15 +395,28 @@ const fetchInputShape = {
 		.string()
 		.min(1)
 		.describe(
-			'Unique identifier of the search result to fetch. Format: "EntitySet:GUID" (e.g., "Contact:3f2e...").',
+			'Unique identifier from search results in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-1234-5678-90ab-cdef12345678"). This ID is returned by the "search" tool and consists of the entity name and record GUID separated by a colon.',
 		),
 } as const;
 export const fetchInput = z.object(fetchInputShape);
 
 export const fetchDescriptor = makeToolDescriptor({
-	title: 'Fetch by id from Creatio',
+	title: 'Fetch record by ID from Creatio',
 	description:
-		'Retrieve a full record by an id in the form "EntitySet:GUID" (e.g., "Contact:c4ed336c-..."). Returns { id, title, text, url, metadata } suitable for display. Note: Provided primarily for OpenAI GPT Connector MCP compatibility.',
+		'Retrieves a complete Creatio record using an ID from search results.\n\n' +
+		'Input: ID in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-1234-5678-90ab-cdef12345678")\n\n' +
+		'Returns: JSON object with complete record details:\n' +
+		'- id: Original identifier passed as input\n' +
+		'- title: Human-readable record name (e.g., "Contact John Doe")\n' +
+		'- text: Full record data as formatted JSON string with all fields\n' +
+		'- url: Direct link to the record in Creatio web interface\n' +
+		'- metadata: Additional info (entity type, GUID, error details if any)\n\n' +
+		'Example return: {"id":"Contact:abc...","title":"Contact John Doe","text":"{\\"Id\\":\\"abc...\\",\\"Name\\":\\"John Doe\\",...}","url":"https://...","metadata":{"entity":"Contact","guid":"abc..."}}\n\n' +
+		'Typical workflow:\n' +
+		'1. Use "search" tool to find records (e.g., search({ query: "John" }))\n' +
+		'2. Get "id" from search results (e.g., "Contact:abc-123...")\n' +
+		'3. Use this "fetch" tool with that ID to retrieve complete record: fetch({ id: "Contact:abc-123..." })\n\n' +
+		'Note: This tool is designed for OpenAI GPT Connector MCP compatibility and provides all record data for AI analysis.',
 	inputShape: fetchInputShape,
 });
 
@@ -284,6 +472,7 @@ export const executeProcessDescriptor = makeToolDescriptor({
 		'- Text fields: Description, Notes, Text, Comment, Title\n' +
 		'- Flags: IsActive, IsCompleted, SendEmail, CreateActivity\n' +
 		'- Dates: StartDate, EndDate, DueDate (ISO format)\n\n' +
+		'GUID & Date Helpers: /datetime-guide prompt applies to EVERY date/time parameter (convert to UTC). /contactid-guide prompt applies to EVERY user/contact participant parameter (OwnerId, AuthorId, AssigneeId, ResponsibleId, CreatedById overrides, etc).\n\n' +
 		'Example:\n' +
 		'{\n' +
 		'  "processName": "Lead Management Process",\n' +

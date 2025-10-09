@@ -8,6 +8,7 @@ export type RequestContext = {
 };
 
 const als = new AsyncLocalStorage<RequestContext>();
+
 const sessionContext = SessionContext.instance;
 
 export function runWithContext<T>(ctx: Partial<RequestContext>, fn: () => Promise<T>): Promise<T> {

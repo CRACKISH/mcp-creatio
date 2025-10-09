@@ -18,6 +18,7 @@ async function main() {
 }
 
 let shuttingDown = false;
+
 async function shutdown(signal?: string) {
 	if (shuttingDown) {
 		return;
