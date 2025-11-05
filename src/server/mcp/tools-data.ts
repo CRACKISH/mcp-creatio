@@ -406,65 +406,6 @@ export const describeEntityDescriptor = makeToolDescriptor({
 	inputShape: describeEntityInputShape,
 });
 
-const searchInputShape = {
-	query: z
-		.string()
-		.min(1)
-		.describe(
-			'Free-text search query. The server will search across common entities (Contact, Account, Activity) using contains(Name, <query>) and return top matches.',
-		),
-} as const;
-export const searchInput = z.object(searchInputShape);
-
-export const searchDescriptor = makeToolDescriptor({
-	title: 'Search in Creatio',
-	description:
-		'Performs a lightweight text search across common Creatio entities (Contact, Account, Activity).\n\n' +
-		'Returns: JSON array of search results, each with structure:\n' +
-		'- id: Unique identifier in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-...")\n' +
-		'- title: Display name (e.g., "Contact: John Doe")\n' +
-		'- url: Direct link to the record in Creatio\n\n' +
-		'Example return format: [{"id":"Contact:abc-123...","title":"Contact: John Doe","url":"https://..."}]\n\n' +
-		'Use the "id" field from results with the "fetch" tool to retrieve full record details.\n\n' +
-		'Typical workflow:\n' +
-		'1. search({ query: "John" }) → Returns array of matching records\n' +
-		'2. Get "id" from a result (e.g., "Contact:abc-123...")\n' +
-		'3. fetch({ id: "Contact:abc-123..." }) → Returns complete record data\n\n' +
-		'Note: This tool is optimized for OpenAI GPT Connector MCP compatibility.',
-
-	inputShape: searchInputShape,
-});
-
-const fetchInputShape = {
-	id: z
-		.string()
-		.min(1)
-		.describe(
-			'Unique identifier from search results in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-1234-5678-90ab-cdef12345678"). This ID is returned by the "search" tool and consists of the entity name and record GUID separated by a colon.',
-		),
-} as const;
-export const fetchInput = z.object(fetchInputShape);
-
-export const fetchDescriptor = makeToolDescriptor({
-	title: 'Fetch record by ID from Creatio',
-	description:
-		'Retrieves a complete Creatio record using an ID from search results.\n\n' +
-		'Input: ID in format "EntitySet:GUID" (e.g., "Contact:c4ed336c-1234-5678-90ab-cdef12345678")\n\n' +
-		'Returns: JSON object with complete record details:\n' +
-		'- id: Original identifier passed as input\n' +
-		'- title: Human-readable record name (e.g., "Contact John Doe")\n' +
-		'- text: Full record data as formatted JSON string with all fields\n' +
-		'- url: Direct link to the record in Creatio web interface\n' +
-		'- metadata: Additional info (entity type, GUID, error details if any)\n\n' +
-		'Example return: {"id":"Contact:abc...","title":"Contact John Doe","text":"{\\"Id\\":\\"abc...\\",\\"Name\\":\\"John Doe\\",...}","url":"https://...","metadata":{"entity":"Contact","guid":"abc..."}}\n\n' +
-		'Typical workflow:\n' +
-		'1. Use "search" tool to find records (e.g., search({ query: "John" }))\n' +
-		'2. Get "id" from search results (e.g., "Contact:abc-123...")\n' +
-		'3. Use this "fetch" tool with that ID to retrieve complete record: fetch({ id: "Contact:abc-123..." })\n\n' +
-		'Note: This tool is designed for OpenAI GPT Connector MCP compatibility and provides all record data for AI analysis.',
-	inputShape: fetchInputShape,
-});
-
 const executeProcessInputShape = {
 	processName: z
 		.string()

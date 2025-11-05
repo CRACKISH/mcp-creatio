@@ -16,16 +16,12 @@ import {
 	describeEntityInput,
 	executeProcessDescriptor,
 	executeProcessInput,
-	fetchDescriptor,
-	fetchInput,
 	getCurrentUserInfoDescriptor,
 	getCurrentUserInfoInput,
 	listEntitiesDescriptor,
 	listEntitiesInput,
 	readDescriptor,
 	readInput,
-	searchDescriptor,
-	searchInput,
 	updateDescriptor,
 	updateInput,
 } from './tools-data';
@@ -169,99 +165,6 @@ export class Server {
 							text: JSON.stringify(schema),
 						},
 					],
-				};
-			}),
-		);
-		this._registerHandlerWithDescriptor(
-			'search',
-			searchDescriptor,
-			withValidation(searchInput, async ({ query }) => {
-				const candidateEntities = ['Contact', 'Account', 'Activity'];
-				const results: Array<{
-					id: string;
-					title: string;
-					url: string;
-				}> = [];
-				for (const entity of candidateEntities) {
-					try {
-						const rows = await client.read(
-							entity,
-							`contains(Name,'${query.replace(/'/g, "''")}')`,
-							['Id', 'Name', 'Email', 'Code', 'Title'],
-							5,
-						);
-
-						for (const r of rows ?? []) {
-							const guid = String(r.Id ?? r.id ?? '');
-							if (!guid) {
-								continue;
-							}
-							const nameish = r.Name ?? r.Title ?? r.Code ?? guid;
-							const id = `${entity}:${guid}`;
-							const url = `${(client as any)._root?.() ?? ''}/${entity}(${guid})`;
-							results.push({
-								id,
-								title: `${entity}: ${nameish}`,
-								url,
-							});
-						}
-					} catch {}
-				}
-
-				const payload = JSON.stringify(results);
-				return {
-					content: [{ type: 'text', text: payload }],
-				};
-			}),
-		);
-
-		this._registerHandlerWithDescriptor(
-			'fetch',
-			fetchDescriptor,
-			withValidation(fetchInput, async ({ id }) => {
-				const m = /^([^:]+):(.+)$/.exec(id);
-				if (!m) {
-					const payload = JSON.stringify({
-						id,
-						title: 'Invalid id format',
-						text: 'Expected "EntitySet:GUID".',
-						url: '',
-						metadata: { error: 'bad_id' },
-					});
-					return { content: [{ type: 'text', text: payload }] };
-				}
-				const entity = m[1] as string;
-				const guid = m[2];
-				let record: any = null;
-				try {
-					const rows = await client.read(entity, `Id eq ${guid}`, undefined, 1);
-					record = Array.isArray(rows) && rows.length ? rows[0] : null;
-				} catch (e: any) {
-					log.error('mcp.fetch', { error: String(e?.message ?? e), entity, guid });
-					const payload = JSON.stringify({
-						id,
-						title: `${entity} ${guid}`,
-						text: '',
-						url: `${(client as any)._root?.() ?? ''}/${entity}(${guid})`,
-						metadata: { error: String(e?.message ?? e) },
-					});
-					return { content: [{ type: 'text', text: payload }] };
-				}
-				const title =
-					`${entity} ` +
-					String(record?.Name ?? record?.Title ?? record?.Code ?? record?.Id ?? guid);
-
-				const url = `${(client as any)._root?.() ?? ''}/${entity}(${guid})`;
-
-				const payload = JSON.stringify({
-					id,
-					title,
-					text: JSON.stringify(record ?? {}, null, 2),
-					url,
-					metadata: { entity, guid },
-				});
-				return {
-					content: [{ type: 'text', text: payload }],
 				};
 			}),
 		);
