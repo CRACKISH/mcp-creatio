@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug MCP Creatio",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "CREATIO_BASE_URL": "https://your-creatio.com",
+        "CREATIO_LOGIN": "Supervisor",
+        "CREATIO_PASSWORD": "Supervisor"
+      }
+    }
+  ]
+}
