@@ -22,6 +22,8 @@ import {
 	listEntitiesInput,
 	readDescriptor,
 	readInput,
+	setSysSettingsValueDescriptor,
+	setSysSettingsValueInput,
 	updateDescriptor,
 	updateInput,
 } from './tools-data';
@@ -213,6 +215,21 @@ export class Server {
 							{
 								type: 'text',
 								text: JSON.stringify(result, null, 2),
+							},
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'set-sys-settings-value',
+				setSysSettingsValueDescriptor,
+				withValidation(setSysSettingsValueInput, async ({ sysSettingsValues }) => {
+					const result = await client.setSysSettingsValues(sysSettingsValues);
+					return {
+						content: [
+							{
+								type: 'text',
+								text: JSON.stringify(result),
 							},
 						],
 					};

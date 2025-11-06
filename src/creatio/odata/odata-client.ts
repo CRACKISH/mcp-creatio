@@ -621,4 +621,39 @@ export class ODataCreatioClient implements CreatioClient {
 			{ processName },
 		);
 	}
+
+	public async setSysSettingsValues(sysSettingsValues: Record<string, any>): Promise<any> {
+		const url = `${this._getNormalizedBaseUrl()}/DataService/json/SyncReply/PostSysSettingsValues`;
+		return this._executeWithTiming(
+			'set-sys-settings-value',
+			url,
+			async () => {
+				const body = {
+					isPersonal: false,
+					sysSettingsValues,
+				};
+				const requestInit = await this._createPostRequest(body);
+				return this._fetchWithAuth(url, async () => requestInit);
+			},
+			async (response, duration) => {
+				this._logSuccess('set-sys-settings-value', response.status, duration, {
+					settingsCount: Object.keys(sysSettingsValues).length,
+				});
+				return response.text();
+			},
+			async (response, duration) => {
+				return this._handleErrorResponse(
+					'set-sys-settings-value',
+					response,
+					duration,
+					'set_sys_settings_value_failed',
+					{
+						settingsCount: Object.keys(sysSettingsValues).length,
+						url,
+					},
+				);
+			},
+			{ settingsCount: Object.keys(sysSettingsValues).length },
+		);
+	}
 }
