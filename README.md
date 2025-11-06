@@ -102,8 +102,8 @@ docker run --rm -p 3000:3000 \
 
 ## Available Tools
 
-| Tool              | Description                                           |
-| ----------------- | ----------------------------------------------------- |
+| Tool              | Description                                 |
+| ----------------- | ------------------------------------------- |
 | `list-entities`   | List all available entity sets              |
 | `describe-entity` | Get schema for entity (fields, types, keys) |
 | `read`            | Query records with optional filters         |
