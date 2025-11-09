@@ -472,3 +472,32 @@ export const executeProcessDescriptor = makeToolDescriptor({
 		'Uses Creatio ProcessEngineService.svc/Execute endpoint for execution.',
 	inputShape: executeProcessInputShape,
 });
+
+
+const setSysSettingsValueInputShape = {
+	sysSettingsValues: z
+		.record(z.string(), z.any())
+		.describe(
+			'Map of system setting codes to their new values. Accepts any JSON-compatible types (string, number, boolean, object, array).\n\n' +
+				'Examples:\n' +
+				"- Single setting: { 'SettingCode': 'value' }\n" +
+				"- Multiple settings: { 'SettingCode1': 'value1', 'SettingCode2': 123, 'SettingCode3': true }\n" +
+				"- Mixed types: { 'EmailEnabled': true, 'MaxRetries': 5, 'ApiKey': 'secret' }",
+		),
+} as const;
+
+export const setSysSettingsValueInput = z.object(setSysSettingsValueInputShape);
+
+export const setSysSettingsValueDescriptor = makeToolDescriptor({
+	title: 'Set system settings values in Creatio',
+	description:
+		'Update one or more system settings in Creatio in a single request.\n\n' +
+		'Parameters:\n' +
+		'- sysSettingsValues: A map/object of system setting codes to their new values. Supports any JSON-compatible types (string, number, boolean, object, array).\n\n' +
+		'USAGE:\n' +
+		'- Update single setting: { "SettingCode": "value" }\n' +
+		'- Update multiple settings at once: { "SettingCode1": "value1", "SettingCode2": 123, "SettingCode3": true }\n' +
+		'- Mixed data types: { "EmailEnabled": true, "MaxRetries": 5, "ApiKey": "secret" }\n\n' +
+		'Returns the result from the system settings update endpoint.',
+	inputShape: setSysSettingsValueInputShape,
+});

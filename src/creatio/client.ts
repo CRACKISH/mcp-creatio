@@ -17,4 +17,5 @@ export interface CreatioClient {
 	update(entity: string, id: string, data: any): Promise<any>;
 	delete(entity: string, id: string): Promise<any>;
 	executeProcess(processName: string, parameters: any): Promise<any>;
+	setSysSettingsValues(sysSettingsValues: Record<string, any>): Promise<any>;
 }
