@@ -17,7 +17,7 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		return this.authConfig.scope || 'offline_access';
 	}
 
-	constructor(protected readonly config: CreatioClientConfig) {
+	constructor(config: CreatioClientConfig) {
 		super(config);
 		this._tokenRefreshScheduler.setRefreshCallback(this.refreshUserTokens.bind(this));
 	}

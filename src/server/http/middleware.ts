@@ -7,7 +7,11 @@ import type { OAuthServer } from '../oauth';
 import type { NextFunction, Request, Response } from 'express';
 
 export class HttpMiddleware {
-	constructor(private readonly _oauthServer: OAuthServer) {}
+	private readonly _oauthServer: OAuthServer;
+
+	constructor(oauthServer: OAuthServer) {
+		this._oauthServer = oauthServer;
+	}
 
 	public bearerAuth() {
 		return (req: Request, res: Response, next: NextFunction) => {

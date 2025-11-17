@@ -8,11 +8,13 @@ import type { Request, Response } from 'express';
 
 export class CreatioOAuthHandlers {
 	private readonly _sessionContext = SessionContext.instance;
+	private readonly _server: Server;
+	private readonly _oauthServer: OAuthServer;
 
-	constructor(
-		private readonly _server: Server,
-		private readonly _oauthServer: OAuthServer,
-	) {}
+	constructor(server: Server, oauthServer: OAuthServer) {
+		this._server = server;
+		this._oauthServer = oauthServer;
+	}
 
 	private _mapAllSessionsToUser(userKey: string): void {
 		const sessions = this._sessionContext.getAllSessions();

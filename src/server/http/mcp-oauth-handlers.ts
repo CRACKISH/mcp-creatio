@@ -7,7 +7,11 @@ import type { OAuthServer } from '../oauth';
 import type { Request, Response } from 'express';
 
 export class MCPOAuthHandlers {
-	constructor(private readonly _oauthServer: OAuthServer) {}
+	private readonly _oauthServer: OAuthServer;
+
+	constructor(oauthServer: OAuthServer) {
+		this._oauthServer = oauthServer;
+	}
 
 	public handleMetadata(req: Request, res: Response): void {
 		const metadata = this._oauthServer.getAuthorizationServerMetadata();

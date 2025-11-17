@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { CreatioClient, ICreatioAuthProvider } from '../../creatio';
+import { CreatioEngineManager, ICreatioAuthProvider } from '../../creatio';
 import log from '../../log';
 import { withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
@@ -35,23 +35,22 @@ export interface ServerConfig {
 }
 
 export class Server {
-	private _descriptors = new Map<string, any>();
-	private _handlers = new Map<string, ToolHandler>();
+	private readonly _engines: CreatioEngineManager;
+	private readonly _descriptors = new Map<string, any>();
+	private readonly _handlers = new Map<string, ToolHandler>();
 	private _mcp?: McpServer;
 	private _readonly = false;
 	private _serverName = NAME;
 	private _serverVersion = VERSION;
 
 	public get authProvider(): ICreatioAuthProvider {
-		return this._client.authProvider;
+		return this._engines.authProvider;
 	}
 
-	constructor(
-		private _client: CreatioClient,
-		config: ServerConfig,
-	) {
+	constructor(engines: CreatioEngineManager, config: ServerConfig) {
+		this._engines = engines;
 		this._readonly = config.readonlyMode ?? false;
-		this._registerClientTools(this._client);
+		this._registerClientTools();
 	}
 
 	private _registerData() {
@@ -134,17 +133,19 @@ export class Server {
 		}
 	}
 
-	private _registerClientTools(client: CreatioClient) {
+	private _registerClientTools() {
+		const crud = this._engines.crud;
+		const user = this._engines.user;
 		this._registerHandlerWithDescriptor(
 			'get-current-user-info',
 			getCurrentUserInfoDescriptor,
-			withValidation(getCurrentUserInfoInput, () => client.getCurrentUserInfo()),
+			withValidation(getCurrentUserInfoInput, () => user.getCurrentUserInfo()),
 		);
 		this._registerHandlerWithDescriptor(
 			'list-entities',
 			listEntitiesDescriptor,
 			withValidation(listEntitiesInput, async () => {
-				const sets = await client.listEntitySets();
+				const sets = await crud.listEntitySets();
 				return {
 					content: [
 						{
@@ -159,7 +160,7 @@ export class Server {
 			'describe-entity',
 			describeEntityDescriptor,
 			withValidation(describeEntityInput, async ({ entitySet }) => {
-				const schema = await client.describeEntity(entitySet);
+				const schema = await crud.describeEntity(entitySet);
 				return {
 					content: [
 						{
@@ -181,35 +182,47 @@ export class Server {
 					if (filter && structured) {
 						finalFilter = `(${filter}) and (${structured})`;
 					}
-					return client.read(entity, finalFilter, select, top, expand, orderBy);
+					return crud.read({
+						entity,
+						filter: finalFilter ?? undefined,
+						select,
+						top,
+						expand,
+						orderBy,
+					});
 				},
 			),
 		);
 		if (!this._readonly) {
+			const process = this._engines.process;
+			const sysSettings = this._engines.sysSettings;
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
 				withValidation(createInput, async ({ entity, data }) =>
-					client.create(entity, data),
+					crud.create({ entity, data }),
 				),
 			);
 			this._registerHandlerWithDescriptor(
 				'update',
 				updateDescriptor,
 				withValidation(updateInput, async ({ entity, id, data }) =>
-					client.update(entity, id, data),
+					crud.update({ entity, id, data }),
 				),
 			);
 			this._registerHandlerWithDescriptor(
 				'delete',
 				deleteDescriptor,
-				withValidation(deleteInput, async ({ entity, id }) => client.delete(entity, id)),
+				withValidation(deleteInput, async ({ entity, id }) => crud.delete({ entity, id })),
 			);
 			this._registerHandlerWithDescriptor(
 				'execute-process',
 				executeProcessDescriptor,
 				withValidation(executeProcessInput, async ({ processName, parameters }) => {
-					const result = await client.executeProcess(processName, parameters || {});
+					const result = await process.execute({
+						processName,
+						parameters: parameters || {},
+					});
 					return {
 						content: [
 							{
@@ -224,7 +237,7 @@ export class Server {
 				'set-sys-settings-value',
 				setSysSettingsValueDescriptor,
 				withValidation(setSysSettingsValueInput, async ({ sysSettingsValues }) => {
-					const result = await client.setSysSettingsValues(sysSettingsValues);
+					const result = await sysSettings.setValues(sysSettingsValues);
 					return {
 						content: [
 							{

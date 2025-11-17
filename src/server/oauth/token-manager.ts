@@ -8,7 +8,11 @@ import type { AuthorizationCodeData } from './storage';
 import type { OAuthAccessToken, OAuthError, OAuthTokenRequest } from './types';
 
 export class OAuthTokenManager {
-	constructor(private readonly _jwtSecret: string) {}
+	private readonly _jwtSecret: string;
+
+	constructor(jwtSecret: string) {
+		this._jwtSecret = jwtSecret;
+	}
 
 	public generateAccessToken(userKey: string, client_id: string): string {
 		return jwt.sign({ userKey, client_id }, this._jwtSecret, { expiresIn: '1h' });

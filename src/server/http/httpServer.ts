@@ -16,6 +16,7 @@ import { HttpMiddleware } from './middleware';
 import type { Server } from '../mcp';
 
 export class HttpServer {
+	private readonly _server: Server;
 	private readonly _app = express();
 	private readonly _connections = new Set<Socket>();
 	private _srv!: http.Server;
@@ -26,7 +27,8 @@ export class HttpServer {
 	private readonly _creatioOauthHandlers: CreatioOAuthHandlers;
 	private readonly _mcpOauthHandlers: MCPOAuthHandlers;
 
-	constructor(private readonly _server: Server) {
+	constructor(server: Server) {
+		this._server = server;
 		this._oauthServer = new OAuthServer();
 		this._middleware = new HttpMiddleware(this._oauthServer);
 		this._mcpHandlers = new McpHandlers(this._server);

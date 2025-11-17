@@ -4,9 +4,11 @@ import { ICreatioAuthProvider } from './auth';
 import { AuthProviderType, LegacyProvider, OAuth2CodeProvider, OAuth2Provider } from './providers';
 
 export class CreatioAuthManager {
+	private readonly _config: CreatioClientConfig;
 	private readonly _provider: ICreatioAuthProvider;
 
-	constructor(private readonly _config: CreatioClientConfig) {
+	constructor(config: CreatioClientConfig) {
+		this._config = config;
 		const authKind = this._config.auth.kind;
 		if (authKind === AuthProviderType.OAuth2) {
 			this._provider = new OAuth2Provider(this._config);

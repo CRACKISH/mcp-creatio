@@ -8,11 +8,11 @@ type OAuthConfig = OAuth2AuthConfig | OAuth2CodeAuthConfig;
 export abstract class BaseOAuth2Provider<
 	T extends OAuthConfig = OAuthConfig,
 > extends BaseProvider<T> {
+	protected abstract readonly authErrorCode: string;
+
 	protected accessToken: string | undefined;
 
 	protected accessTokenExpiryMs: number | undefined;
-
-	protected abstract readonly authErrorCode: string;
 
 	protected abstract ensureAccessToken(force?: boolean): Promise<string | undefined>;
 

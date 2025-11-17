@@ -3,7 +3,7 @@ import { SessionContext } from '../services';
 export type TokenRefreshCallback = (userKey: string) => Promise<void>;
 
 export class TokenRefreshScheduler {
-	private _refreshIntervals = new Map<string, NodeJS.Timeout>();
+	private readonly _refreshIntervals = new Map<string, NodeJS.Timeout>();
 	private readonly _sessionContext = SessionContext.instance;
 	private _refreshCallback?: TokenRefreshCallback;
 
@@ -59,7 +59,7 @@ export class TokenRefreshScheduler {
 		}
 	}
 
-	public getStats() {
+	public getStats(): { activeRefreshCount: number; userKeys: string[] } {
 		return {
 			activeRefreshCount: this._refreshIntervals.size,
 			userKeys: Array.from(this._refreshIntervals.keys()),

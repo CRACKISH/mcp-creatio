@@ -29,19 +29,38 @@ Key flows:
 
 1. Client authenticates (legacy credentials OR OAuth2 variants).
 2. MCP server registers tools using descriptors from `server/mcp/tools-data.ts`.
-3. Tool handlers delegate to `CreatioClient` (in `src/creatio/client.ts`).
+3. Tool handlers call into `CreatioEngineManager`, which resolves a `CreatioServiceContext` (built from `src/creatio/services/*`) and delegates work to the appropriate provider (CRUD, process, sys-settings, user).
 4. Responses are normalized into MCP content blocks.
+
+### Creatio Service Stack (LLM Cheat Sheet)
+
+```
+CreatioServiceContext
+  ├─ CreatioAuthManager → selects concrete auth provider (legacy / OAuth2 / OAuth2 code)
+  ├─ CreatioHttpClient → transport + logging + retry + header helpers
+  ├─ ODataMetadataStore → caches entity schemas per environment
+  ├─ ODataCrudProvider → implements CrudProvider using http + metadata
+  ├─ ProcessServiceProvider → POSTs to ProcessEngineService
+  ├─ SysSettingsServiceProvider → DataService JSON endpoint
+  └─ UserInfoProvider → UserInfoService for current user data
+```
+
+Usage pattern:
+
+- Handlers never craft raw fetch calls. They work through provider interfaces exposed by the context (`provider.crud`, `provider.process`, etc.).
+- If you need a new Creatio capability, add a dedicated provider (or extend an existing one) and wire it up inside `CreatioServiceContext`.
+- `CreatioHttpClient` should stay transport-focused (auth headers, retries, timing). Keep endpoint-specific logic inside providers or a dedicated endpoint helper.
 
 ## 3. Core Modules You Will Touch
 
-| Area                         | File(s)                          | Notes                                                                   |
-| ---------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
-| Tool registration            | `src/server/mcp/server.ts`       | Add/remove tool handlers; keep descriptors in separate file.            |
-| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`   | Use `zod` schemas; detailed descriptions help AI reasoning.             |
-| Filters logic                | `src/server/mcp/filters.ts`      | Converts structured JSON filters into OData `$filter` strings.          |
-| Prompts                      | `src/server/mcp/prompts-data.ts` | Pre-baked instructional prompts consumed by clients.                    |
-| Creatio API                  | `src/creatio`                    | `client.ts` is the abstraction; avoid duplicating HTTP logic elsewhere. |
-| OAuth for clients            | `src/server/oauth/*`             | Maintains tokens for MCP clients; ephemeral memory by default.          |
+| Area                         | File(s)                          | Notes                                                                                                        |
+| ---------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Tool registration            | `src/server/mcp/server.ts`       | Add/remove tool handlers; keep descriptors in separate file.                                                 |
+| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`   | Use `zod` schemas; detailed descriptions help AI reasoning.                                                  |
+| Filters logic                | `src/server/mcp/filters.ts`      | Converts structured JSON filters into OData `$filter` strings.                                               |
+| Prompts                      | `src/server/mcp/prompts-data.ts` | Pre-baked instructional prompts consumed by clients.                                                         |
+| Creatio API                  | `src/creatio/services/*`         | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them. |
+| OAuth for clients            | `src/server/oauth/*`             | Maintains tokens for MCP clients; ephemeral memory by default.                                               |
 
 ## 4. Invariants & Rules (Do NOT Break)
 
@@ -60,7 +79,7 @@ Key flows:
 2. Provide rich description (include examples, edge cases, warnings).
 3. Export descriptor & input schema.
 4. Register in `server.ts` via `_registerHandlerWithDescriptor` (respect readonly mode if mutating).
-5. Implement handler calling the appropriate method on `CreatioClient` (never embed raw fetch logic here—extend the client if needed).
+5. Implement the handler by calling the appropriate provider on the `CreatioServiceContext` (via `CreatioEngineManager`); if functionality is missing, extend or add a provider under `src/creatio/services` rather than issuing raw fetch calls.
 6. Ensure responses are formatted as `{ content: [{ type: 'text', text: JSON.stringify(result) }] }` when not already MCP native.
 7. Add edge-case validation (empty arrays, invalid GUID, missing required filter fields).
 8. Update documentation (README if public feature; otherwise just Agent.md).
@@ -129,7 +148,11 @@ If adding new auth provider:
 
 ## 15. Code Style
 
-- TypeScript strict types where practical (avoid `any`, prefer explicit interfaces).
+Baseline rules live in `docs/coding-style.md`. Highlights:
+
+- Keep TypeScript strict (avoid `any`, prefer explicit interfaces).
+- Follow the class-member ordering guide (readonly fields → fields → getters → setters → constructor → methods, each ordered `private → protected → public`).
+- Prefix private fields/methods with `_`.
 - Use existing utility wrappers (e.g., `withValidation`).
 - Keep functions small; single responsibility.
 - Reuse logging tags already established.
@@ -137,7 +160,7 @@ If adding new auth provider:
 ## 16. What NOT To Do
 
 - Do not reintroduce removed tools (`search`, `fetch`) unless strong justification & design review.
-- Do not bypass `CreatioClient` with raw fetch calls scattered in handlers.
+- Do not bypass `CreatioServiceContext`/providers with raw fetch calls scattered in handlers.
 - Do not embed long multi-megabyte payloads in commit history (limit sample data).
 
 ## 17. Quick Start for Agent Changes

@@ -6,6 +6,8 @@ import { AuthProviderType } from './type';
 export abstract class BaseProvider<T extends CreatioClientAuthConfig = CreatioClientAuthConfig>
 	implements ICreatioAuthProvider
 {
+	protected readonly config: CreatioClientConfig;
+
 	protected get authConfig(): T {
 		return this.config.auth as T;
 	}
@@ -14,7 +16,9 @@ export abstract class BaseProvider<T extends CreatioClientAuthConfig = CreatioCl
 		return this.authConfig.kind;
 	}
 
-	constructor(protected readonly config: CreatioClientConfig) {}
+	constructor(config: CreatioClientConfig) {
+		this.config = config;
+	}
 
 	public getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>> {
 		throw new Error('Method not implemented.');

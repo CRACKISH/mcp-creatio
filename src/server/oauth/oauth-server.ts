@@ -21,8 +21,10 @@ export class OAuthServer {
 	private readonly _storage = new OAuthStorage();
 	private readonly _tokenManager: OAuthTokenManager;
 	private readonly _accessTokens = new Map<string, OAuthAccessToken>();
+	private _baseUrl: string;
 
-	constructor(private _baseUrl: string = 'http://localhost:3000') {
+	constructor(baseUrl: string = 'http://localhost:3000') {
+		this._baseUrl = baseUrl;
 		this._tokenManager = new OAuthTokenManager(this._jwtSecret);
 	}
 

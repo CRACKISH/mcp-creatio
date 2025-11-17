@@ -17,8 +17,11 @@ import type { Request, Response } from 'express';
 
 export class McpHandlers {
 	private readonly _sessionContext = SessionContext.instance;
+	private readonly _server: Server;
 
-	constructor(private readonly _server: Server) {}
+	constructor(server: Server) {
+		this._server = server;
+	}
 
 	public async handleMcpPost(req: Request, res: Response): Promise<void> {
 		const sessionId = getSessionIdFromRequest(req);

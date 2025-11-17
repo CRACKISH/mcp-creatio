@@ -25,10 +25,10 @@ export interface OAuthState {
 
 export class SessionContext {
 	private static _instance: SessionContext | undefined;
-	private _sessions = new Map<string, SessionInfo>();
-	private _userTokens = new Map<string, UserTokens>();
-	private _oauthStates = new Map<string, OAuthState>();
-	private _deletingSessions = new Set<string>();
+	private readonly _sessions = new Map<string, SessionInfo>();
+	private readonly _userTokens = new Map<string, UserTokens>();
+	private readonly _oauthStates = new Map<string, OAuthState>();
+	private readonly _deletingSessions = new Set<string>();
 
 	public static get instance(): SessionContext {
 		if (!SessionContext._instance) {
@@ -222,7 +222,7 @@ export class SessionContext {
 		});
 	}
 
-	public getStats() {
+	public getStats(): { sessionsCount: number; tokensCount: number; oauthStatesCount: number } {
 		return {
 			sessionsCount: this._sessions.size,
 			tokensCount: this._userTokens.size,

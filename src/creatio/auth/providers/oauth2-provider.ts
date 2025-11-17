@@ -5,10 +5,13 @@ import { TOKEN_BODY_SNIPPET_MAX, TOKEN_ENDPOINT } from '../auth';
 import { BaseOAuth2Provider } from './base-oauth2-provider';
 
 export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
+	private readonly _config: CreatioClientConfig;
+
 	protected readonly authErrorCode = 'oauth2_auth_failed';
 
-	constructor(private readonly _config: CreatioClientConfig) {
-		super(_config);
+	constructor(config: CreatioClientConfig) {
+		super(config);
+		this._config = config;
 	}
 
 	protected async ensureAccessToken(): Promise<string | undefined> {
