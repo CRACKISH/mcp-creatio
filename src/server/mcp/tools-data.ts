@@ -473,6 +473,90 @@ export const executeProcessDescriptor = makeToolDescriptor({
 	inputShape: executeProcessInputShape,
 });
 
+const querySysSettingsInputShape = {
+	sysSettingCodes: z
+		.array(z.string().min(1))
+		.min(1)
+		.describe(
+			'List of system setting codes to query. Provide at least one Creatio sys setting code (e.g., "EmailDefSendName", "SupportEmail").',
+		),
+} as const;
+
+export const querySysSettingsInput = z.object(querySysSettingsInputShape);
+
+export const querySysSettingsDescriptor = makeToolDescriptor({
+	title: 'Query system settings in Creatio',
+	description:
+		'Retrieve the current values and metadata for one or more Creatio system settings using the QuerySysSettings endpoint. Returns the raw response including success flag, values map, and notFoundSettings array (if any).',
+	inputShape: querySysSettingsInputShape,
+});
+
+const createSysSettingInputShape = {
+	definition: z.object({
+		code: z
+			.string()
+			.min(1)
+			.describe(
+				'Unique system setting code (e.g., "TestSetting"). Must match Creatio naming rules.',
+			),
+		name: z
+			.string()
+			.min(1)
+			.describe('Display name for the system setting (e.g., "Test setting").'),
+		valueTypeName: z
+			.string()
+			.min(1)
+			.describe(
+				'Creatio data value type name (use the "value" string). Supported values: Binary, Boolean, DateTime, Date, Time, Integer, Money, Float, Lookup, ShortText, MediumText, LongText, Text, MaxSizeText, SecureText.',
+			),
+		description: z.string().optional(),
+		isCacheable: z.boolean().optional(),
+		referenceSchemaUId: z
+			.string()
+			.optional()
+			.describe(
+				'Only required for Lookup settings: set to the EntitySchema UId that the lookup should reference. Retrieve it via VwWorkspaceObjects (e.g., read { entity: "VwWorkspaceObjects", filters: { all: [{ field: "Name", op: "eq", value: "Account" }] }, select: ["UId", "Name"] }).',
+			),
+		dataValueType: z.union([z.string(), z.number()]).optional(),
+		id: z
+			.string()
+			.uuid()
+			.optional()
+			.describe('Optional GUID for the sys setting record. Auto-generated when omitted.'),
+	}),
+	initialValue: z
+		.any()
+		.optional()
+		.describe('Optional initial value to write immediately after creating the system setting.'),
+} as const;
+
+export const createSysSettingInput = z.object(createSysSettingInputShape);
+
+export const createSysSettingDescriptor = makeToolDescriptor({
+	title: 'Create a new system setting in Creatio',
+	description:
+		'Creates a brand-new system setting (metadata record) using InsertSysSettingRequest and optionally assigns an initial value via PostSysSettingsValues. Use this when the desired sys setting does not yet exist.\n\n' +
+		'SUPPORTED valueTypeName VALUES (use the "value" string):\n' +
+		'- Binary → BLOB\n' +
+		'- Boolean → Boolean\n' +
+		'- DateTime → Date/Time\n' +
+		'- Date → Date\n' +
+		'- Time → Time\n' +
+		'- Integer → Integer\n' +
+		'- Money → Currency (0.01)\n' +
+		'- Float → Decimal\n' +
+		'- Lookup → Lookup\n' +
+		'- ShortText → Text (50 chars)\n' +
+		'- MediumText → Text (250 chars)\n' +
+		'- LongText → Text (500 chars)\n' +
+		'- Text → Text\n' +
+		'- MaxSizeText → Unlimited text\n' +
+		'- SecureText → Encrypted string\n\n' +
+		'LOOKUP REFERENCE:\n' +
+		'- When valueTypeName = "Lookup", set definition.referenceSchemaUId to the EntitySchema UId of the target object.\n' +
+		'- Fetch it via VwWorkspaceObjects (e.g., read { entity: "VwWorkspaceObjects", filters: { all: [{ field: "Name", op: "eq", value: "Account" }] }, select: ["UId", "Name", "Caption"] }).',
+	inputShape: createSysSettingInputShape,
+});
 
 const setSysSettingsValueInputShape = {
 	sysSettingsValues: z

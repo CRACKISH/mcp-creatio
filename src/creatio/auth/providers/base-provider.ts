@@ -1,3 +1,5 @@
+/* eslint-disable indent */
+/* eslint-disable brace-style */
 import { CreatioClientAuthConfig, CreatioClientConfig } from '../../client-config';
 import { ICreatioAuthProvider } from '../auth';
 

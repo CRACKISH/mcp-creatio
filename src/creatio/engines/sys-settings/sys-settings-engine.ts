@@ -1,4 +1,9 @@
-import { SysSettingsProvider } from '../../providers';
+import {
+	CreateSysSettingRequest,
+	CreateSysSettingResult,
+	QuerySysSettingsResponse,
+	SysSettingsProvider,
+} from '../../providers';
 import { CreatioEngine } from '../engine';
 
 export class SysSettingsEngine implements CreatioEngine {
@@ -16,5 +21,13 @@ export class SysSettingsEngine implements CreatioEngine {
 
 	public setValues(values: Record<string, any>): Promise<any> {
 		return this._provider.setValues(values);
+	}
+
+	public queryValues(codes: string[]): Promise<QuerySysSettingsResponse> {
+		return this._provider.queryValues(codes);
+	}
+
+	public createSetting(request: CreateSysSettingRequest): Promise<CreateSysSettingResult> {
+		return this._provider.createSetting(request);
 	}
 }

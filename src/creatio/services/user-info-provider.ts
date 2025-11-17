@@ -11,8 +11,12 @@ export class UserInfoProvider implements UserProvider {
 		this._client = client;
 	}
 
+	private _getServiceUrl(): string {
+		return `${this._client.normalizedBaseUrl}/0/ServiceModel/UserInfoService.svc/GetCurrentUserInfo`;
+	}
+
 	public async getCurrentUserInfo(): Promise<CurrentUserInfo> {
-		const url = this._client.getUserInfoServiceUrl();
+		const url = this._getServiceUrl();
 		return this._client.executeWithTiming(
 			'getCurrentUserInfo',
 			url,

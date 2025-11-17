@@ -53,22 +53,6 @@ export class CreatioHttpClient {
 		});
 	}
 
-	public buildEntityUrl(entity: string): string {
-		return `${this.odataRoot}/${entity}`;
-	}
-
-	public getUserInfoServiceUrl(): string {
-		return `${this._normalizedBaseUrl}/0/ServiceModel/UserInfoService.svc/GetCurrentUserInfo`;
-	}
-
-	public getProcessServiceUrl(): string {
-		return `${this._normalizedBaseUrl}/0/ServiceModel/ProcessEngineService.svc/RunProcess`;
-	}
-
-	public getSysSettingsServiceUrl(): string {
-		return `${this._normalizedBaseUrl}/DataService/json/SyncReply/PostSysSettingsValues`;
-	}
-
 	public async getJsonHeaders(): Promise<Record<string, string>> {
 		return this.authProvider.getHeaders(JSON_ACCEPT, true);
 	}

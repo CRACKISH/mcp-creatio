@@ -723,6 +723,60 @@ Only skip question if:
 **DO NOT assume or auto-choose when both are present!**
 `.trim();
 
+const SYS_SETTINGS_VALUE_TYPES_TABLE = `
+| valueTypeName | Display label           |
+| ------------- | ----------------------- |
+| Binary        | BLOB                    |
+| Boolean       | Boolean                 |
+| DateTime      | Date/Time               |
+| Date          | Date                    |
+| Time          | Time                    |
+| Integer       | Integer                 |
+| Money         | Currency (0.01)         |
+| Float         | Decimal                 |
+| Lookup        | Lookup                  |
+| ShortText     | Text (50 characters)    |
+| MediumText    | Text (250 characters)   |
+| LongText      | Text (500 characters)   |
+| Text          | Text                    |
+| MaxSizeText   | Unlimited length text   |
+| SecureText    | Encrypted string        |
+`.trim();
+
+const SYS_SETTINGS_GUIDE = `
+# ⚙️ Creating Creatio System Settings
+
+## Supported valueTypeName values
+Always use the **value** column (not the display label) when filling \`definition.valueTypeName\`.
+
+${SYS_SETTINGS_VALUE_TYPES_TABLE}
+
+## Lookup referenceSchemaUId
+- Required only when \`valueTypeName = "Lookup"\`.
+- Set \`definition.referenceSchemaUId\` to the EntitySchema UId of the lookup target.
+- Fetch the UId from \`VwWorkspaceObjects\` by filtering on the schema name.
+
+### Example MCP read request
+\`\`\`json
+{
+	"entity": "VwWorkspaceObjects",
+	"filters": {
+		"all": [
+			{ "field": "Name", "op": "eq", "value": "Account" }
+		]
+	},
+	"select": ["UId", "Name", "Caption"]
+}
+\`\`\`
+
+Use the returned \`UId\` as \`referenceSchemaUId\` inside the \`create-sys-setting\` tool payload.
+
+## Quick workflow reminder
+1. Insert sys setting metadata via \`create-sys-setting\`.
+2. Optionally include \`initialValue\` to write the first value immediately.
+3. For additional updates later, call \`set-sys-settings-value\`.
+`.trim();
+
 export const CREATE_ACTIVITY_PROMPT = {
 	name: 'create-activity-guide',
 	title: 'Create Activity in Creatio',
@@ -794,9 +848,26 @@ export const TAGGING_PROMPT = {
 	}),
 };
 
+export const SYS_SETTINGS_PROMPT = {
+	name: 'sys-settings-guide',
+	title: 'Creatio System Settings Guide',
+	description:
+		'Value type options and lookup reference instructions for create-sys-setting / set-sys-settings-value workflows',
+	argsSchema: {},
+	callback: () => ({
+		messages: [
+			{
+				role: 'user' as const,
+				content: { type: 'text' as const, text: SYS_SETTINGS_GUIDE },
+			},
+		],
+	}),
+};
+
 export const ALL_PROMPTS = [
 	CREATE_ACTIVITY_PROMPT,
 	DATETIME_PROMPT,
 	CONTACTID_PROMPT,
 	TAGGING_PROMPT,
+	SYS_SETTINGS_PROMPT,
 ] as const;

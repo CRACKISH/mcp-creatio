@@ -11,6 +11,10 @@ export class ProcessServiceProvider implements ProcessProvider {
 		this._client = client;
 	}
 
+	private _getServiceUrl(): string {
+		return `${this._client.normalizedBaseUrl}/0/ServiceModel/ProcessEngineService.svc/RunProcess`;
+	}
+
 	private _createProcessParameterValues(parameters?: Record<string, any>): Array<{
 		name: string;
 		value: any;
@@ -36,7 +40,7 @@ export class ProcessServiceProvider implements ProcessProvider {
 	}
 
 	public async executeProcess({ processName, parameters }: ExecuteProcessParams) {
-		const url = this._client.getProcessServiceUrl();
+		const url = this._getServiceUrl();
 		return this._client.executeWithTiming(
 			'execute-process',
 			url,

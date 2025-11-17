@@ -10,6 +10,8 @@ import { ALL_PROMPTS } from './prompts-data';
 import {
 	createDescriptor,
 	createInput,
+	createSysSettingDescriptor,
+	createSysSettingInput,
 	deleteDescriptor,
 	deleteInput,
 	describeEntityDescriptor,
@@ -20,6 +22,8 @@ import {
 	getCurrentUserInfoInput,
 	listEntitiesDescriptor,
 	listEntitiesInput,
+	querySysSettingsDescriptor,
+	querySysSettingsInput,
 	readDescriptor,
 	readInput,
 	setSysSettingsValueDescriptor,
@@ -70,23 +74,18 @@ export class Server {
 
 	private _normalizeToToolHandler(handler: ToolHandler) {
 		return async (args: any) => {
-			try {
-				const result = await handler(args);
-				if (result && (result.content || result.contents)) {
-					return result;
-				}
-				return {
-					content: [
-						{
-							type: 'text',
-							text: typeof result === 'string' ? result : JSON.stringify(result),
-						},
-					],
-				};
-			} catch (err: any) {
-				log.error('mcp.tool.handler', err);
-				throw err;
+			const result = await handler(args);
+			if (result && typeof result === 'object' && 'content' in result) {
+				return result;
 			}
+			return {
+				content: [
+					{
+						type: 'text',
+						text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+					},
+				],
+			};
 		};
 	}
 
@@ -136,6 +135,7 @@ export class Server {
 	private _registerClientTools() {
 		const crud = this._engines.crud;
 		const user = this._engines.user;
+		const sysSettings = this._engines.sysSettings;
 		this._registerHandlerWithDescriptor(
 			'get-current-user-info',
 			getCurrentUserInfoDescriptor,
@@ -193,9 +193,23 @@ export class Server {
 				},
 			),
 		);
+		this._registerHandlerWithDescriptor(
+			'query-sys-settings',
+			querySysSettingsDescriptor,
+			withValidation(querySysSettingsInput, async ({ sysSettingCodes }) => {
+				const result = await sysSettings.queryValues(sysSettingCodes);
+				return {
+					content: [
+						{
+							type: 'text',
+							text: JSON.stringify(result, null, 2),
+						},
+					],
+				};
+			}),
+		);
 		if (!this._readonly) {
 			const process = this._engines.process;
-			const sysSettings = this._engines.sysSettings;
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
@@ -243,6 +257,21 @@ export class Server {
 							{
 								type: 'text',
 								text: JSON.stringify(result),
+							},
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'create-sys-setting',
+				createSysSettingDescriptor,
+				withValidation(createSysSettingInput, async ({ definition, initialValue }) => {
+					const result = await sysSettings.createSetting({ definition, initialValue });
+					return {
+						content: [
+							{
+								type: 'text',
+								text: JSON.stringify(result, null, 2),
 							},
 						],
 					};

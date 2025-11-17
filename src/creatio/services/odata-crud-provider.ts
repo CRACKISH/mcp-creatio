@@ -56,6 +56,10 @@ export class ODataCrudProvider implements CrudProvider {
 		return body && typeof body === 'object' && 'value' in body ? body.value : body;
 	}
 
+	private _buildEntityUrl(entity: string): string {
+		return `${this._client.odataRoot}/${entity}`;
+	}
+
 	private _formatEntityKey(id: string): string {
 		const GUID_PATTERN =
 			/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -75,7 +79,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async create({ entity, data }: CrudWriteParams) {
-		const url = this._client.buildEntityUrl(entity);
+		const url = this._buildEntityUrl(entity);
 		return this._client.executeWithTiming(
 			'create',
 			url,
@@ -109,7 +113,7 @@ export class ODataCrudProvider implements CrudProvider {
 	public async read({ entity, filter, select, top, expand, orderBy }: CrudReadParams) {
 		const startTime = Date.now();
 		const queryParams = this._buildODataQueryParams(filter, select, top, expand, orderBy);
-		const url = this._client.buildEntityUrl(entity) + this._buildQueryString(queryParams);
+		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
 		const headers = await this._client.getJsonHeaders();
 		try {
 			const body = await this._client.fetchJson(url, async () => ({ headers }));
@@ -140,7 +144,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async update({ entity, id, data }: CrudUpdateParams) {
-		const url = `${this._client.buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
+		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
 		return this._client.executeWithTiming(
 			'update',
 			url,
@@ -173,7 +177,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams) {
-		const url = `${this._client.buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
+		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
 		return this._client.executeWithTiming(
 			'delete',
 			url,
