@@ -491,39 +491,47 @@ export const querySysSettingsDescriptor = makeToolDescriptor({
 	inputShape: querySysSettingsInputShape,
 });
 
+const SYS_SETTING_VALUE_TYPE_DESC =
+	'Creatio data value type name. See /sys-settings-guide prompt for the table of supported valueTypeName values (Binary, Boolean, DateTime, etc.) and always send the raw value string.';
+
+const SYS_SETTING_REFERENCE_SCHEMA_DESC =
+	'EntitySchema UId for lookup system settings. Required only when valueTypeName="Lookup". See /sys-settings-guide prompt for the recommended VwWorkspaceObjects query to retrieve this UId.';
+
+const sysSettingDefinitionFieldShape = {
+	code: z
+		.string()
+		.min(1)
+		.describe(
+			'Unique system setting code (e.g., "TestSetting"). Must follow Creatio naming rules.',
+		),
+	name: z.string().min(1).describe('Display name rendered in Creatio UI (e.g., "Test setting").'),
+	valueTypeName: z.string().min(1).describe(SYS_SETTING_VALUE_TYPE_DESC),
+	description: z.string().optional(),
+	isCacheable: z.boolean().optional(),
+	isPersonal: z.boolean().optional(),
+	isSSPAvailable: z.boolean().optional(),
+	referenceSchemaUId: z.string().optional().describe(SYS_SETTING_REFERENCE_SCHEMA_DESC),
+	dataValueType: z.union([z.string(), z.number()]).optional(),
+} as const;
+
+const sysSettingDefinitionSchema = z.object(sysSettingDefinitionFieldShape);
+
+const createSysSettingDefinitionSchema = sysSettingDefinitionSchema.extend({
+	id: z
+		.string()
+		.uuid()
+		.optional()
+		.describe('Optional GUID for the sys setting record. Auto-generated when omitted.'),
+});
+
+const updateSysSettingDefinitionSchema = sysSettingDefinitionSchema.partial().extend({
+	code: sysSettingDefinitionFieldShape.code,
+	name: sysSettingDefinitionFieldShape.name,
+	valueTypeName: sysSettingDefinitionFieldShape.valueTypeName,
+});
+
 const createSysSettingInputShape = {
-	definition: z.object({
-		code: z
-			.string()
-			.min(1)
-			.describe(
-				'Unique system setting code (e.g., "TestSetting"). Must match Creatio naming rules.',
-			),
-		name: z
-			.string()
-			.min(1)
-			.describe('Display name for the system setting (e.g., "Test setting").'),
-		valueTypeName: z
-			.string()
-			.min(1)
-			.describe(
-				'Creatio data value type name (use the "value" string). Supported values: Binary, Boolean, DateTime, Date, Time, Integer, Money, Float, Lookup, ShortText, MediumText, LongText, Text, MaxSizeText, SecureText.',
-			),
-		description: z.string().optional(),
-		isCacheable: z.boolean().optional(),
-		referenceSchemaUId: z
-			.string()
-			.optional()
-			.describe(
-				'Only required for Lookup settings: set to the EntitySchema UId that the lookup should reference. Retrieve it via VwWorkspaceObjects (e.g., read { entity: "VwWorkspaceObjects", filters: { all: [{ field: "Name", op: "eq", value: "Account" }] }, select: ["UId", "Name"] }).',
-			),
-		dataValueType: z.union([z.string(), z.number()]).optional(),
-		id: z
-			.string()
-			.uuid()
-			.optional()
-			.describe('Optional GUID for the sys setting record. Auto-generated when omitted.'),
-	}),
+	definition: createSysSettingDefinitionSchema,
 	initialValue: z
 		.any()
 		.optional()
@@ -535,26 +543,7 @@ export const createSysSettingInput = z.object(createSysSettingInputShape);
 export const createSysSettingDescriptor = makeToolDescriptor({
 	title: 'Create a new system setting in Creatio',
 	description:
-		'Creates a brand-new system setting (metadata record) using InsertSysSettingRequest and optionally assigns an initial value via PostSysSettingsValues. Use this when the desired sys setting does not yet exist.\n\n' +
-		'SUPPORTED valueTypeName VALUES (use the "value" string):\n' +
-		'- Binary → BLOB\n' +
-		'- Boolean → Boolean\n' +
-		'- DateTime → Date/Time\n' +
-		'- Date → Date\n' +
-		'- Time → Time\n' +
-		'- Integer → Integer\n' +
-		'- Money → Currency (0.01)\n' +
-		'- Float → Decimal\n' +
-		'- Lookup → Lookup\n' +
-		'- ShortText → Text (50 chars)\n' +
-		'- MediumText → Text (250 chars)\n' +
-		'- LongText → Text (500 chars)\n' +
-		'- Text → Text\n' +
-		'- MaxSizeText → Unlimited text\n' +
-		'- SecureText → Encrypted string\n\n' +
-		'LOOKUP REFERENCE:\n' +
-		'- When valueTypeName = "Lookup", set definition.referenceSchemaUId to the EntitySchema UId of the target object.\n' +
-		'- Fetch it via VwWorkspaceObjects (e.g., read { entity: "VwWorkspaceObjects", filters: { all: [{ field: "Name", op: "eq", value: "Account" }] }, select: ["UId", "Name", "Caption"] }).',
+		'Creates a brand-new system setting (metadata record) using InsertSysSettingRequest and optionally assigns an initial value via PostSysSettingsValues. For full guidance on supported valueTypeName strings and lookup reference resolution, see the /sys-settings-guide prompt.',
 	inputShape: createSysSettingInputShape,
 });
 
@@ -584,4 +573,20 @@ export const setSysSettingsValueDescriptor = makeToolDescriptor({
 		'- Mixed data types: { "EmailEnabled": true, "MaxRetries": 5, "ApiKey": "secret" }\n\n' +
 		'Returns the result from the system settings update endpoint.',
 	inputShape: setSysSettingsValueInputShape,
+});
+
+const updateSysSettingDefinitionInputShape = {
+	id: z.string().uuid().describe('Existing SysSetting Id (Guid) to update.'),
+	definition: updateSysSettingDefinitionSchema.describe(
+		'Creatio requires Code, Name, and valueTypeName on every UpdateSysSettingRequest. Always include those fields (existing values are OK) plus any other properties that need updating.',
+	),
+} as const;
+
+export const updateSysSettingDefinitionInput = z.object(updateSysSettingDefinitionInputShape);
+
+export const updateSysSettingDefinitionDescriptor = makeToolDescriptor({
+	title: 'Update existing system setting definition',
+	description:
+		'Calls the UpdateSysSettingRequest endpoint to modify metadata such as name, description, valueTypeName, cache flags, personalization flags, and lookup reference schema. IMPORTANT: Creatio validates that Code, Name, and valueTypeName are present on every update, even if they are unchanged—copy the current values when needed. See the /sys-settings-guide prompt for allowed value types and lookup resolution tips.',
+	inputShape: updateSysSettingDefinitionInputShape,
 });

@@ -14,7 +14,7 @@ Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - con
 - **CRUD operations**: `read`, `create`, `update`, `delete` Creatio records
 - **Schema discovery**: `list-entities`, `describe-entity`
 - **Business processes**: `execute-process` to run Creatio workflows
-- **System settings**: `query-sys-settings`, `set-sys-settings-value`, and `create-sys-setting` to inspect, update, or create Creatio sys settings
+- **System settings**: `create-sys-setting`, `update-sys-setting-definition`, `query-sys-settings`, and `set-sys-settings-value` to create, adjust metadata, inspect, or assign values
 - **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
 - **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
 - **Built-in OAuth server**: Automatic MCP client authentication
@@ -103,18 +103,19 @@ docker run --rm -p 3000:3000 \
 
 ## Available Tools
 
-| Tool                     | Description                                                           |
-| ------------------------ | --------------------------------------------------------------------- |
-| `get-current-user-info`  | Fetches the Creatio contact details for the authenticated MCP user    |
-| `list-entities`          | List all available entity sets                                        |
-| `describe-entity`        | Get schema for entity (fields, types, keys)                           |
-| `read`                   | Query records with optional filters                                   |
-| `create`                 | Create new record                                                     |
-| `update`                 | Update existing record                                                |
-| `delete`                 | Delete record                                                         |
-| `execute-process`        | Run Creatio business processes                                        |
-| `query-sys-settings`     | Retrieve the current values and metadata for one or more sys settings |
-| `set-sys-settings-value` | Update one or more sys settings via PostSysSettingsValues             |
-| `create-sys-setting`     | Create a new sys setting record and optional initial value assignment |
+| Tool                            | Description                                                                                                                                                                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-current-user-info`         | Fetches the Creatio contact details for the authenticated MCP user                                                                                                                                                          |
+| `list-entities`                 | List all available entity sets                                                                                                                                                                                              |
+| `describe-entity`               | Get schema for entity (fields, types, keys)                                                                                                                                                                                 |
+| `read`                          | Query records with optional filters                                                                                                                                                                                         |
+| `create`                        | Create new record                                                                                                                                                                                                           |
+| `update`                        | Update existing record                                                                                                                                                                                                      |
+| `delete`                        | Delete record                                                                                                                                                                                                               |
+| `execute-process`               | Run Creatio business processes                                                                                                                                                                                              |
+| `query-sys-settings`            | Retrieve the current values and metadata for one or more sys settings                                                                                                                                                       |
+| `set-sys-settings-value`        | Update one or more sys settings via PostSysSettingsValues                                                                                                                                                                   |
+| `create-sys-setting`            | Create a new sys setting record and optional initial value assignment                                                                                                                                                       |
+| `update-sys-setting-definition` | Modify sys setting metadata (name, value type, cache flags, lookup reference) via UpdateSysSettingRequest. Creatio requires Code, Name, and valueTypeName to be included on every update, even if the values are unchanged. |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.

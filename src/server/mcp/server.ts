@@ -1,6 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { CreatioEngineManager, ICreatioAuthProvider } from '../../creatio';
+import {
+	CreatioEngineManager,
+	ICreatioAuthProvider,
+	SysSettingDefinitionUpdate,
+} from '../../creatio';
 import log from '../../log';
 import { withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
@@ -30,6 +34,8 @@ import {
 	setSysSettingsValueInput,
 	updateDescriptor,
 	updateInput,
+	updateSysSettingDefinitionDescriptor,
+	updateSysSettingDefinitionInput,
 } from './tools-data';
 
 type ToolHandler = (payload: any) => Promise<any>;
@@ -267,6 +273,24 @@ export class Server {
 				createSysSettingDescriptor,
 				withValidation(createSysSettingInput, async ({ definition, initialValue }) => {
 					const result = await sysSettings.createSetting({ definition, initialValue });
+					return {
+						content: [
+							{
+								type: 'text',
+								text: JSON.stringify(result, null, 2),
+							},
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'update-sys-setting-definition',
+				updateSysSettingDefinitionDescriptor,
+				withValidation(updateSysSettingDefinitionInput, async ({ id, definition }) => {
+					const result = await sysSettings.updateDefinition({
+						...(definition as SysSettingDefinitionUpdate),
+						id,
+					});
 					return {
 						content: [
 							{

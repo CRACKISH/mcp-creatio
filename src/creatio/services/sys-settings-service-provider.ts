@@ -5,7 +5,9 @@ import {
 	CreateSysSettingResult,
 	QuerySysSettingsResponse,
 	SysSettingDefinition,
+	SysSettingDefinitionUpdate,
 	SysSettingInsertResponse,
+	SysSettingUpdateResponse,
 	SysSettingsProvider,
 } from '../providers';
 
@@ -21,15 +23,19 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 	}
 
 	private _getSetValuesUrl(): string {
-		return `${this._client.normalizedBaseUrl}/DataService/json/SyncReply/PostSysSettingsValues`;
+		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/PostSysSettingsValues`;
 	}
 
 	private _getQueryUrl(): string {
-		return `${this._client.normalizedBaseUrl}/DataService/json/SyncReply/QuerySysSettings`;
+		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/QuerySysSettings`;
 	}
 
 	private _getInsertUrl(): string {
-		return `${this._client.normalizedBaseUrl}/DataService/json/SyncReply/InsertSysSettingRequest`;
+		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/InsertSysSettingRequest`;
+	}
+
+	private _getUpdateUrl(): string {
+		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/UpdateSysSettingRequest`;
 	}
 
 	private async _insertSetting(
@@ -39,33 +45,59 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 			id: definition.id ?? randomUUID(),
 			...definition,
 		};
-		const url = this._getInsertUrl();
-		return this._client.executeWithTiming(
+		return this._sendDefinitionRequest(
 			'insert-sys-setting',
+			this._getInsertUrl(),
+			payload,
+			(response) => response.json() as Promise<SysSettingInsertResponse>,
+			'creatio_insert_sys_setting_failed',
+		);
+	}
+
+	private async _updateSetting(
+		definition: SysSettingDefinitionUpdate,
+	): Promise<SysSettingUpdateResponse> {
+		const payload = {
+			...definition,
+		};
+		return this._sendDefinitionRequest(
+			'update-sys-setting',
+			this._getUpdateUrl(),
+			payload,
+			(response) => response.json() as Promise<SysSettingUpdateResponse>,
+			'creatio_update_sys_setting_failed',
+		);
+	}
+
+	private async _sendDefinitionRequest<T>(
+		operation: string,
+		url: string,
+		payload: Partial<SysSettingDefinition> & { id?: string | undefined },
+		parser: (response: Response) => Promise<T>,
+		errorPrefix: string,
+	): Promise<T> {
+		return this._client.executeWithTiming(
+			operation,
 			url,
 			async () => {
 				const requestInit = await this._client.createPostRequest(payload);
 				return this._client.fetchWithAuth(url, async () => requestInit);
 			},
 			async (response, duration) => {
-				const body = (await response.json()) as SysSettingInsertResponse;
-				this._client.logSuccess('insert-sys-setting', response.status, duration, {
+				const body = await parser(response);
+				this._client.logSuccess(operation, response.status, duration, {
 					code: payload.code,
+					id: payload.id,
 				});
 				return body;
 			},
 			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'insert-sys-setting',
-					response,
-					duration,
-					'creatio_insert_sys_setting_failed',
-					{
-						code: payload.code,
-						url,
-					},
-				),
-			{ code: payload.code },
+				this._client.handleErrorResponse(operation, response, duration, errorPrefix, {
+					code: payload.code,
+					id: payload.id,
+					url,
+				}),
+			{ code: payload.code, id: payload.id },
 		);
 	}
 
@@ -150,5 +182,11 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 			setValueResult = await this.setValues({ [definition.code]: initialValue });
 		}
 		return { insertResult, setValueResult };
+	}
+
+	public updateDefinition(
+		definition: SysSettingDefinitionUpdate,
+	): Promise<SysSettingUpdateResponse> {
+		return this._updateSetting(definition);
 	}
 }

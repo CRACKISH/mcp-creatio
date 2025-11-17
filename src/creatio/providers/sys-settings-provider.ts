@@ -22,9 +22,13 @@ export interface SysSettingDefinition extends Record<string, unknown> {
 	id?: string | undefined;
 	description?: string | undefined;
 	isCacheable?: boolean | undefined;
+	isPersonal?: boolean | undefined;
+	isSSPAvailable?: boolean | undefined;
 	referenceSchemaUId?: string | undefined;
 	dataValueType?: number | string | undefined;
 }
+
+export type SysSettingDefinitionUpdate = Partial<SysSettingDefinition> & { id: string };
 
 export interface CreateSysSettingRequest {
 	definition: SysSettingDefinition;
@@ -39,6 +43,12 @@ export interface SysSettingInsertResponse extends Record<string, unknown> {
 	nextPrcElReady?: boolean;
 }
 
+export interface SysSettingUpdateResponse extends Record<string, unknown> {
+	success?: boolean;
+	rowsAffected?: number;
+	nextPrcElReady?: boolean;
+}
+
 export interface CreateSysSettingResult {
 	insertResult: SysSettingInsertResponse;
 	setValueResult?: any;
@@ -49,4 +59,5 @@ export interface SysSettingsProvider {
 	setValues(values: Record<string, any>): Promise<any>;
 	queryValues(codes: string[]): Promise<QuerySysSettingsResponse>;
 	createSetting(request: CreateSysSettingRequest): Promise<CreateSysSettingResult>;
+	updateDefinition(definition: SysSettingDefinitionUpdate): Promise<SysSettingUpdateResponse>;
 }

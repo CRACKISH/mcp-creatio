@@ -751,6 +751,29 @@ Always use the **value** column (not the display label) when filling \`definitio
 
 ${SYS_SETTINGS_VALUE_TYPES_TABLE}
 
+## Discovering existing system settings
+To inspect what system settings already exist (names, codes, value types, cache flags, etc.), query the 
+\`VwSysSetting\` view via the standard \`read\` tool. Example:
+
+\`\`\`json
+{
+	"entity": "VwSysSetting",
+	"select": [
+		"Id",
+		"Name",
+		"Code",
+		"Description",
+		"ValueTypeName",
+		"IsPersonal",
+		"IsCacheable"
+	],
+	"top": 50
+}
+\`\`\`
+
+Filter by \`Code\` or \`Name\` to narrow results (e.g., \`"filters":{"all":[{"field":"Code","op":"contains","value":"Product"}]}\`).
+This is the fastest way to learn which settings already exist before inserting new ones.
+
 ## Lookup referenceSchemaUId
 - Required only when \`valueTypeName = "Lookup"\`.
 - Set \`definition.referenceSchemaUId\` to the EntitySchema UId of the lookup target.

@@ -2,6 +2,8 @@ import {
 	CreateSysSettingRequest,
 	CreateSysSettingResult,
 	QuerySysSettingsResponse,
+	SysSettingDefinitionUpdate,
+	SysSettingUpdateResponse,
 	SysSettingsProvider,
 } from '../../providers';
 import { CreatioEngine } from '../engine';
@@ -29,5 +31,11 @@ export class SysSettingsEngine implements CreatioEngine {
 
 	public createSetting(request: CreateSysSettingRequest): Promise<CreateSysSettingResult> {
 		return this._provider.createSetting(request);
+	}
+
+	public updateDefinition(
+		definition: SysSettingDefinitionUpdate,
+	): Promise<SysSettingUpdateResponse> {
+		return this._provider.updateDefinition(definition);
 	}
 }
