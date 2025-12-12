@@ -30,7 +30,7 @@ Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - con
 | Variable                     | Description                                                          |
 | ---------------------------- | -------------------------------------------------------------------- |
 | `CREATIO_BASE_URL`           | **Required**. Creatio instance URL (e.g. `https://your-creatio.com`) |
-| `CREATIO_LOGIN`              | Username for legacy auth (e.g. `Supervisor`)                         |
+| `CREATIO_LOGIN`              | Username for legacy auth                                             |
 | `CREATIO_PASSWORD`           | Password for legacy auth                                             |
 | `CREATIO_CLIENT_ID`          | OAuth2 client credentials ID                                         |
 | `CREATIO_CLIENT_SECRET`      | OAuth2 client credentials secret                                     |
