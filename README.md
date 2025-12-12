@@ -48,8 +48,8 @@ Choose one of three ways to authenticate with Creatio:
 ### 1. Legacy (Username/Password)
 
 ```bash
-CREATIO_LOGIN=Supervisor
-CREATIO_PASSWORD=Supervisor
+CREATIO_LOGIN=YourLogin
+CREATIO_PASSWORD=YourPassword
 ```
 
 ### 2. OAuth2 Client Credentials
@@ -86,8 +86,8 @@ The server includes OAuth 2.1 Authorization Server for MCP clients (Claude Deskt
 
 ```bash
 export CREATIO_BASE_URL="https://your-creatio.com"
-export CREATIO_LOGIN="Supervisor"
-export CREATIO_PASSWORD="Supervisor"
+export CREATIO_LOGIN="YourLogin"
+export CREATIO_PASSWORD="YourPassword"
 npm start
 ```
 
@@ -96,8 +96,8 @@ npm start
 ```bash
 docker run --rm -p 3000:3000 \
   -e CREATIO_BASE_URL="https://your-creatio.com" \
-  -e CREATIO_LOGIN="Supervisor" \
-  -e CREATIO_PASSWORD="Supervisor" \
+  -e CREATIO_LOGIN="YourLogin" \
+  -e CREATIO_PASSWORD="YourPassword" \
   crackish/mcp-creatio
 ```
 
