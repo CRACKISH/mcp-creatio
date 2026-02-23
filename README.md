@@ -20,27 +20,29 @@ Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - con
 - **Built-in OAuth server**: Automatic MCP client authentication
 - **Docker ready**: Multi-arch images available
 
-## Quick Start
+## Run Modes
 
-1. Set environment variables (see below)
-2. Run: `npm start` or use Docker
+This project supports two runtime modes:
 
-## Command (stdio) mode
+### 1. CLI Mode (`stdio`)
 
-You can run the server as a command (no separate HTTP `/mcp` endpoint) so MCP clients can connect over stdio directly.
+Use this mode for MCP clients that launch a command directly (VS Code MCP, Claude Desktop, etc.).
 
-### Direct command
+- No HTTP endpoint needed
+- Easiest local setup
+- Supports Legacy auth and OAuth2 Client Credentials
+- OAuth2 Authorization Code is **not** supported in `stdio` mode
+
+Run directly from npm:
 
 ```bash
 npx -y mcp-creatio \
   --base-url https://your-creatio.com \
-  --login YourLogin \
-  --password YourPassword
+  --login your_login \
+  --password your_password
 ```
 
-Default transport for CLI is `stdio`.
-
-### MCP client config example (command-based)
+VS Code MCP config (command-based):
 
 ```json
 {
@@ -52,18 +54,43 @@ Default transport for CLI is `stdio`.
       "--base-url",
       "https://your-creatio.com",
       "--login",
-      "YourLogin",
+      "your_login",
       "--password",
-      "YourPassword"
+      "your_password"
     ]
   }
 }
 ```
 
-### Local repo (analogue without publishing)
+Local repo command (without publishing):
 
 ```bash
-npm run start:stdio -- --base-url https://your-creatio.com --login YourLogin --password YourPassword
+npm run start:stdio -- --base-url https://your-creatio.com --login your_login --password your_password
+```
+
+### 2. Server Mode (`http`)
+
+Use this mode when your client connects by URL (for example `http://localhost:3000/mcp`).
+
+- Exposes HTTP endpoint: `/mcp`
+- Required for OAuth2 Authorization Code flow
+- Works well with Docker and remote deployments
+
+Start server:
+
+```bash
+npm start
+```
+
+Then connect using URL:
+
+```json
+{
+  "creatio": {
+    "type": "http",
+    "url": "http://localhost:3000/mcp"
+  }
+}
 ```
 
 ## Configuration
@@ -115,9 +142,11 @@ CREATIO_CODE_SCOPE="offline_access ApplicationAccess_yourappguid"
 
 **Note**: Currently uses in-memory storage for OAuth tokens. Tokens will be lost on server restart.
 
+**Important**: OAuth2 Authorization Code requires **Server Mode (`http`)**.
+
 **Priority**: Authorization Code > Client Credentials > Legacy
 
-## MCP Client Authentication
+## MCP Client Authentication (HTTP Mode)
 
 The server includes OAuth 2.1 Authorization Server for MCP clients (Claude Desktop, etc.). No additional setup required - clients authenticate automatically through standard OAuth flow.
 
