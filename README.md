@@ -25,6 +25,47 @@ Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - con
 1. Set environment variables (see below)
 2. Run: `npm start` or use Docker
 
+## Command (stdio) mode
+
+You can run the server as a command (no separate HTTP `/mcp` endpoint) so MCP clients can connect over stdio directly.
+
+### Direct command
+
+```bash
+npx -y mcp-creatio \
+  --base-url https://your-creatio.com \
+  --login YourLogin \
+  --password YourPassword
+```
+
+Default transport for CLI is `stdio`.
+
+### MCP client config example (command-based)
+
+```json
+{
+  "creatio": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-creatio",
+      "--base-url",
+      "https://your-creatio.com",
+      "--login",
+      "YourLogin",
+      "--password",
+      "YourPassword"
+    ]
+  }
+}
+```
+
+### Local repo (analogue without publishing)
+
+```bash
+npm run start:stdio -- --base-url https://your-creatio.com --login YourLogin --password YourPassword
+```
+
 ## Configuration
 
 | Variable                     | Description                                                          |

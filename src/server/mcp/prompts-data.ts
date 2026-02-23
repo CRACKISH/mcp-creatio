@@ -356,7 +356,7 @@ Call \`get-current-user-info\` tool (no parameters needed)
 {
   "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",
   "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← USE THIS!
-  "userName": "Supervisor",
+  "userName": "Current User",
   "cultureName": "en-US"
 }
 \`\`\`
@@ -375,7 +375,7 @@ If you need to query manually:
 \`\`\`json
 {
   "entity": "SysAdminUnit",
-  "filter": "Name eq 'Supervisor'",
+  "filter": "Name eq '<your_username>'",
   "select": ["ContactId"],
   "top": 1
 }
@@ -435,7 +435,7 @@ For **ANY** entity that has owner/author/creator fields:
 ### WRONG (using SysAdminUnit.Id):
 \`\`\`json
 // Step 1: Query SysAdminUnit
-read("SysAdminUnit", "Name eq 'Supervisor'", ["Id"], 1)
+read("SysAdminUnit", "Name eq '<your_username>'", ["Id"], 1)
 // → Returns: [{ "Id": "410006e1-ca4e-4502-a9ec-e54d922d2c00" }]
 
 // Step 2: Use .Id (WRONG!)
@@ -448,7 +448,7 @@ create("Activity", {
 ### ✅ CORRECT (using ContactId):
 \`\`\`json
 // Step 1: Query SysAdminUnit  
-read("SysAdminUnit", "Name eq 'Supervisor'", ["ContactId"], 1)
+read("SysAdminUnit", "Name eq '<your_username>'", ["ContactId"], 1)
 // → Returns: [{ "ContactId": "76929f8c-7e15-4c64-bfb1-40c705d25fcd" }]
 
 // Step 2: Use .ContactId (CORRECT!)
@@ -463,7 +463,7 @@ create("Activity", {
 ## 🔍 Visual Explanation
 
 \`\`\`
-SysAdminUnit "Supervisor":
+SysAdminUnit "<your_username>":
 ├─ Id: "410006e1..."          ← USER account (for system/permissions)
 │  └─ Used for: Login, roles, access rights
 │

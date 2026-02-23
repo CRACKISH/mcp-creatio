@@ -58,7 +58,7 @@ export class McpHandlers {
 				}
 			};
 			const mcp = await this._server.startMcp();
-			await mcp.connect(transport);
+			await mcp.connect(transport as any);
 		} else {
 			res.status(400).json({
 				jsonrpc: '2.0',

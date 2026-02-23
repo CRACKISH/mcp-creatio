@@ -13,8 +13,8 @@
 # and starts the MCP Creatio server in development mode.
 
 $env:CREATIO_BASE_URL = "https://your-creatio.com"
-$env:CREATIO_LOGIN = "Supervisor"
-$env:CREATIO_PASSWORD = "Supervisor"
+$env:CREATIO_LOGIN = "your_login"
+$env:CREATIO_PASSWORD = "your_password"
 
 # Optional: adjust logging verbosity or other flags here
 # $env:LOG_LEVEL = "debug"

@@ -1,13 +1,11 @@
-/* eslint-disable indent */
-/* eslint-disable brace-style */
 import { CreatioClientAuthConfig, CreatioClientConfig } from '../../client-config';
 import { ICreatioAuthProvider } from '../auth';
 
 import { AuthProviderType } from './type';
 
-export abstract class BaseProvider<T extends CreatioClientAuthConfig = CreatioClientAuthConfig>
-	implements ICreatioAuthProvider
-{
+export abstract class BaseProvider<
+	T extends CreatioClientAuthConfig = CreatioClientAuthConfig,
+> implements ICreatioAuthProvider {
 	protected readonly config: CreatioClientConfig;
 
 	protected get authConfig(): T {

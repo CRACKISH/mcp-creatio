@@ -73,7 +73,7 @@ export const getCurrentUserInfoDescriptor = makeToolDescriptor({
 		'{\n' +
 		'  "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",\n' +
 		'  "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← SAVE THIS!\n' +
-		'  "userName": "Supervisor",\n' +
+		'  "userName": "Current User",\n' +
 		'  "cultureName": "en-US"\n' +
 		'}\n\n' +
 		'USE CASES (when to call):\n' +
@@ -419,7 +419,7 @@ const executeProcessInputShape = {
 				'- Use the "Name" field value as processName parameter.',
 		),
 	parameters: z
-		.record(z.any())
+		.record(z.string(), z.any())
 		.optional()
 		.describe(
 			'Parameters to pass to the business process as key-value pairs. Parameter names typically start with uppercase letter. Examples:\n' +
