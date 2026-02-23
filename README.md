@@ -42,6 +42,8 @@ npx -y mcp-creatio \
   --password your_password
 ```
 
+`stdio` logs are disabled by default. To enable them, set `MCP_CREATIO_LOG_LEVEL` or pass `--log-level info`.
+
 VS Code MCP config (command-based):
 
 ```json
@@ -108,6 +110,7 @@ Then connect using URL:
 | `CREATIO_CODE_REDIRECT_URI`  | OAuth2 redirect URI (e.g. `http://localhost:3000/oauth/callback`)    |
 | `CREATIO_CODE_SCOPE`         | OAuth2 scope (e.g. `offline_access ApplicationAccess_yourappguid`)   |
 | `READONLY_MODE`              | Set `true` to disable create/update/delete operations                |
+| `MCP_CREATIO_LOG_LEVEL`      | Log verbosity: `silent` (default), `error`, `warn`, `info`           |
 
 ## Authentication Modes
 

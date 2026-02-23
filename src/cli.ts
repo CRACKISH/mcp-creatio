@@ -30,6 +30,8 @@ Options:
   --client-secret <value>      OAuth2 client credentials client_secret
   --id-base-url <url>          Creatio Identity base URL
   --readonly <true|false>      Enable readonly mode
+  --log-level <silent|error|warn|info>
+                               Log verbosity (default: silent)
   -h, --help                   Show this help
 
 Examples:
@@ -90,6 +92,7 @@ function applyCliEnv(opts: CliOptions): void {
 	setEnvIfDefined('CREATIO_CLIENT_SECRET', opts['client-secret']);
 	setEnvIfDefined('CREATIO_ID_BASE_URL', opts['id-base-url']);
 	setEnvIfDefined('READONLY_MODE', opts.readonly);
+	setEnvIfDefined('MCP_CREATIO_LOG_LEVEL', opts['log-level']);
 }
 
 async function startStdio(server: Server): Promise<void> {
@@ -121,6 +124,7 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	log.useStderrOnlyLogs();
 	applyCliEnv(opts);
 	const cfg = getCreatioClientConfig();
 

@@ -1,4 +1,5 @@
 export type LogLevel = 'info' | 'warn' | 'error';
+export type LogVerbosity = LogLevel | 'silent';
 export type CreatioAuthKind = 'legacy' | 'oauth2' | 'oauth2_code';
 
 export interface LogConfig {
@@ -6,6 +7,35 @@ export interface LogConfig {
 }
 
 let _correlationId: string | undefined;
+let _stderrOnly = false;
+
+function resolveLogVerbosity(): LogVerbosity {
+	const raw = (process.env.MCP_CREATIO_LOG_LEVEL || 'silent').toLowerCase();
+	if (raw === 'info') {
+		return 'info';
+	}
+	if (raw === 'warn' || raw === 'warning') {
+		return 'warn';
+	}
+	if (raw === 'error') {
+		return 'error';
+	}
+	return 'silent';
+}
+
+function shouldLog(level: LogLevel): boolean {
+	const verbosity = resolveLogVerbosity();
+	if (verbosity === 'silent') {
+		return false;
+	}
+	if (verbosity === 'error') {
+		return level === 'error';
+	}
+	if (verbosity === 'warn') {
+		return level === 'warn' || level === 'error';
+	}
+	return true;
+}
 
 export function setCorrelationId(correlationId: string) {
 	_correlationId = correlationId;
@@ -24,6 +54,9 @@ function timestamp() {
 }
 
 function output(level: LogLevel, msg: string, meta?: Record<string, any>) {
+	if (!shouldLog(level)) {
+		return;
+	}
 	const entry: any = { ts: timestamp(), level, msg };
 	if (_correlationId) {
 		entry.correlationId = _correlationId;
@@ -32,6 +65,10 @@ function output(level: LogLevel, msg: string, meta?: Record<string, any>) {
 		entry.meta = meta;
 	}
 	const line = JSON.stringify(entry);
+	if (_stderrOnly) {
+		process.stderr.write(line + '\n');
+		return;
+	}
 	if (level === 'error') {
 		console.error(line);
 	} else if (level === 'warn') {
@@ -39,6 +76,10 @@ function output(level: LogLevel, msg: string, meta?: Record<string, any>) {
 	} else {
 		console.log(line);
 	}
+}
+
+export function useStderrOnlyLogs() {
+	_stderrOnly = true;
 }
 
 export function info(msg: string, meta?: Record<string, any>) {
@@ -120,6 +161,7 @@ export default {
 	info,
 	warn,
 	error,
+	useStderrOnlyLogs,
 	appStart,
 	appStop,
 	serverStart,
