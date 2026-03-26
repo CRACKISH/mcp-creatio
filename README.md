@@ -1,6 +1,15 @@
 # MCP Creatio Server
 
-Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) - connect Claude Desktop, ChatGPT, and other AI tools to your Creatio data.
+[![npm version](https://img.shields.io/npm/v/mcp-creatio)](https://www.npmjs.com/package/mcp-creatio)
+[![Docker pulls](https://img.shields.io/docker/pulls/crackish/mcp-creatio)](https://hub.docker.com/r/crackish/mcp-creatio)
+[![License](https://img.shields.io/github/license/CRACKISH/mcp-creatio)](LICENSE)
+
+Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) to connect Claude Desktop, ChatGPT, GitHub Copilot, and other AI tools to Creatio data.
+
+Also discoverable as:
+- Creatio MCP server
+- MCP server for Creatio CRM
+- Model Context Protocol for Creatio
 
 ## Overview
 

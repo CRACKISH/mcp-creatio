@@ -1,6 +1,6 @@
 {
   "name": "mcp-creatio",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "main": "dist/index.js",
   "bin": {
     "mcp-creatio": "dist/cli.js"
@@ -23,14 +23,27 @@
     "type": "git",
     "url": "git+https://github.com/CRACKISH/mcp-creatio.git"
   },
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "creatio",
+    "creatio-crm",
+    "crm",
+    "odata",
+    "mcp-server",
+    "chatgpt",
+    "claude",
+    "github-copilot",
+    "typescript",
+    "ai-tools"
+  ],
   "author": "",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/CRACKISH/mcp-creatio/issues"
   },
   "homepage": "https://github.com/CRACKISH/mcp-creatio#readme",
-  "description": "",
+  "description": "MCP server for Creatio CRM. Connect Claude Desktop, ChatGPT, and GitHub Copilot to Creatio via Model Context Protocol and OData v4.",
   "devDependencies": {
     "@types/express": "5.0.6",
     "@types/node": "^25.3.0",
