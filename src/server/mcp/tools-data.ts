@@ -706,3 +706,43 @@ export const deleteAdminOperationGranteeDescriptor = makeToolDescriptor({
 		'Delete individual grant rows by Id when you want to remove a grant entry entirely. To flip allow ↔ deny instead, prefer `set-admin-operation-grantee`.',
 	inputShape: deleteAdminOperationGranteeInputShape,
 });
+
+const SERVICE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+const callConfigurationServiceInputShape = {
+	service: z
+		.string()
+		.regex(SERVICE_NAME_PATTERN, 'Service name must match ^[A-Za-z][A-Za-z0-9_-]*$')
+		.describe(
+			'Configuration service name as registered in Creatio (e.g., "RightsService"). The full URL is /0/rest/<service>/<method>.',
+		),
+	method: z
+		.string()
+		.regex(SERVICE_NAME_PATTERN, 'Method name must match ^[A-Za-z][A-Za-z0-9_-]*$')
+		.describe(
+			'Service method name (UriTemplate) to invoke (e.g., "UpsertAdminOperation").',
+		),
+	httpMethod: z
+		.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
+		.default('POST')
+		.describe('HTTP method. Most Creatio configuration services use POST.'),
+	body: z
+		.record(z.string(), z.any())
+		.optional()
+		.describe(
+			'Request body sent as JSON for POST/PATCH/PUT. Ignored for GET/DELETE. Pass the service parameters as a flat object (e.g., {"recordId":"<guid>","name":"..."}). Creatio configuration services use [WebInvoke BodyStyle=Wrapped], so each parameter becomes a top-level key.',
+		),
+	query: z
+		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+		.optional()
+		.describe('Optional query-string parameters appended to the URL.'),
+} as const;
+
+export const callConfigurationServiceInput = z.object(callConfigurationServiceInputShape);
+
+export const callConfigurationServiceDescriptor = makeToolDescriptor({
+	title: 'Call a Creatio configuration REST service method',
+	description:
+		'Escape hatch for invoking any configuration-package REST service exposed at /0/rest/<service>/<method>. Use this when no dedicated MCP tool covers the operation. Always prefer the specific tools (`upsert-admin-operation`, `refresh-feature-cache`, sys-settings tools, etc.) when they exist — they validate inputs, handle wrapped responses, and document side effects. Returns `{status, contentType, body}`; JSON responses are auto-parsed.',
+	inputShape: callConfigurationServiceInputShape,
+});

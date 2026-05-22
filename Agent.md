@@ -44,6 +44,7 @@ CreatioServiceContext
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
   ├─ FeatureServiceProvider → /rest/FeatureService/ClearFeaturesCacheForAllUsers
   ├─ AdminOperationServiceProvider → /rest/RightsService/{Upsert,Delete}AdminOperation[,Grantee]
+  ├─ ConfigurationServiceProvider → generic /rest/<service>/<method> caller
   └─ UserInfoProvider → UserInfoService for current user data
 ```
 
@@ -73,7 +74,7 @@ Usage pattern:
 5. Keep tool names stable: lowercase kebab-case (e.g. `execute-process`).
 6. Keep authentication precedence: Authorization Code > Client Credentials > Legacy.
 7. Do not leak secrets or access tokens in tool responses.
-8. `READONLY_MODE=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`) are registered.
+8. `READONLY_MODE=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered.
 
 ## 5. Adding a New Tool (Checklist)
 

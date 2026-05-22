@@ -3,6 +3,7 @@ import { CreatioClientConfig } from '../client-config';
 import { CreatioProviderContext } from '../provider-context';
 import {
 	AdminOperationProvider,
+	ConfigurationProvider,
 	CrudProvider,
 	FeatureProvider,
 	ProcessProvider,
@@ -11,6 +12,7 @@ import {
 } from '../providers';
 
 import { AdminOperationServiceProvider } from './admin-operation-service-provider';
+import { ConfigurationServiceProvider } from './configuration-service-provider';
 import { FeatureServiceProvider } from './feature-service-provider';
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';
@@ -26,6 +28,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 
 	public readonly kind = 'creatio-services';
 	public readonly adminOperation: AdminOperationProvider;
+	public readonly configuration: ConfigurationProvider;
 	public readonly crud: CrudProvider;
 	public readonly feature: FeatureProvider;
 	public readonly process: ProcessProvider;
@@ -42,6 +45,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 		this._httpClient = new CreatioHttpClient(this._config, this._authManager);
 		const metadataStore = new ODataMetadataStore(this._httpClient);
 		this.adminOperation = new AdminOperationServiceProvider(this._httpClient);
+		this.configuration = new ConfigurationServiceProvider(this._httpClient);
 		this.crud = new ODataCrudProvider(this._httpClient, metadataStore);
 		this.feature = new FeatureServiceProvider(this._httpClient);
 		this.process = new ProcessServiceProvider(this._httpClient);

@@ -12,6 +12,8 @@ import { NAME, VERSION } from '../../version';
 import { buildFilterFromStructured } from './filters';
 import { ALL_PROMPTS } from './prompts-data';
 import {
+	callConfigurationServiceDescriptor,
+	callConfigurationServiceInput,
 	createDescriptor,
 	createInput,
 	createSysSettingDescriptor,
@@ -228,6 +230,7 @@ export class Server {
 			const process = this._engines.process;
 			const feature = this._engines.feature;
 			const adminOperation = this._engines.adminOperation;
+			const configuration = this._engines.configuration;
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
@@ -387,6 +390,27 @@ export class Server {
 						],
 					};
 				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'call-configuration-service',
+				callConfigurationServiceDescriptor,
+				withValidation(
+					callConfigurationServiceInput,
+					async ({ service, method, httpMethod, body, query }) => {
+						const result = await configuration.call({
+							service,
+							method,
+							httpMethod,
+							...(body !== undefined ? { body } : {}),
+							...(query !== undefined ? { query } : {}),
+						});
+						return {
+							content: [
+								{ type: 'text', text: JSON.stringify(result, null, 2) },
+							],
+						};
+					},
+				),
 			);
 		}
 	}

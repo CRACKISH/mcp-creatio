@@ -26,6 +26,7 @@ Also discoverable as:
 - **System settings**: read, write, and manage system setting metadata
 - **Feature toggles**: manage `Feature` / `AdminUnitFeatureState` and refresh the feature cache. ⚠️ Only DB-backed features are reachable — features defined exclusively in `web.config` or other non-DB providers are invisible to MCP.
 - **System operations**: manage `SysAdminOperation` and per-user/role grants (Creatio blocks these tables for OData modifications, so dedicated tools are provided)
+- **Custom services**: invoke any configuration-package REST service (`/0/rest/<service>/<method>`) when no dedicated tool fits
 - **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
 - **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
 - **Built-in OAuth server**: Automatic MCP client authentication
@@ -206,5 +207,6 @@ docker run --rm -p 3000:3000 \
 | `delete-admin-operation`         | Delete one or more `SysAdminOperation` rows (related grantee rows are cleaned up automatically)                                              |
 | `set-admin-operation-grantee`    | Grant or revoke a system operation for users/roles. Repeated calls update the existing row instead of duplicating                            |
 | `delete-admin-operation-grantee` | Remove specific grant rows by Id. Prefer `set-admin-operation-grantee` to flip allow ↔ deny                                                  |
+| `call-configuration-service`     | Escape hatch: invoke any configuration-package REST service method by name. Use only when no dedicated tool covers the operation             |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.

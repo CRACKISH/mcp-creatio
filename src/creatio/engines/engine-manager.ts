@@ -1,6 +1,7 @@
 import { CreatioProviderContext } from '../provider-context';
 import {
 	AdminOperationProvider,
+	ConfigurationProvider,
 	CrudProvider,
 	FeatureProvider,
 	ProcessProvider,
@@ -9,6 +10,7 @@ import {
 } from '../providers';
 
 import { AdminOperationEngine } from './admin-operation/admin-operation-engine';
+import { ConfigurationEngine } from './configuration/configuration-engine';
 import { CrudEngine } from './crud/crud-engine';
 import { CreatioEngine } from './engine';
 import { EngineRegistry, EngineType } from './engine-registry';
@@ -19,12 +21,14 @@ import { UserEngine } from './user/user-engine';
 
 export interface EngineManagerOptions {
 	adminOperationProvider?: AdminOperationProvider;
+	configurationProvider?: ConfigurationProvider;
 	crudProvider?: CrudProvider;
 	featureProvider?: FeatureProvider;
 	processProvider?: ProcessProvider;
 	sysSettingsProvider?: SysSettingsProvider;
 	userProvider?: UserProvider;
 	enableAdminOperation?: boolean;
+	enableConfiguration?: boolean;
 	enableCrud?: boolean;
 	enableFeature?: boolean;
 	enableProcess?: boolean;
@@ -48,6 +52,10 @@ export class CreatioEngineManager {
 
 	public get adminOperation(): AdminOperationEngine {
 		return this._registry.require<AdminOperationEngine>(EngineType.AdminOperation);
+	}
+
+	public get configuration(): ConfigurationEngine {
+		return this._registry.require<ConfigurationEngine>(EngineType.Configuration);
 	}
 
 	public get crud(): CrudEngine {
@@ -85,6 +93,15 @@ export class CreatioEngineManager {
 						(this._context.adminOperation as AdminOperationProvider),
 				),
 			this._options?.enableAdminOperation ?? true,
+		);
+		this._registerEngine(
+			EngineType.Configuration,
+			() =>
+				new ConfigurationEngine(
+					this._options?.configurationProvider ??
+						(this._context.configuration as ConfigurationProvider),
+				),
+			this._options?.enableConfiguration ?? true,
 		);
 		this._registerEngine(
 			EngineType.Crud,

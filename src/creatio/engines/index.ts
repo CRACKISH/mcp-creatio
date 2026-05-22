@@ -2,6 +2,7 @@ export * from './engine';
 export * from './engine-manager';
 export * from './engine-registry';
 export * from './admin-operation/admin-operation-engine';
+export * from './configuration/configuration-engine';
 export * from './crud/crud-engine';
 export * from './feature/feature-engine';
 export * from './process/process-engine';

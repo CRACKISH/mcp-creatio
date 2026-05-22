@@ -1,4 +1,5 @@
 export * from './admin-operation-service-provider';
+export * from './configuration-service-provider';
 export * from './creatio-service-context';
 export * from './feature-service-provider';
 export * from './http-client';
