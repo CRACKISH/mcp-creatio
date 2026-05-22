@@ -1,6 +1,7 @@
 import { CreatioEngine } from './engine';
 
 export enum EngineType {
+	AdminOperation = 'admin-operation',
 	Crud = 'crud',
 	Feature = 'feature',
 	Process = 'process',

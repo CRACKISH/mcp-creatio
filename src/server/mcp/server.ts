@@ -16,6 +16,10 @@ import {
 	createInput,
 	createSysSettingDescriptor,
 	createSysSettingInput,
+	deleteAdminOperationDescriptor,
+	deleteAdminOperationGranteeDescriptor,
+	deleteAdminOperationGranteeInput,
+	deleteAdminOperationInput,
 	deleteDescriptor,
 	deleteInput,
 	describeEntityDescriptor,
@@ -32,12 +36,16 @@ import {
 	readInput,
 	refreshFeatureCacheDescriptor,
 	refreshFeatureCacheInput,
+	setAdminOperationGranteeDescriptor,
+	setAdminOperationGranteeInput,
 	setSysSettingsValueDescriptor,
 	setSysSettingsValueInput,
 	updateDescriptor,
 	updateInput,
 	updateSysSettingDefinitionDescriptor,
 	updateSysSettingDefinitionInput,
+	upsertAdminOperationDescriptor,
+	upsertAdminOperationInput,
 } from './tools-data';
 
 type ToolHandler = (payload: any) => Promise<any>;
@@ -219,6 +227,7 @@ export class Server {
 		if (!this._readonly) {
 			const process = this._engines.process;
 			const feature = this._engines.feature;
+			const adminOperation = this._engines.adminOperation;
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
@@ -315,6 +324,66 @@ export class Server {
 								type: 'text',
 								text: JSON.stringify(result, null, 2),
 							},
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'upsert-admin-operation',
+				upsertAdminOperationDescriptor,
+				withValidation(upsertAdminOperationInput, async ({ id, name, code, description }) => {
+					const result = await adminOperation.upsertAdminOperation({
+						...(id !== undefined ? { id } : {}),
+						name,
+						code,
+						...(description !== undefined ? { description } : {}),
+					});
+					return {
+						content: [
+							{ type: 'text', text: JSON.stringify(result, null, 2) },
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'delete-admin-operation',
+				deleteAdminOperationDescriptor,
+				withValidation(deleteAdminOperationInput, async ({ ids }) => {
+					const result = await adminOperation.deleteAdminOperation(ids);
+					return {
+						content: [
+							{ type: 'text', text: JSON.stringify(result, null, 2) },
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'set-admin-operation-grantee',
+				setAdminOperationGranteeDescriptor,
+				withValidation(
+					setAdminOperationGranteeInput,
+					async ({ adminOperationId, adminUnitIds, canExecute }) => {
+						const result = await adminOperation.setAdminOperationGrantee({
+							adminOperationId,
+							adminUnitIds,
+							canExecute,
+						});
+						return {
+							content: [
+								{ type: 'text', text: JSON.stringify(result, null, 2) },
+							],
+						};
+					},
+				),
+			);
+			this._registerHandlerWithDescriptor(
+				'delete-admin-operation-grantee',
+				deleteAdminOperationGranteeDescriptor,
+				withValidation(deleteAdminOperationGranteeInput, async ({ ids }) => {
+					const result = await adminOperation.deleteAdminOperationGrantee(ids);
+					return {
+						content: [
+							{ type: 'text', text: JSON.stringify(result, null, 2) },
 						],
 					};
 				}),

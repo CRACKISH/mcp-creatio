@@ -20,11 +20,12 @@ Also discoverable as:
 
 ## Features
 
-- **CRUD operations**: `read`, `create`, `update`, `delete` Creatio records
-- **Schema discovery**: `list-entities`, `describe-entity`
-- **Business processes**: `execute-process` to run Creatio workflows
-- **System settings**: `create-sys-setting`, `update-sys-setting-definition`, `query-sys-settings`, and `set-sys-settings-value` to create, adjust metadata, inspect, or assign values
-- **Feature toggles**: `refresh-feature-cache` to invalidate the feature-toggle cache after editing `Feature` / `AdminUnitFeatureState` rows via CRUD. ⚠️ Creatio OData v4 does not currently expose virtual entities (`AppFeature` / `AppFeatureState`), so only **DB-backed** features (rows that actually exist in the persisted `Feature` table) are reachable from MCP. Features defined exclusively in `web.config` or other non-DB providers stay invisible until they get a row in `Feature`.
+- **CRUD operations**: read, create, update, delete Creatio records
+- **Schema discovery**: list entity sets and inspect entity schemas
+- **Business processes**: run Creatio workflows with parameters
+- **System settings**: read, write, and manage system setting metadata
+- **Feature toggles**: manage `Feature` / `AdminUnitFeatureState` and refresh the feature cache. ⚠️ Only DB-backed features are reachable — features defined exclusively in `web.config` or other non-DB providers are invisible to MCP.
+- **System operations**: manage `SysAdminOperation` and per-user/role grants (Creatio blocks these tables for OData modifications, so dedicated tools are provided)
 - **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
 - **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
 - **Built-in OAuth server**: Automatic MCP client authentication
@@ -186,20 +187,24 @@ docker run --rm -p 3000:3000 \
 
 ## Available Tools
 
-| Tool                            | Description                                                                                                                                                                                                                 |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get-current-user-info`         | Fetches the Creatio contact details for the authenticated MCP user                                                                                                                                                          |
-| `list-entities`                 | List all available entity sets                                                                                                                                                                                              |
-| `describe-entity`               | Get schema for entity (fields, types, keys)                                                                                                                                                                                 |
-| `read`                          | Query records with optional filters                                                                                                                                                                                         |
-| `create`                        | Create new record                                                                                                                                                                                                           |
-| `update`                        | Update existing record                                                                                                                                                                                                      |
-| `delete`                        | Delete record                                                                                                                                                                                                               |
-| `execute-process`               | Run Creatio business processes                                                                                                                                                                                              |
-| `query-sys-settings`            | Retrieve the current values and metadata for one or more sys settings                                                                                                                                                       |
-| `set-sys-settings-value`        | Update one or more sys settings via PostSysSettingsValues                                                                                                                                                                   |
-| `create-sys-setting`            | Create a new sys setting record and optional initial value assignment                                                                                                                                                       |
-| `update-sys-setting-definition` | Modify sys setting metadata (name, value type, cache flags, lookup reference) via UpdateSysSettingRequest. Creatio requires Code, Name, and valueTypeName to be included on every update, even if the values are unchanged. |
-| `refresh-feature-cache`         | Invalidates the in-memory feature-toggle cache by calling `/rest/FeatureService/ClearFeaturesCacheForAllUsers`. Optional `featureCode` parameter scopes the refresh to a single feature; omit to clear all. Call after editing `Feature` / `AdminUnitFeatureState` via standard CRUD. See the `/feature-toggle-guide` MCP prompt for the full workflow. |
+| Tool                             | Description                                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user                                                                             |
+| `list-entities`                  | List all available entity sets                                                                                                               |
+| `describe-entity`                | Get schema for an entity (fields, types, keys)                                                                                               |
+| `read`                           | Query records with optional filters, select, expand, ordering                                                                                |
+| `create`                         | Create a new record                                                                                                                          |
+| `update`                         | Update an existing record                                                                                                                    |
+| `delete`                         | Delete a record                                                                                                                              |
+| `execute-process`                | Run a Creatio business process                                                                                                               |
+| `query-sys-settings`             | Read current values and metadata for one or more system settings                                                                             |
+| `set-sys-settings-value`         | Update one or more system setting values                                                                                                     |
+| `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                    |
+| `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                             |
+| `refresh-feature-cache`          | Invalidate the in-memory feature-toggle cache. Call after editing `Feature` / `AdminUnitFeatureState` rows                                  |
+| `upsert-admin-operation`         | Create or update a `SysAdminOperation` (system operation / permission). Required because OData modifications are blocked for this entity     |
+| `delete-admin-operation`         | Delete one or more `SysAdminOperation` rows (related grantee rows are cleaned up automatically)                                              |
+| `set-admin-operation-grantee`    | Grant or revoke a system operation for users/roles. Repeated calls update the existing row instead of duplicating                            |
+| `delete-admin-operation-grantee` | Remove specific grant rows by Id. Prefer `set-admin-operation-grantee` to flip allow ↔ deny                                                  |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.

@@ -1087,6 +1087,200 @@ export const FEATURE_TOGGLE_PROMPT = {
 	}),
 };
 
+const ADMIN_OPERATION_GUIDE = `
+# 🛡️ Creatio System Operations (SysAdminOperation) Guide
+
+## 🧭 Quick Map
+
+Creatio system operations are admin-level permission flags that gate features such as \`CanUseODataService\`, \`CanManageAdministration\`, \`CanChangeAdminOperationGrantee\`, etc. They live in two database tables:
+
+| Table                       | Holds                                                          | OData reachable? |
+|-----------------------------|----------------------------------------------------------------|------------------|
+| \`SysAdminOperation\`         | The operation definition: Name, Code, Description              | Read ✅ / Write ❌ |
+| \`SysAdminOperationGrantee\`  | Per-admin-unit grants (FK to operation + SysAdminUnit + allow) | Read ✅ / Write ❌ |
+
+Modification of both tables is blocked through OData v4 (\`DataServiceRestrictedModifySchemas\` in \`Web.config\`). All writes go through Creatio's dedicated **\`/0/rest/RightsService/\`** endpoints, wrapped by these MCP tools:
+
+| Need                                     | Tool                                  |
+|------------------------------------------|---------------------------------------|
+| Read catalog / grant rows                | Standard \`read\` on the two entities  |
+| Create or rename an operation            | \`upsert-admin-operation\`             |
+| Delete operation(s)                      | \`delete-admin-operation\`             |
+| Grant or revoke for users/roles          | \`set-admin-operation-grantee\`        |
+| Remove a specific grant row by Id        | \`delete-admin-operation-grantee\`     |
+
+⚠️ Do NOT attempt \`create\` / \`update\` / \`delete\` on \`SysAdminOperation\` or \`SysAdminOperationGrantee\` through the generic OData tools — Creatio rejects those writes.
+
+---
+
+## 📋 SysAdminOperation Columns
+
+| Column          | Type     | Notes                                                              |
+|-----------------|----------|--------------------------------------------------------------------|
+| \`Id\`            | Guid     | Primary key                                                        |
+| \`Code\`          | string   | Operation code, e.g., \`CanUseODataService\`. Conventionally PascalCase. |
+| \`Name\`          | string   | Display name                                                       |
+| \`Description\`   | string   | Optional description                                               |
+
+## 📋 SysAdminOperationGrantee Columns
+
+| Column                  | Type    | Notes                                                                       |
+|-------------------------|---------|-----------------------------------------------------------------------------|
+| \`Id\`                    | Guid    | Primary key                                                                 |
+| \`SysAdminOperationId\`   | Guid    | FK to \`SysAdminOperation\`                                                   |
+| \`SysAdminUnitId\`        | Guid    | FK to \`SysAdminUnit\` (use SysAdminUnit.Id, NOT ContactId)                   |
+| \`CanExecute\`            | bool    | \`true\` = allow, \`false\` = deny                                            |
+| \`Position\`              | Int32   | Order within conflicting rules; lower wins for the same admin unit          |
+
+---
+
+## 🛠️ Common Workflows
+
+### 1. List system operations
+
+\`\`\`json
+{
+  "entity": "SysAdminOperation",
+  "select": ["Id", "Code", "Name", "Description"],
+  "top": 200,
+  "orderBy": "Code asc"
+}
+\`\`\`
+
+### 2. Look up an operation by code
+
+\`\`\`json
+{
+  "entity": "SysAdminOperation",
+  "filters": { "all": [ { "field": "Code", "op": "eq", "value": "CanUseODataService" } ] },
+  "select": ["Id", "Code", "Name", "Description"],
+  "top": 1
+}
+\`\`\`
+
+### 3. Create a new system operation
+
+Call \`upsert-admin-operation\` without an \`id\`:
+
+\`\`\`json
+{
+  "name": "Can do MCP test",
+  "code": "CanDoMcpTest",
+  "description": "Demo operation managed via MCP"
+}
+\`\`\`
+
+The response includes the generated \`id\`. Capture it for the grant step.
+
+### 4. Rename / re-describe an existing operation
+
+Call \`upsert-admin-operation\` with the existing \`id\`:
+
+\`\`\`json
+{
+  "id": "<operation-guid>",
+  "name": "Can do MCP test (renamed)",
+  "code": "CanDoMcpTest",
+  "description": "Updated description"
+}
+\`\`\`
+
+Code is required even when unchanged.
+
+### 5. Grant the operation to a user or role
+
+Resolve the SysAdminUnit first:
+
+\`\`\`json
+{
+  "entity": "SysAdminUnit",
+  "filters": { "all": [ { "field": "Name", "op": "eq", "value": "Supervisor" } ] },
+  "select": ["Id", "Name", "SysAdminUnitTypeValue"],
+  "top": 1
+}
+\`\`\`
+
+Then call \`set-admin-operation-grantee\`:
+
+\`\`\`json
+{
+  "adminOperationId": "<operation-guid>",
+  "adminUnitIds": ["<sysadminunit-guid-1>", "<sysadminunit-guid-2>"],
+  "canExecute": true
+}
+\`\`\`
+
+Use \`canExecute: false\` to deny instead of allow. The service upserts the grantee rows internally — repeated calls for the same pair update the existing row instead of duplicating it.
+
+### 6. Inspect current grants for an operation
+
+⚠️ **Filter via the navigation property, not the raw FK column.** Creatio OData v4 rejects direct \`SysAdminOperationId eq <guid>\` / \`SysAdminUnitId eq <guid>\` filters on this entity with HTTP 500. Use \`SysAdminOperation/Id\` and \`SysAdminUnit/Id\` instead:
+
+\`\`\`json
+{
+  "entity": "SysAdminOperationGrantee",
+  "filters": { "all": [ { "field": "SysAdminOperation/Id", "op": "eq", "value": "<operation-guid>" } ] },
+  "select": ["Id", "SysAdminOperationId", "SysAdminUnitId", "CanExecute", "Position"]
+}
+\`\`\`
+
+### 7. Remove a specific grant row
+
+Use the row Id from step 6:
+
+\`\`\`json
+{ "ids": ["<grantee-guid>"] }
+\`\`\`
+
+Call \`delete-admin-operation-grantee\`. Prefer toggling \`canExecute\` via \`set-admin-operation-grantee\` if the goal is to flip allow ↔ deny rather than fully remove the rule.
+
+### 8. Delete an operation entirely
+
+\`\`\`json
+{ "ids": ["<operation-guid-1>", "<operation-guid-2>"] }
+\`\`\`
+
+Call \`delete-admin-operation\`. RightsService cascades cleanup of related grantee rows.
+
+---
+
+## ❌ Common Mistakes
+
+- ❌ Trying to write to \`SysAdminOperation\` or \`SysAdminOperationGrantee\` via the generic OData \`create\` / \`update\` / \`delete\` tools — these tables are in \`DataServiceRestrictedModifySchemas\`.
+- ❌ Passing the all-zero GUID as \`id\` to \`upsert-admin-operation\` to "create" — RightsService rejects it. Omit \`id\` and let the tool generate a fresh one.
+- ❌ Using \`ContactId\` instead of \`SysAdminUnit.Id\` for grantees.
+- ❌ Forgetting to confirm with \`read\` that the change landed — RightsService responses return \`success: true\` only when the underlying entity actually saved.
+- ❌ Granting the operation to many units one by one — pass the full \`adminUnitIds\` array in a single call.
+- ❌ Filtering \`SysAdminOperationGrantee\` by the raw \`SysAdminOperationId\` / \`SysAdminUnitId\` columns — Creatio OData returns HTTP 500 for those. Use the navigation property syntax \`SysAdminOperation/Id\` / \`SysAdminUnit/Id\`.
+
+---
+
+## ✅ Final Checklist
+
+Before reporting a system-operation change as done:
+- [ ] Used \`SysAdminOperation\` / \`SysAdminOperationGrantee\` only for reading.
+- [ ] Used \`upsert-admin-operation\` / \`delete-admin-operation\` for catalog writes.
+- [ ] Used \`set-admin-operation-grantee\` / \`delete-admin-operation-grantee\` for grants.
+- [ ] Resolved each principal through \`SysAdminUnit\` (Id, not ContactId).
+- [ ] Re-read the affected rows to confirm the change landed.
+`.trim();
+
+export const ADMIN_OPERATION_PROMPT = {
+	name: 'admin-operation-guide',
+	title: 'Creatio System Operations (SysAdminOperation) Guide',
+	description:
+		'How to manage SysAdminOperation and SysAdminOperationGrantee via the dedicated RightsService tools (upsert/delete operation, set/delete grantee), with reads still routed through the standard OData read tool',
+	argsSchema: {},
+	callback: () => ({
+		messages: [
+			{
+				role: 'user' as const,
+				content: { type: 'text' as const, text: ADMIN_OPERATION_GUIDE },
+			},
+		],
+	}),
+};
+
 export const ALL_PROMPTS = [
 	CREATE_ACTIVITY_PROMPT,
 	DATETIME_PROMPT,
@@ -1094,4 +1288,5 @@ export const ALL_PROMPTS = [
 	TAGGING_PROMPT,
 	SYS_SETTINGS_PROMPT,
 	FEATURE_TOGGLE_PROMPT,
+	ADMIN_OPERATION_PROMPT,
 ] as const;

@@ -51,6 +51,10 @@ function makeToolDescriptor(opts: {
 	};
 }
 
+const CREATIO_GUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const creatioGuid = () =>
+	z.string().regex(CREATIO_GUID_REGEX, 'Must be a 36-character hex GUID');
+
 const getCurrentUserInfoInputShape = {};
 export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
 
@@ -517,9 +521,7 @@ const sysSettingDefinitionFieldShape = {
 const sysSettingDefinitionSchema = z.object(sysSettingDefinitionFieldShape);
 
 const createSysSettingDefinitionSchema = sysSettingDefinitionSchema.extend({
-	id: z
-		.string()
-		.uuid()
+	id: creatioGuid()
 		.optional()
 		.describe('Optional GUID for the sys setting record. Auto-generated when omitted.'),
 });
@@ -576,7 +578,7 @@ export const setSysSettingsValueDescriptor = makeToolDescriptor({
 });
 
 const updateSysSettingDefinitionInputShape = {
-	id: z.string().uuid().describe('Existing SysSetting Id (Guid) to update.'),
+	id: creatioGuid().describe('Existing SysSetting Id (Guid) to update.'),
 	definition: updateSysSettingDefinitionSchema.describe(
 		'Creatio requires Code, Name, and valueTypeName on every UpdateSysSettingRequest. Always include those fields (existing values are OK) plus any other properties that need updating.',
 	),
@@ -606,6 +608,101 @@ export const refreshFeatureCacheInput = z.object(refreshFeatureCacheInputShape);
 export const refreshFeatureCacheDescriptor = makeToolDescriptor({
 	title: 'Refresh Creatio feature toggle cache',
 	description:
-		'Invalidates the in-memory feature-toggle cache for all users by calling /rest/FeatureService/ClearFeaturesCacheForAllUsers. After changing rows in the Feature or AdminUnitFeatureState entities via the standard create/update/delete tools, call this so the new state is visible everywhere. Pass `featureCode` to scope the refresh to a single feature; omit it to refresh all features. See the /feature-toggle-guide prompt for the full workflow on managing feature toggles via OData CRUD.',
+		'Invalidates the in-memory feature-toggle cache for all users. Call this after changing rows in `Feature` or `AdminUnitFeatureState` via the standard create/update/delete tools so the new state becomes visible. Pass `featureCode` to scope to a single feature; omit to refresh all. See /feature-toggle-guide for the full workflow.',
 	inputShape: refreshFeatureCacheInputShape,
+});
+
+const upsertAdminOperationInputShape = {
+	id: creatioGuid()
+		.optional()
+		.describe(
+			'Existing SysAdminOperation Id. Omit to create a new record (a new GUID is generated server-side and returned in the response).',
+		),
+	name: z
+		.string()
+		.min(1)
+		.describe(
+			'Display name of the system operation (e.g., "Can manage administration"). Required for both create and update.',
+		),
+	code: z
+		.string()
+		.min(1)
+		.describe(
+			'Code of the system operation (e.g., "CanManageAdministration"). Required and must be unique. Conventionally PascalCase with no spaces.',
+		),
+	description: z
+		.string()
+		.optional()
+		.describe('Optional human-readable description of what the operation gates.'),
+} as const;
+
+export const upsertAdminOperationInput = z.object(upsertAdminOperationInputShape);
+
+export const upsertAdminOperationDescriptor = makeToolDescriptor({
+	title: 'Create or update Creatio system operation',
+	description:
+		'Create a new `SysAdminOperation` (omit `id`) or update an existing one (supply `id`). Use this instead of the generic create/update tools — OData modifications on `SysAdminOperation` are blocked at the platform level. Reads still go through the standard `read` tool. Response contains the operation Id. See /admin-operation-guide for the full workflow.',
+	inputShape: upsertAdminOperationInputShape,
+});
+
+const deleteAdminOperationInputShape = {
+	ids: z
+		.array(creatioGuid())
+		.min(1)
+		.describe(
+			'List of SysAdminOperation Ids to delete (RightsService deletes them and their related grantee rows). Use the standard `read` tool on `SysAdminOperation` to look up Ids by Code first.',
+		),
+} as const;
+
+export const deleteAdminOperationInput = z.object(deleteAdminOperationInputShape);
+
+export const deleteAdminOperationDescriptor = makeToolDescriptor({
+	title: 'Delete Creatio system operations',
+	description:
+		'Delete one or more `SysAdminOperation` rows by Id. Related grantee rows are cleaned up automatically. Use this instead of the generic `delete` tool — OData modifications on `SysAdminOperation` are blocked at the platform level.',
+	inputShape: deleteAdminOperationInputShape,
+});
+
+const setAdminOperationGranteeInputShape = {
+	adminOperationId: creatioGuid().describe(
+		'Id of the SysAdminOperation being granted or revoked. Look up via `read` on `SysAdminOperation` filtered by Code.',
+	),
+	adminUnitIds: z
+		.array(creatioGuid())
+		.min(1)
+		.describe(
+			'SysAdminUnit Ids (users or roles) that should receive the same grant/revoke state. Resolve via `read` on `SysAdminUnit` filtered by Name. Use SysAdminUnit.Id (NOT ContactId).',
+		),
+	canExecute: z
+		.boolean()
+		.describe(
+			'`true` grants the operation (allow) to every listed admin unit; `false` revokes it (deny).',
+		),
+} as const;
+
+export const setAdminOperationGranteeInput = z.object(setAdminOperationGranteeInputShape);
+
+export const setAdminOperationGranteeDescriptor = makeToolDescriptor({
+	title: 'Grant or revoke a system operation for users/roles',
+	description:
+		'Grant (`canExecute=true`) or revoke (`canExecute=false`) a system operation for one or more `SysAdminUnit` ids (users or roles). Repeated calls for the same (operation, unit) pair update the existing grant row instead of duplicating. Use this instead of the generic create/update tools — OData modifications on `SysAdminOperationGrantee` are blocked.',
+	inputShape: setAdminOperationGranteeInputShape,
+});
+
+const deleteAdminOperationGranteeInputShape = {
+	ids: z
+		.array(creatioGuid())
+		.min(1)
+		.describe(
+			'List of SysAdminOperationGrantee row Ids to delete. Look them up via `read` on `SysAdminOperationGrantee` filtered by `SysAdminOperationId` and/or `SysAdminUnitId`.',
+		),
+} as const;
+
+export const deleteAdminOperationGranteeInput = z.object(deleteAdminOperationGranteeInputShape);
+
+export const deleteAdminOperationGranteeDescriptor = makeToolDescriptor({
+	title: 'Remove specific system operation grant rows',
+	description:
+		'Delete individual grant rows by Id when you want to remove a grant entry entirely. To flip allow ↔ deny instead, prefer `set-admin-operation-grantee`.',
+	inputShape: deleteAdminOperationGranteeInputShape,
 });
