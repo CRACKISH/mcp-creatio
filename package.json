@@ -1,6 +1,6 @@
 {
   "name": "mcp-creatio",
-  "version": "0.3.10",
+  "version": "0.4.0",
   "main": "dist/index.js",
   "bin": {
     "mcp-creatio": "dist/cli.js"
