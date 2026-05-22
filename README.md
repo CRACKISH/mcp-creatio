@@ -24,6 +24,7 @@ Also discoverable as:
 - **Schema discovery**: `list-entities`, `describe-entity`
 - **Business processes**: `execute-process` to run Creatio workflows
 - **System settings**: `create-sys-setting`, `update-sys-setting-definition`, `query-sys-settings`, and `set-sys-settings-value` to create, adjust metadata, inspect, or assign values
+- **Feature toggles**: `refresh-feature-cache` to invalidate the feature-toggle cache after editing `Feature` / `AdminUnitFeatureState` rows via CRUD. ⚠️ Creatio OData v4 does not currently expose virtual entities (`AppFeature` / `AppFeatureState`), so only **DB-backed** features (rows that actually exist in the persisted `Feature` table) are reachable from MCP. Features defined exclusively in `web.config` or other non-DB providers stay invisible until they get a row in `Feature`.
 - **AI assistant compatibility**: Claude Desktop, ChatGPT Connectors, GitHub Copilot
 - **Three authentication modes**: Legacy login/password, OAuth2 client credentials, OAuth2 authorization code
 - **Built-in OAuth server**: Automatic MCP client authentication
@@ -45,7 +46,7 @@ Use this mode for MCP clients that launch a command directly (VS Code MCP, Claud
 Run directly from npm:
 
 ```bash
-npx -y mcp-creatio \
+npx -y mcp-creatio@latest \
   --base-url https://your-creatio.com \
   --login your_login \
   --password your_password
@@ -61,7 +62,7 @@ VS Code MCP config (command-based):
     "command": "npx",
     "args": [
       "-y",
-      "mcp-creatio",
+      "mcp-creatio@latest",
       "--base-url",
       "https://your-creatio.com",
       "--login",
@@ -199,5 +200,6 @@ docker run --rm -p 3000:3000 \
 | `set-sys-settings-value`        | Update one or more sys settings via PostSysSettingsValues                                                                                                                                                                   |
 | `create-sys-setting`            | Create a new sys setting record and optional initial value assignment                                                                                                                                                       |
 | `update-sys-setting-definition` | Modify sys setting metadata (name, value type, cache flags, lookup reference) via UpdateSysSettingRequest. Creatio requires Code, Name, and valueTypeName to be included on every update, even if the values are unchanged. |
+| `refresh-feature-cache`         | Invalidates the in-memory feature-toggle cache by calling `/rest/FeatureService/ClearFeaturesCacheForAllUsers`. Optional `featureCode` parameter scopes the refresh to a single feature; omit to clear all. Call after editing `Feature` / `AdminUnitFeatureState` via standard CRUD. See the `/feature-toggle-guide` MCP prompt for the full workflow. |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.

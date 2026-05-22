@@ -30,6 +30,8 @@ import {
 	querySysSettingsInput,
 	readDescriptor,
 	readInput,
+	refreshFeatureCacheDescriptor,
+	refreshFeatureCacheInput,
 	setSysSettingsValueDescriptor,
 	setSysSettingsValueInput,
 	updateDescriptor,
@@ -216,6 +218,7 @@ export class Server {
 		);
 		if (!this._readonly) {
 			const process = this._engines.process;
+			const feature = this._engines.feature;
 			this._registerHandlerWithDescriptor(
 				'create',
 				createDescriptor,
@@ -291,6 +294,21 @@ export class Server {
 						...(definition as SysSettingDefinitionUpdate),
 						id,
 					});
+					return {
+						content: [
+							{
+								type: 'text',
+								text: JSON.stringify(result, null, 2),
+							},
+						],
+					};
+				}),
+			);
+			this._registerHandlerWithDescriptor(
+				'refresh-feature-cache',
+				refreshFeatureCacheDescriptor,
+				withValidation(refreshFeatureCacheInput, async ({ featureCode }) => {
+					const result = await feature.clearFeaturesCache(featureCode);
 					return {
 						content: [
 							{

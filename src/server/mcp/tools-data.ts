@@ -590,3 +590,22 @@ export const updateSysSettingDefinitionDescriptor = makeToolDescriptor({
 		'Calls the UpdateSysSettingRequest endpoint to modify metadata such as name, description, valueTypeName, cache flags, personalization flags, and lookup reference schema. IMPORTANT: Creatio validates that Code, Name, and valueTypeName are present on every update, even if they are unchanged—copy the current values when needed. See the /sys-settings-guide prompt for allowed value types and lookup resolution tips.',
 	inputShape: updateSysSettingDefinitionInputShape,
 });
+
+const refreshFeatureCacheInputShape = {
+	featureCode: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			'Optional feature code (e.g., "FreedomUIComposableApp"). When provided, only that feature\'s cache is invalidated for all users. Omit to clear the cache for every feature.',
+		),
+} as const;
+
+export const refreshFeatureCacheInput = z.object(refreshFeatureCacheInputShape);
+
+export const refreshFeatureCacheDescriptor = makeToolDescriptor({
+	title: 'Refresh Creatio feature toggle cache',
+	description:
+		'Invalidates the in-memory feature-toggle cache for all users by calling /rest/FeatureService/ClearFeaturesCacheForAllUsers. After changing rows in the Feature or AdminUnitFeatureState entities via the standard create/update/delete tools, call this so the new state is visible everywhere. Pass `featureCode` to scope the refresh to a single feature; omit it to refresh all features. See the /feature-toggle-guide prompt for the full workflow on managing feature toggles via OData CRUD.',
+	inputShape: refreshFeatureCacheInputShape,
+});

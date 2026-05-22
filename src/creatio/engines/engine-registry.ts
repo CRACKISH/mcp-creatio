@@ -2,6 +2,7 @@ import { CreatioEngine } from './engine';
 
 export enum EngineType {
 	Crud = 'crud',
+	Feature = 'feature',
 	Process = 'process',
 	SysSettings = 'sys-settings',
 	User = 'user',

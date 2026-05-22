@@ -1,4 +1,5 @@
 export * from './creatio-service-context';
+export * from './feature-service-provider';
 export * from './http-client';
 export * from './metadata-store';
 export * from './odata-crud-provider';

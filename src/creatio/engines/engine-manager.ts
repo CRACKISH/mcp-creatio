@@ -1,19 +1,28 @@
 import { CreatioProviderContext } from '../provider-context';
-import { CrudProvider, ProcessProvider, SysSettingsProvider, UserProvider } from '../providers';
+import {
+	CrudProvider,
+	FeatureProvider,
+	ProcessProvider,
+	SysSettingsProvider,
+	UserProvider,
+} from '../providers';
 
 import { CrudEngine } from './crud/crud-engine';
 import { CreatioEngine } from './engine';
 import { EngineRegistry, EngineType } from './engine-registry';
+import { FeatureEngine } from './feature/feature-engine';
 import { ProcessEngine } from './process/process-engine';
 import { SysSettingsEngine } from './sys-settings/sys-settings-engine';
 import { UserEngine } from './user/user-engine';
 
 export interface EngineManagerOptions {
 	crudProvider?: CrudProvider;
+	featureProvider?: FeatureProvider;
 	processProvider?: ProcessProvider;
 	sysSettingsProvider?: SysSettingsProvider;
 	userProvider?: UserProvider;
 	enableCrud?: boolean;
+	enableFeature?: boolean;
 	enableProcess?: boolean;
 	enableSysSettings?: boolean;
 	enableUser?: boolean;
@@ -35,6 +44,10 @@ export class CreatioEngineManager {
 
 	public get crud(): CrudEngine {
 		return this._registry.require<CrudEngine>(EngineType.Crud);
+	}
+
+	public get feature(): FeatureEngine {
+		return this._registry.require<FeatureEngine>(EngineType.Feature);
 	}
 
 	public get process(): ProcessEngine {
@@ -61,6 +74,14 @@ export class CreatioEngineManager {
 			() =>
 				new CrudEngine(this._options?.crudProvider ?? (this._context.crud as CrudProvider)),
 			this._options?.enableCrud ?? true,
+		);
+		this._registerEngine(
+			EngineType.Feature,
+			() =>
+				new FeatureEngine(
+					this._options?.featureProvider ?? (this._context.feature as FeatureProvider),
+				),
+			this._options?.enableFeature ?? true,
 		);
 		this._registerEngine(
 			EngineType.Process,
