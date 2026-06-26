@@ -156,6 +156,12 @@ export function logOperation(
 		...meta,
 	});
 }
+/** Security-relevant audit trail for mutating domain operations (create/update/delete,
+ *  process execution, settings/admin-operation changes). Emitted by the engine layer so
+ *  the trail is identical across every CRUD backend. */
+export function audit(action: string, meta?: Record<string, any>) {
+	info('creatio.audit', { action, ...meta });
+}
 
 export default {
 	info,
@@ -177,6 +183,7 @@ export default {
 	httpResponse,
 	httpError,
 	logOperation,
+	audit,
 	setCorrelationId,
 	getCorrelationId,
 	clearCorrelationId,

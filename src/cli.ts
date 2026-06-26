@@ -135,8 +135,9 @@ async function main(): Promise<void> {
 	}
 
 	const provider = new CreatioServiceContext(cfg);
-	const engines = new CreatioEngineManager(provider);
-	const server = new Server(engines, { readonlyMode: envBool('READONLY_MODE', false) });
+	const readonlyMode = envBool('READONLY_MODE', false);
+	const engines = new CreatioEngineManager(provider, { readonly: readonlyMode });
+	const server = new Server(engines, { readonlyMode });
 	const state: RuntimeState = { server };
 
 	process.on('SIGINT', () => {
