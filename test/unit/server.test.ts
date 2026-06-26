@@ -136,6 +136,32 @@ describe('Server tool handlers (read path)', () => {
 		);
 	});
 
+	it('applies the default top (50) when omitted', async () => {
+		const { handlers, context } = buildServer();
+		await callTool(handlers, 'read', { entity: 'Contact' });
+		expect(context.crud.read).toHaveBeenCalledWith(expect.objectContaining({ top: 50 }));
+	});
+
+	it('respects an explicit top:0 (count-only) and passes skip/count through', async () => {
+		const { handlers, context } = buildServer();
+		await callTool(handlers, 'read', {
+			entity: 'Opportunity',
+			filters: { all: [{ field: 'ContactId', op: 'eq', value: GUID }] },
+			count: true,
+			top: 0,
+			skip: 25,
+		});
+		expect(context.crud.read).toHaveBeenCalledWith(
+			expect.objectContaining({
+				entity: 'Opportunity',
+				filter: `Contact/Id eq ${GUID}`,
+				top: 0,
+				skip: 25,
+				count: true,
+			}),
+		);
+	});
+
 	it('query-sys-settings delegates with codes', async () => {
 		const { handlers, context } = buildServer();
 		await callTool(handlers, 'query-sys-settings', { sysSettingCodes: ['A', 'B'] });

@@ -18,6 +18,8 @@ export interface CrudReadParams {
 	top?: number | undefined;
 	expand?: string[] | undefined;
 	orderBy?: string | undefined;
+	skip?: number | undefined;
+	count?: boolean | undefined;
 }
 
 export interface CrudWriteParams {

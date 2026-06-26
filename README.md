@@ -194,7 +194,7 @@ docker run --rm -p 3000:3000 \
 | `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user                                                                                         |
 | `list-entities`                  | List all available entity sets                                                                                                                           |
 | `describe-entity`                | Get schema for an entity (fields, types, keys). Routes through DataForge for richer column details when it is enabled, otherwise exact OData `$metadata` |
-| `read`                           | Query records with optional filters, select, expand, ordering                                                                                            |
+| `read`                           | Query records: filters, select, expand, ordering, pagination (skip/top) and total count                                                                  |
 | `create`                         | Create a new record                                                                                                                                      |
 | `update`                         | Update an existing record                                                                                                                                |
 | `delete`                         | Delete a record                                                                                                                                          |
@@ -211,6 +211,17 @@ docker run --rm -p 3000:3000 \
 | `call-configuration-service`     | Escape hatch: invoke any configuration-package REST service method by name. Use only when no dedicated tool covers the operation                         |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.
+
+### Querying data with `read`
+
+Ask for exactly the data you need — the AI doesn't have to know OData:
+
+- **Filter any way** — equals / not-equals, ranges (`>`, `>=`, `<`, `<=`), text match (`contains`, `starts/ends with`), `AND` / `OR` groups, and "in this list".
+- **Filter by related records naturally** — by name (`Contact/Name = "Andrew Baker"`) or by id; lookups just work, no special syntax to remember.
+- **Sort** by any column, ascending or descending.
+- **Paginate** with page size + offset, so large datasets come back in clean pages.
+- **Count** — get the total number of matches in one call (e.g. "how many open cases does this account have?"), with or without the rows.
+- **Pull in related data** in a single request (e.g. an order together with its account and contact).
 
 ### DataForge tools (registered only when DataForge is enabled)
 

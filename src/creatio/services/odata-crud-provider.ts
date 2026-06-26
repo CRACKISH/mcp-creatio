@@ -28,6 +28,8 @@ export class ODataCrudProvider implements CrudProvider {
 		top?: number,
 		expand?: string[],
 		orderBy?: string,
+		skip?: number,
+		count?: boolean,
 	): string[] {
 		const params: string[] = [];
 		if (filter) {
@@ -42,8 +44,14 @@ export class ODataCrudProvider implements CrudProvider {
 		if (orderBy) {
 			params.push(`$orderby=${encodeURIComponent(orderBy)}`);
 		}
-		if (top) {
+		if (typeof top === 'number') {
 			params.push(`$top=${top}`);
+		}
+		if (typeof skip === 'number' && skip > 0) {
+			params.push(`$skip=${skip}`);
+		}
+		if (count) {
+			params.push('$count=true');
 		}
 		return params;
 	}
@@ -121,16 +129,29 @@ export class ODataCrudProvider implements CrudProvider {
 		);
 	}
 
-	public async read({ entity, filter, select, top, expand, orderBy }: CrudReadParams) {
+	public async read({ entity, filter, select, top, expand, orderBy, skip, count }: CrudReadParams) {
 		const startTime = Date.now();
-		const queryParams = this._buildODataQueryParams(filter, select, top, expand, orderBy);
+		const queryParams = this._buildODataQueryParams(
+			filter,
+			select,
+			top,
+			expand,
+			orderBy,
+			skip,
+			count,
+		);
 		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
 		const headers = await this._client.getJsonHeaders();
 		try {
 			const body = await this._client.fetchJson(url, async () => ({ headers }));
-			const result = this._extractODataValue(body);
+			const value = this._extractODataValue(body);
 			const duration = Date.now() - startTime;
-			const resultCount = Array.isArray(result) ? result.length : result ? 1 : 0;
+			const resultCount = Array.isArray(value) ? value.length : value ? 1 : 0;
+			// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
+			const total =
+				body && typeof body === 'object' && '@odata.count' in body
+					? (body as Record<string, unknown>)['@odata.count']
+					: undefined;
 			log.info('creatio.crud.read.success', {
 				entity,
 				filter,
@@ -138,10 +159,14 @@ export class ODataCrudProvider implements CrudProvider {
 				expand: expand?.join(','),
 				orderBy,
 				top,
+				skip,
+				count,
 				resultCount,
+				total,
 				duration,
 			});
-			return result;
+			// When a count was requested, surface the total alongside the rows.
+			return count ? { total, value } : value;
 		} catch (error: any) {
 			const duration = Date.now() - startTime;
 			log.error('creatio.crud.read.error', {

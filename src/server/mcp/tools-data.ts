@@ -114,16 +114,15 @@ const baseCondition = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'Field to filter on. For lookups use navigation like Type/Name; for GUID columns use TypeId or Id.',
+			'Field to filter on. To filter by a linked record, use navigation: by name `Contact/Name` / `Type/Name`, or by id `Contact/Id`. ' +
+				'A scalar lookup FK (`ContactId`, `OwnerId`, `AccountId`) with a GUID value is auto-rewritten to `<Lookup>/Id`. The primary key is `Id`.',
 		),
 });
 
 const compareCondition = baseCondition.extend({
-	op: op.describe(
-		'Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.',
-	),
+	op: op.describe('Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.'),
 	value: value.describe(
-		"Value to compare with. Strings are escaped; GUIDs formatted as guid'...'.",
+		'Value to compare with. GUIDs are emitted unquoted for Id/lookup paths; other strings are quoted/escaped automatically.',
 	),
 });
 
@@ -131,9 +130,7 @@ const inCondition = baseCondition.extend({
 	in: z
 		.array(z.union([z.string(), z.number(), z.boolean()]))
 		.min(1)
-		.describe(
-			"Set of values (IN emulation with OR). GUIDs auto-formatted to guid'...' when applicable.",
-		),
+		.describe('Set of values (expanded to an OR group). Lookup FK GUIDs are auto-navigated.'),
 });
 
 const condition = z.union([compareCondition, inCondition]);
@@ -144,9 +141,7 @@ const filtersShape = z
 			.array(condition)
 			.min(1)
 			.optional()
-			.describe(
-				'All conditions (AND). Example: [{ field:"TypeId", op:"eq", value:"<GUID>" }]',
-			),
+			.describe('All conditions (AND). Example: [{ field:"Stage/Name", op:"eq", value:"Presentation" }]'),
 		any: z
 			.array(condition)
 			.min(1)
@@ -156,11 +151,11 @@ const filtersShape = z
 			),
 	})
 	.describe(
-		'Structured filters - alternative to raw $filter. Automatically handles OData syntax, escaping, etc.\n' +
-			'Tip: For lookups, prefer navigation properties (Field/Name) over IDs for better readability.\n\n' +
+		'Structured filters - alternative to raw $filter. Automatically handles OData syntax, escaping, GUID formatting, and lookup navigation.\n' +
+			'Filter by a linked record via navigation (Contact/Name, Contact/Id) — or pass a scalar `ContactId` GUID and it is auto-rewritten to `Contact/Id`.\n\n' +
 			'Examples:\n' +
-			'- Lookup by name: { all:[{ field:"Type/Name", op:"eq", value:"Employee" }] }\n' +
-			'- By GUID: { all:[{ field:"TypeId", op:"eq", value:"60733efc-..." }] }\n' +
+			'- Lookup by name: { all:[{ field:"Contact/Name", op:"eq", value:"Andrew Baker" }] }\n' +
+			'- Lookup by id: { all:[{ field:"ContactId", op:"eq", value:"60733efc-..." }] }\n' +
 			'- Multiple AND: { all:[{ field:"IsActive", op:"eq", value:true }, { field:"Name", op:"contains", value:"John" }] }\n' +
 			'- Multiple OR: { any:[{ field:"Status/Name", op:"eq", value:"Active" }, { field:"Status/Name", op:"eq", value:"Pending" }] }',
 	);
@@ -269,10 +264,32 @@ const readInputShape = {
 	top: z.coerce
 		.number()
 		.int()
-		.positive()
+		.min(0)
 		.max(1000)
 		.optional()
-		.describe('Max rows to return (suggest 25\u2013200 for responsiveness).'),
+		.describe(
+			'Max rows to return ($top). Defaults to 50 when omitted (so results are never unbounded); raise it or paginate with skip for more. Use top:0 with count:true for a count-only query. Suggest 25\u2013200.',
+		),
+	skip: z.coerce
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe(
+			'Offset pagination ($skip): skip this many matching rows before returning. ' +
+				'Combine with top to page, e.g. page 3 of 25 \u2192 skip:50, top:25. ' +
+				'Pair with a stable orderBy so pages do not overlap.',
+		),
+	count: z
+		.boolean()
+		.optional()
+		.describe(
+			'When true, also return the TOTAL number of matching records ($count=true), ignoring top/skip. ' +
+				'The response shape becomes { total, value } instead of a bare array.\n' +
+				'\ud83d\udca1 For a COUNT-ONLY question ("how many opportunities does X have"), set count:true AND top:0 \u2014 ' +
+				'you get { total: N, value: [] } in one request instead of fetching rows. ' +
+				'Filter the same way as a normal read (e.g. lookups via ContactId \u2192 auto Contact/Id).',
+		),
 } as const;
 export const readInput = z.object(readInputShape);
 
@@ -280,11 +297,14 @@ export const readDescriptor = makeToolDescriptor({
 	title: 'Read records in Creatio',
 	description:
 		'Query Creatio records. Workflow: 1) list-entities 2) describe-entity 3) read with select, optional expand, filters/orderBy/top. ' +
-		'Key params: select (fields to return), filters or filter (conditions), expand (related entities), orderBy (sorting), top (limit). ' +
+		'Key params: select (fields to return), filters or filter (conditions), expand (related entities), orderBy (sorting), top (limit), skip (pagination offset), count (return total). ' +
 		'Always include fields used in filters in select when select is provided. Use structured filters over raw $filter when possible. ' +
+		'Filter related records via NAVIGATION (Contact/Name, Contact/Id) — a scalar lookup `XxxId` is auto-rewritten to `Xxx/Id`; never filter `XxxId` in raw $filter. ' +
 		"Use expand to load related entities in one request (e.g. expand:['Account']). " +
+		'Paginate with skip+top (+ a stable orderBy). To COUNT, set count:true (response becomes { total, value }); for count-only use count:true + top:0. ' +
 		'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
-		"Example: entity:'Order', select:['Id','Number','Amount','AccountId'], filters:{ all:[{ field:'AccountId', op:'eq', value:'<guid>' }] }, expand:['Account'], orderBy:'Amount desc', top:10",
+		"Examples: list → entity:'Order', select:['Id','Number','Amount'], filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, orderBy:'Amount desc', top:25, skip:0. " +
+		"count-only → entity:'Opportunity', filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, count:true, top:0 → { total: 1, value: [] }",
 	inputShape: readInputShape,
 });
 

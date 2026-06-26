@@ -55,6 +55,11 @@ import {
 	upsertAdminOperationInput,
 } from './tools-data';
 
+/** Default page size for `read` when the caller omits `top`, so we never dump an
+ *  unbounded result set into the model. Explicit `top` (incl. `0` for count-only)
+ *  is always respected; paginate further with `skip`. */
+const DEFAULT_READ_TOP = 50;
+
 export interface ServerConfig {
 	readonlyMode?: boolean;
 }
@@ -257,7 +262,7 @@ export class Server {
 			readDescriptor,
 			withValidation(
 				readInput,
-				async ({ entity, filter, filters, select, top, expand, orderBy }) => {
+				async ({ entity, filter, filters, select, top, expand, orderBy, skip, count }) => {
 					const structured = buildFilterFromStructured(filters);
 					let finalFilter = filter || structured;
 					if (filter && structured) {
@@ -267,9 +272,11 @@ export class Server {
 						entity,
 						filter: finalFilter ?? undefined,
 						select,
-						top,
+						top: top ?? DEFAULT_READ_TOP,
 						expand,
 						orderBy,
+						skip,
+						count,
 					});
 				},
 			),
