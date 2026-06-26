@@ -7,8 +7,11 @@
 export type ConfigurationHttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export interface ConfigurationCallRequest {
-	service: string;
-	method: string;
+	service?: string;
+	method?: string;
+	/** Pre-built relative path (already safely encoded) for multi-segment routes
+	 *  that service/method cannot express, e.g. `/0/rest/ToolServiceMcp/{code}/v1/mcp`. */
+	rawPath?: string;
 	httpMethod?: ConfigurationHttpMethod;
 	body?: unknown;
 	query?: Record<string, string | number | boolean>;

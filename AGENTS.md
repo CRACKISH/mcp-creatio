@@ -112,9 +112,20 @@ Capability clients share the narrow REST/sys-setting contracts and the
 `hasNonEmptySetting`/`getSettingValue` helpers in `src/server/mcp/creatio-rest.ts`
 (QuerySysSettings returns each setting as `{ code, value, … }` — always unwrap `.value`).
 
-Two capabilities follow this pattern today: **DataForge** (`dataforge/`, 5 tools +
-describe-entity routing) and **Global Search** (`globalsearch/`, one `global-search`
-tool, gated on a non-empty `GlobalSearchUrl`). Add the next capability the same way.
+Three capabilities follow this pattern today:
+
+- **DataForge** (`dataforge/`, 5 tools + describe-entity routing) — gated on `DataForgeServiceUrl`.
+- **Global Search** (`globalsearch/`, one `global-search` tool) — gated on `GlobalSearchUrl`.
+- **Published tools** (`crtmcp/`) — a hidden, opt-in proxy for the `CrtMCPPublishingApp`
+  composable app. Gated on the `ENABLE_PUBLISHED_TOOLS` env flag (default off) AND the app
+  being installed. Enumerates online `McpServer`s, calls each server's JSON-RPC
+  `/0/rest/ToolServiceMcp/{code}/v1/mcp` `tools/list`, and re-exposes each published tool
+  under a `pub-<server>-<tool>` name that proxies `tools/call` back to the app (the app keeps
+  ownership of schema/RBAC/validation/execution). JSON Schema → Zod via `json-schema-to-zod.ts`;
+  multi-segment route reached via `ConfigurationCaller.rawPath`. Intentionally undocumented in
+  the README.
+
+Add the next capability the same way.
 
 Reference implementation (`src/server/mcp/dataforge/`):
 

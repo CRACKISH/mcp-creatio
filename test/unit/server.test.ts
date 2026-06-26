@@ -409,6 +409,14 @@ describe('Global Search tool preparation', () => {
 	});
 });
 
+describe('Published-tools capability (hidden, off by default)', () => {
+	it('does not register any published (pub-*) tools when ENABLE_PUBLISHED_TOOLS is unset', async () => {
+		const { server, handlers } = buildServer();
+		await prepare(server);
+		expect([...handlers.keys()].some((name) => name.startsWith('pub-'))).toBe(false);
+	});
+});
+
 describe('describe-entity DataForge routing', () => {
 	it('routes through DataForge when enabled', async () => {
 		const { server, context, handlers } = buildServer();

@@ -6,9 +6,11 @@ import {
 	SysSettingDefinitionUpdate,
 } from '../../creatio';
 import log from '../../log';
-import { withValidation } from '../../utils';
+import { envBool, withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
 
+import { CrtMcpPublishingClient } from './crtmcp/crt-mcp-client';
+import { CrtMcpPublishingToolPreparer } from './crtmcp/crt-mcp-tool-preparer';
 import { DataForgeClient } from './dataforge/dataforge-client';
 import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
 import { GlobalSearchClient } from './globalsearch/globalsearch-client';
@@ -78,6 +80,7 @@ export class Server {
 	private readonly _dataForge: DataForgeClient;
 	private readonly _dataForgePreparer: DataForgeToolPreparer;
 	private readonly _globalSearchPreparer: GlobalSearchToolPreparer;
+	private readonly _publishedToolsPreparer: CrtMcpPublishingToolPreparer;
 	private readonly _preparers: ToolPreparer[];
 	private readonly _capabilities = new Map<string, boolean>();
 
@@ -93,7 +96,15 @@ export class Server {
 		this._globalSearchPreparer = new GlobalSearchToolPreparer(
 			new GlobalSearchClient(engines.configuration, engines.sysSettings),
 		);
-		this._preparers = [this._dataForgePreparer, this._globalSearchPreparer];
+		this._publishedToolsPreparer = new CrtMcpPublishingToolPreparer(
+			new CrtMcpPublishingClient(engines.configuration, engines.crud),
+			envBool('ENABLE_PUBLISHED_TOOLS', false),
+		);
+		this._preparers = [
+			this._dataForgePreparer,
+			this._globalSearchPreparer,
+			this._publishedToolsPreparer,
+		];
 		this._registerClientTools();
 	}
 
@@ -484,7 +495,14 @@ export class Server {
 		}
 		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
 		this._registerData();
-		await this._prepareTools();
+		// Probe optional capabilities WITHOUT blocking the MCP handshake. These do
+		// network I/O (DataForge/Global Search probes, and the publishing app's
+		// tools/list, which can be slow) — awaiting here would delay connect past the
+		// client's init timeout. They register into the live _mcp as they resolve and
+		// the SDK emits notifications/tools/list_changed so clients pick them up.
+		void this._prepareTools().catch((err) =>
+			log.warn('mcp.prepare.error', { error: String(err) }),
+		);
 		log.serverStart(this._serverName, this._serverVersion, {
 			tools: Array.from(this._handlers.keys()),
 			prompts: ALL_PROMPTS.length,

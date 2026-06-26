@@ -44,8 +44,14 @@ export class ConfigurationServiceProvider implements ConfigurationProvider {
 	}
 
 	private _buildUrl(request: CallConfigurationServiceRequest): string {
-		this._validateName('service', request.service);
-		this._validateName('method', request.method);
+		if (request.rawPath) {
+			// Caller-built multi-segment path (already safely encoded). Bypass the
+			// single-segment service/method validation.
+			const path = request.rawPath.startsWith('/') ? request.rawPath : `/${request.rawPath}`;
+			return `${this._client.normalizedBaseUrl}${path}${this._buildQueryString(request.query)}`;
+		}
+		this._validateName('service', request.service ?? '');
+		this._validateName('method', request.method ?? '');
 		const base = `${this._client.normalizedBaseUrl}/0/rest/${request.service}/${request.method}`;
 		return `${base}${this._buildQueryString(request.query)}`;
 	}
@@ -89,7 +95,9 @@ export class ConfigurationServiceProvider implements ConfigurationProvider {
 	): Promise<CallConfigurationServiceResult> {
 		const httpMethod: ConfigurationServiceHttpMethod = request.httpMethod ?? 'POST';
 		const url = this._buildUrl(request);
-		const operation = `call-configuration-service:${request.service}.${request.method}`;
+		const operation = request.rawPath
+			? `call-configuration-service:${request.rawPath}`
+			: `call-configuration-service:${request.service}.${request.method}`;
 		return this._client.executeWithTiming(
 			operation,
 			url,
