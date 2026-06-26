@@ -26,13 +26,26 @@ function literalFor(field: string, value: any): string {
 	}
 	if (t === 'string') {
 		const v = String(value);
-		const isNavigationProperty = field.includes('/');
-		if (isGuid(v) && isIdish(field) && !isNavigationProperty) {
+		// Bare (unquoted) GUID for any Id-typed path — the scalar key `Id`, a lookup
+		// FK `XxxId`, or a navigation `Xxx/Id`. Other strings (incl. `Xxx/Name`) are quoted.
+		if (isGuid(v) && isIdish(field)) {
 			return v;
 		}
 		return `'${escapeStr(v)}'`;
 	}
 	return `'${escapeStr(JSON.stringify(value))}'`;
+}
+
+// Creatio OData cannot filter a lookup by its scalar FK column (`ContactId eq <guid>`
+// 500s "Column by path ContactId not found"); it must be filtered through the
+// navigation property (`Contact/Id eq <guid>`), per the official docs and verified
+// live. Rewrite `<Lookup>Id` -> `<Lookup>/Id` for equality against a GUID. The
+// primary key `Id` and already-navigated paths are left untouched.
+function lookupNavField(field: string, value: unknown): string {
+	if (isGuid(value) && field !== 'Id' && !field.includes('/') && /Id$/.test(field)) {
+		return `${field.slice(0, -2)}/Id`;
+	}
+	return field;
 }
 
 function buildCondition(c: any): string | undefined {
@@ -45,7 +58,10 @@ function buildCondition(c: any): string | undefined {
 		if (!values.length) {
 			return undefined;
 		}
-		const parts = values.map((v) => `${field} eq ${literalFor(field, v)}`);
+		const parts = values.map((v) => {
+			const f = lookupNavField(field, v);
+			return `${f} eq ${literalFor(f, v)}`;
+		});
 		return parts.length === 1 ? parts[0] : `(${parts.join(' or ')})`;
 	}
 	const op = String(c.op || 'eq');
@@ -56,7 +72,8 @@ function buildCondition(c: any): string | undefined {
 	if (value == null && (op === 'eq' || op === 'ne')) {
 		return `${field} ${op} null`;
 	}
-	return `${field} ${op} ${literalFor(field, value)}`;
+	const f = op === 'eq' || op === 'ne' ? lookupNavField(field, value) : field;
+	return `${f} ${op} ${literalFor(f, value)}`;
 }
 
 export function buildFilterFromStructured(filters: any | undefined): string | undefined {

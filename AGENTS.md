@@ -20,7 +20,9 @@ src/
   server/             ← MCP server + HTTP layer (OAuth server, handlers)
     mcp/              ← MCP tool descriptors, prompts, filters builder
       tool-preparer.ts  ← ToolPreparer/ToolRegistrar contracts (env-gated tools)
+      creatio-rest.ts   ← shared REST/sys-setting contracts + helpers for capability clients
       dataforge/        ← DataForge capability: client + tool preparer
+      globalsearch/     ← Global Search capability: client + tool preparer
     oauth/            ← Local OAuth 2.1 authorization server for clients
   services/           ← Session/token refresh orchestration
   utils/              ← Reusable helpers (env, network, pkce, context)
@@ -105,6 +107,14 @@ How it wires up:
 1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers`.
 2. `startMcp()` calls `_prepareTools()` **after** core tools are registered. Each preparer is probed once; failures are isolated and recorded as disabled in `_capabilities`.
 3. Core tools can branch on a capability via `_capabilities` (e.g. `describe-entity` routes through DataForge when ready, otherwise falls back to OData — see below).
+
+Capability clients share the narrow REST/sys-setting contracts and the
+`hasNonEmptySetting`/`getSettingValue` helpers in `src/server/mcp/creatio-rest.ts`
+(QuerySysSettings returns each setting as `{ code, value, … }` — always unwrap `.value`).
+
+Two capabilities follow this pattern today: **DataForge** (`dataforge/`, 5 tools +
+describe-entity routing) and **Global Search** (`globalsearch/`, one `global-search`
+tool, gated on a non-empty `GlobalSearchUrl`). Add the next capability the same way.
 
 Reference implementation (`src/server/mcp/dataforge/`):
 

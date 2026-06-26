@@ -16,6 +16,12 @@ const CRITICAL_WARNINGS = {
 		"- Navigation properties: WITH single quotes! Example: Type/Name eq 'Employee'",
 	TIME_CONVERSION:
 		'⏰ TIME CONVERSION CRITICAL:\nWhen updating StartDate/DueDate, convert local time to UTC!',
+	LOOKUP_NAVIGATION:
+		'🔗 FILTERING BY A LOOKUP (related record) — use NAVIGATION, not the scalar FK:\n' +
+		"- By name (best): Contact/Name eq 'Andrew Baker', Type/Name eq 'Employee'\n" +
+		'- By id: Contact/Id eq <guid>  (GUID, no quotes)\n' +
+		'- ❌ Do NOT filter the scalar `ContactId`/`OwnerId`/`AccountId` directly — Creatio OData 500s with "Column by path XxxId not found in schema".\n' +
+		'- The primary key `Id eq <guid>` DOES work as-is (it is a real column, not a lookup).',
 } as const;
 
 const DATA_TYPES_DESC = {
@@ -173,34 +179,30 @@ const readInputShape = {
 		)
 		.describe(
 			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
-				'Operators: eq, ne, gt, ge, lt, le, and, or, not, contains, startswith, endswith.\n\n' +
+				'Operators: eq, ne, gt, ge, lt, le, and, or, not. Functions: contains(F,\'v\'), startswith(F,\'v\'), endswith(F,\'v\'), length(F), day(F).\n\n' +
 				CRITICAL_WARNINGS.GUID_NO_QUOTES +
 				'\n\n' +
-				'⚠️ IMPORTANT: When using $filter with $select:\n' +
-				'- Include ALL fields from filter in $select if possible\n' +
-				'- Example: filter by AccountId? Include AccountId in select array\n' +
-				'- Creatio may fail if filtered field is not in select list\n\n' +
+				CRITICAL_WARNINGS.LOOKUP_NAVIGATION +
+				'\n\n' +
 				'Examples:\n' +
-				'- By GUID: AccountId eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
+				'- By primary Id: Id eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
+				"- Lookup by name: Contact/Name eq 'Andrew Baker' (RECOMMENDED)\n" +
+				'- Lookup by id (NAVIGATION): Contact/Id eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
 				"- Text search: contains(Name,'Acme')\n" +
-				"- Multiple: contains(Name,'Baker') and IsActive eq true\n" +
-				"- Lookup by name: Type/Name eq 'Employee' (RECOMMENDED!)\n\n" +
-				'💡 BEST PRACTICE: Use structured filters parameter instead of raw $filter - it handles syntax automatically!',
+				"- Multiple: contains(Name,'Baker') and Type/Name eq 'Employee'\n\n" +
+				'💡 BEST PRACTICE: prefer the structured `filters` parameter — it auto-rewrites lookup `XxxId` filters to the required `Xxx/Id` navigation for you.',
 		),
 	filters: filtersShape
 		.optional()
 		.describe(
-			'Structured filters (alternative to raw $filter). Automatically handles proper OData syntax including GUID formatting.\n' +
-				'System automatically removes quotes from GUID values for Id fields.\n\n' +
-				'⚠️ IMPORTANT: When using filters with select parameter:\n' +
-				'- ALWAYS include filtered fields in select array\n' +
-				'- Creatio OData may fail if field is in filter but not in select\n\n' +
+			'Structured filters (alternative to raw $filter). Handles OData syntax, GUID formatting, and lookup navigation automatically.\n\n' +
+				CRITICAL_WARNINGS.LOOKUP_NAVIGATION +
+				'\n(With this structured parameter you can pass either form — a `XxxId` field with a GUID value is auto-rewritten to `Xxx/Id`.)\n\n' +
 				'Examples:\n' +
-				"- By GUID: { all:[{ field:'AccountId', op:'eq', value:'60733efc-f36b-1410-a883-16d83cab0980' }] }\n" +
-				"- By lookup name: { all:[{ field:'Type/Name', op:'eq', value:'Employee' }] } (RECOMMENDED!)\n" +
+				"- Lookup by name: { all:[{ field:'Contact/Name', op:'eq', value:'Andrew Baker' }] } (RECOMMENDED)\n" +
+				"- Lookup by id: { all:[{ field:'ContactId', op:'eq', value:'60733efc-f36b-1410-a883-16d83cab0980' }] }  // becomes Contact/Id eq <guid>\n" +
 				"- Multiple AND: { all:[{ field:'IsActive', op:'eq', value:true }, { field:'Name', op:'contains', value:'John' }] }\n" +
-				"- Multiple OR: { any:[{ field:'StatusId', op:'eq', value:'guid1' }, { field:'StatusId', op:'eq', value:'guid2' }] }\n\n" +
-				'💡 If filtering by AccountId, ContactId, etc - include that field in select!',
+				"- Multiple OR: { any:[{ field:'Stage/Name', op:'eq', value:'Presentation' }, { field:'Stage/Name', op:'eq', value:'Negotiation' }] }",
 		),
 	select: z
 		.preprocess(
@@ -900,4 +902,50 @@ export const dataforgeStatusDescriptor = makeToolDescriptor({
 		'Readiness.HttpStatusCode=200 with non-empty DataStructureReadiness/LookupsReadinessInfo → the data model and lookups have been synced and search will return results. ' +
 		'If you only need a quick on/off signal, you can also query the `DataForgeServiceUrl` system setting (empty = disabled).',
 	inputShape: {},
+});
+
+// ---------------------------------------------------------------------------
+// Global Search — Creatio's cross-entity record search (Elasticsearch-backed),
+// the same engine behind the UI search box. Registered only when Global Search
+// is enabled on the environment (non-empty `GlobalSearchUrl`).
+// ---------------------------------------------------------------------------
+
+const globalSearchInputShape = {
+	query: z
+		.string()
+		.min(1)
+		.describe(
+			'Free-text search across indexed records, exactly like the Creatio UI search box (e.g. "andrew baker", "acme invoice 2024"). Matches names, numbers and other indexed columns.',
+		),
+	entities: z
+		.array(z.string().min(1))
+		.optional()
+		.describe(
+			'Optional list of entity schema names to restrict the search to (e.g. ["Contact","Account"]). Omit to search all indexed sections. Maps to the service `type` filter.',
+		),
+	limit: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(100)
+		.optional()
+		.describe('Max records to return (server default ~15).'),
+	from: z.coerce
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.describe('Pagination offset (skip this many results). Use with the response `nextFrom`.'),
+} as const;
+export const globalSearchInput = z.object(globalSearchInputShape);
+
+export const globalSearchDescriptor = makeToolDescriptor({
+	title: 'Global Search: find records across entities',
+	description:
+		'Search Creatio records the way the UI search box does — full-text across all indexed entities (Elasticsearch-backed). ' +
+		'Use this to locate specific records by name/number/keyword when you do not know the exact entity or filter (e.g. "find Andrew Baker", "the Acme renewal opportunity"). ' +
+		'Calls GlobalSearchService.Search; returns matched records with `entityName`, `id`, `columnValues`, and highlighted `foundColumns`, plus `total`/`nextFrom` for paging. ' +
+		'Differs from `read`: `read` needs an exact entity + OData filter; global-search is fuzzy and cross-entity. ' +
+		'Prerequisites: Global Search must be enabled on the environment (non-empty `GlobalSearchUrl` + the `GlobalSearch_V2` feature). This tool is only registered when enabled.',
+	inputShape: globalSearchInputShape,
 });

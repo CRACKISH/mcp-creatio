@@ -1,4 +1,19 @@
 import log from '../../../log';
+import {
+	ConfigurationCaller,
+	ConfigurationCallResult,
+	SysSettingReader,
+	hasNonEmptySetting,
+} from '../creatio-rest';
+
+// Re-export the shared contracts so existing importers/tests of this module keep working.
+export type {
+	ConfigurationCaller,
+	ConfigurationCallRequest,
+	ConfigurationCallResult,
+	ConfigurationHttpMethod,
+	SysSettingReader,
+} from '../creatio-rest';
 
 /**
  * DataForge access layer.
@@ -10,32 +25,6 @@ import log from '../../../log';
  * The DataForge WCF services use `[WebInvoke(BodyStyle = Wrapped)]`, so each
  * single-parameter method expects its DTO wrapped under a top-level `request`.
  */
-
-export type ConfigurationHttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
-
-export interface ConfigurationCallRequest {
-	service: string;
-	method: string;
-	httpMethod?: ConfigurationHttpMethod;
-	body?: unknown;
-	query?: Record<string, string | number | boolean>;
-}
-
-export interface ConfigurationCallResult {
-	status: number;
-	contentType?: string;
-	body: unknown;
-}
-
-/** Narrow capability DataForge needs from the configuration engine (DIP). */
-export interface ConfigurationCaller {
-	call(request: ConfigurationCallRequest): Promise<ConfigurationCallResult>;
-}
-
-/** Narrow capability DataForge needs to read system settings (DIP). */
-export interface SysSettingReader {
-	queryValues(codes: string[]): Promise<{ values?: Record<string, unknown> }>;
-}
 
 export interface SimilarTablesQuery {
 	query: string;
@@ -77,11 +66,7 @@ export class DataForgeClient {
 	public async isEnabled(): Promise<boolean> {
 		try {
 			const response = await this._sysSettings.queryValues([SERVICE_URL_SETTING]);
-			const entry = response?.values?.[SERVICE_URL_SETTING];
-			// QuerySysSettings returns each setting as an object { code, value, ... };
-			// tolerate a bare string too for safety.
-			const url = typeof entry === 'string' ? entry : (entry as { value?: unknown })?.value;
-			return typeof url === 'string' && url.trim().length > 0;
+			return hasNonEmptySetting(response, SERVICE_URL_SETTING);
 		} catch (err) {
 			log.warn('dataforge.probe.failed', { error: String(err) });
 			return false;

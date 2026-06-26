@@ -11,6 +11,8 @@ import { NAME, VERSION } from '../../version';
 
 import { DataForgeClient } from './dataforge/dataforge-client';
 import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
+import { GlobalSearchClient } from './globalsearch/globalsearch-client';
+import { GlobalSearchToolPreparer } from './globalsearch/globalsearch-tool-preparer';
 import { buildFilterFromStructured } from './filters';
 import { ALL_PROMPTS } from './prompts-data';
 import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
@@ -70,6 +72,7 @@ export class Server {
 	// can route through a capability only when it is actually enabled.
 	private readonly _dataForge: DataForgeClient;
 	private readonly _dataForgePreparer: DataForgeToolPreparer;
+	private readonly _globalSearchPreparer: GlobalSearchToolPreparer;
 	private readonly _preparers: ToolPreparer[];
 	private readonly _capabilities = new Map<string, boolean>();
 
@@ -82,7 +85,10 @@ export class Server {
 		this._readonly = config.readonlyMode ?? false;
 		this._dataForge = new DataForgeClient(engines.configuration, engines.sysSettings);
 		this._dataForgePreparer = new DataForgeToolPreparer(this._dataForge);
-		this._preparers = [this._dataForgePreparer];
+		this._globalSearchPreparer = new GlobalSearchToolPreparer(
+			new GlobalSearchClient(engines.configuration, engines.sysSettings),
+		);
+		this._preparers = [this._dataForgePreparer, this._globalSearchPreparer];
 		this._registerClientTools();
 	}
 

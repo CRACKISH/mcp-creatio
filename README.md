@@ -227,3 +227,15 @@ DataForge is Creatio's AI-oriented semantic layer over the data model. These too
 **Discovery → confirm → act:** use `dataforge-similar-tables` to find the right entity, then `describe-entity` for the authoritative field list, then `read`/`create`.
 
 **Enabling DataForge** requires (on the Creatio side): the `DataForgeServiceUrl` system setting plus IdentityServer settings (`IdentityServerUrl`, `IdentityServerClientId`/`Secret`), the `DataForge*` feature toggles, and the `CanReadDataStructureColumnDetails` operation granted to the MCP user. Restart the app pool (or run the `DataStructureTransferFromCreatio` / `LookupsTransferFromCreatio` processes) to sync the model.
+
+### Global Search tool (registered only when Global Search is enabled)
+
+Global Search is Creatio's cross-entity, Elasticsearch-backed record search — the engine behind the UI search box. The tool is **probed once at startup** and registered **only when the environment has Global Search configured** (a non-empty `GlobalSearchUrl` system setting).
+
+| Tool            | Description                                                                                                                                                                                                                                   |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `global-search` | Full-text search across all indexed entities (like the UI search). Input: `query`, optional `entities[]`/`limit`/`from`. Returns matched records with `entityName`, `id`, `columnValues`, highlighted `foundColumns`, plus `total`/`nextFrom` |
+
+Differs from `read`: `read` needs an exact entity + OData filter; `global-search` is fuzzy and cross-entity — use it to locate a record when you don't know the entity. Calls `GlobalSearchService.Search`.
+
+**Enabling Global Search** requires the `GlobalSearchUrl` (+ `GlobalSearchConfigServiceUrl`, `GlobalSearchIndexingApiUrl`) system settings and the `GlobalSearch` / `GlobalSearch_V2` feature toggles, with the section index built (Elasticsearch reachable).

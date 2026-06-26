@@ -247,6 +247,13 @@ function enableDataForge(context: ServerContext) {
 	});
 }
 
+function enableGlobalSearch(context: ServerContext) {
+	context.sysSettings.queryValues.mockResolvedValue({
+		success: true,
+		values: { GlobalSearchUrl: 'http://elastic.local:9200/gs' },
+	});
+}
+
 async function prepare(server: ReturnType<typeof buildServer>['server']) {
 	await (server as unknown as { _prepareTools: () => Promise<void> })._prepareTools();
 }
@@ -320,6 +327,59 @@ describe('DataForge tool preparation', () => {
 				method: 'GetServiceStatus',
 			}),
 		);
+	});
+});
+
+describe('Global Search tool preparation', () => {
+	it('is not registered before preparation', () => {
+		const { handlers } = buildServer();
+		expect(handlers.has('global-search')).toBe(false);
+	});
+
+	it('registers global-search only when GlobalSearchUrl is set', async () => {
+		const { server, context, handlers } = buildServer();
+		enableGlobalSearch(context);
+		await prepare(server);
+		expect(handlers.has('global-search')).toBe(true);
+		expect(context.sysSettings.queryValues).toHaveBeenCalledWith(['GlobalSearchUrl']);
+	});
+
+	it('stays unregistered when GlobalSearchUrl is empty', async () => {
+		const { server, handlers } = buildServer();
+		await prepare(server); // default fake has no GlobalSearchUrl
+		expect(handlers.has('global-search')).toBe(false);
+	});
+
+	it('search tool posts a flat body to GlobalSearchService.Search', async () => {
+		const { server, context, handlers } = buildServer();
+		enableGlobalSearch(context);
+		await prepare(server);
+		await callTool(handlers, 'global-search', {
+			query: 'andrew',
+			entities: ['Contact'],
+			limit: 10,
+		});
+		expect(context.configuration.call).toHaveBeenCalledWith(
+			expect.objectContaining({
+				service: 'GlobalSearchService',
+				method: 'Search',
+				httpMethod: 'POST',
+				body: {
+					queryString: 'andrew',
+					sectionEntityName: '',
+					recordCount: 10,
+					from: 0,
+					type: 'Contact',
+				},
+			}),
+		);
+	});
+
+	it('is registered in readonly mode (read-only capability)', async () => {
+		const { server, context, handlers } = buildServer(true);
+		enableGlobalSearch(context);
+		await prepare(server);
+		expect(handlers.has('global-search')).toBe(true);
 	});
 });
 
