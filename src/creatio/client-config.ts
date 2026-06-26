@@ -28,7 +28,17 @@ export interface OAuth2CodeAuthConfig extends BaseOAuthConfig {
 
 export type CreatioClientAuthConfig = LegacyAuthConfig | OAuth2AuthConfig | OAuth2CodeAuthConfig;
 
+/**
+ * Which Creatio data API backs the CRUD provider. Selected per-deployment (env), the
+ * same shape as auth selection — one backend per process. `odata` is the default and
+ * the only fully-implemented backend today; `dataservice` is reserved for the planned
+ * DataService provider.
+ */
+export type CrudBackend = 'odata' | 'dataservice';
+
 export interface CreatioClientConfig {
 	baseUrl: string;
 	auth: CreatioClientAuthConfig;
+	/** Defaults to `odata` when omitted. */
+	crudBackend?: CrudBackend;
 }

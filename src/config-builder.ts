@@ -2,6 +2,7 @@ import {
 	AuthProviderType,
 	CreatioClientAuthConfig,
 	CreatioClientConfig,
+	CrudBackend,
 	LegacyAuthConfig,
 	OAuth2AuthConfig,
 	OAuth2CodeAuthConfig,
@@ -66,11 +67,22 @@ function _getLegacyAuthConfig(): LegacyAuthConfig | null {
 	return null;
 }
 
+function getCrudBackend(): CrudBackend {
+	const raw = env('CREATIO_CRUD_BACKEND')?.toLowerCase();
+	if (raw === 'dataservice') {
+		return 'dataservice';
+	}
+	if (raw && raw !== 'odata') {
+		throw new Error(`unsupported_crud_backend:${raw} (expected "odata" or "dataservice")`);
+	}
+	return 'odata';
+}
+
 export function getCreatioClientConfig(): CreatioClientConfig {
 	const baseUrl = env('CREATIO_BASE_URL');
 	if (!baseUrl) {
 		throw new Error('Environment variable CREATIO_BASE_URL is required but not set');
 	}
 	const auth = getCreatioClientAuthConfig();
-	return { baseUrl, auth };
+	return { baseUrl, auth, crudBackend: getCrudBackend() };
 }
