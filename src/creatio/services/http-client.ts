@@ -161,13 +161,11 @@ export class CreatioHttpClient {
 			buildRequest,
 			onSuccess,
 			(response, duration) =>
-				this.handleErrorResponse(
-					operation,
-					response,
-					duration,
-					opts.errorPrefix,
-					logContext,
-				),
+				// Include `url` in the error log (it was passed explicitly at the old call sites).
+				this.handleErrorResponse(operation, response, duration, opts.errorPrefix, {
+					...logContext,
+					url,
+				}),
 			logContext,
 		);
 	}

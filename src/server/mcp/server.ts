@@ -135,7 +135,15 @@ export class Server {
 	private _normalizeToToolHandler(handler: ToolHandler) {
 		return async (args: any) => {
 			const result = await handler(args);
-			if (result && typeof result === 'object' && 'content' in result) {
+			// Pass through only a genuine MCP envelope (`content` is an array of blocks) — e.g.
+			// the published-tools proxy returns an upstream tools/call result already shaped.
+			// Raw domain data (incl. server payloads that happen to have a scalar/object
+			// `content` field) is stringified, never mistaken for a pre-wrapped result.
+			if (
+				result &&
+				typeof result === 'object' &&
+				Array.isArray((result as { content?: unknown }).content)
+			) {
 				return result;
 			}
 			return {

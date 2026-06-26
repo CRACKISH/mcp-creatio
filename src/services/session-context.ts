@@ -17,6 +17,8 @@ export interface UserTokens {
 	accessToken: string;
 	accessTokenExpiryMs: number;
 	refreshToken?: string | undefined;
+	/** When this entry was stored/last refreshed; set by setTokensForUser. Drives idle eviction. */
+	storedAtMs?: number | undefined;
 }
 
 export interface OAuthState {
@@ -32,6 +34,10 @@ export interface OAuthStateResult {
 }
 
 export class SessionContext {
+	/** Idle window after which a token entry is considered abandoned and evicted, even if it
+	 *  still has a refresh token. Generous (24h) so a returning client within a normal working
+	 *  day keeps transparent refresh; resets on every store/refresh. */
+	private static readonly TOKEN_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 	private static _instance: SessionContext | undefined;
 	private readonly _sessions = new Map<string, SessionInfo>();
 	private readonly _userTokens = new Map<string, UserTokens>();
@@ -136,7 +142,12 @@ export class SessionContext {
 	}
 
 	public async setTokensForUser(userKey: string, tokens: UserTokens): Promise<void> {
-		this._userTokens.set(userKey, tokens);
+		// Stamp the store time (unless the caller supplied one) so idle eviction can tell a
+		// recently-refreshed token from an abandoned one.
+		this._userTokens.set(userKey, {
+			...tokens,
+			storedAtMs: tokens.storedAtMs ?? Date.now(),
+		});
 	}
 
 	public async deleteTokensForUser(userKey: string): Promise<void> {
@@ -182,19 +193,22 @@ export class SessionContext {
 	}
 
 	/**
-	 * Bound the per-user token map on a long-running process. A token entry is kept only
-	 * while it is still usable: either the access token is unexpired, or it is both
-	 * refreshable (has a refresh token) AND anchored to at least one active session. An
-	 * expired token with no refresh path, or one whose owning sessions have all closed, is
-	 * unreachable and gets evicted. Returns the number removed.
+	 * Bound the per-user token map on a long-running process WITHOUT evicting tokens a client
+	 * could still use. Refresh is keyed by userKey (not session) — Bearer clients carry identity
+	 * in the JWT and often have no live session between reconnects — so a token is removed only
+	 * when it is genuinely unreachable:
+	 *  - expired AND has no refresh token (cannot be revived), or
+	 *  - idle past {@link TOKEN_IDLE_TTL_MS} since it was last stored/refreshed (abandoned).
+	 * Unexpired tokens and recently-stored refreshable tokens are always kept. Returns count removed.
 	 */
 	public evictStaleTokens(now: number = Date.now()): number {
 		let removed = 0;
 		for (const [userKey, tokens] of this._userTokens.entries()) {
 			const expired = now > tokens.accessTokenExpiryMs;
-			const refreshableInUse =
-				Boolean(tokens.refreshToken) && this.getSessionsForUser(userKey).length > 0;
-			if (expired && !refreshableInUse) {
+			const deadNoRefresh = expired && !tokens.refreshToken;
+			const idleFor = now - (tokens.storedAtMs ?? now);
+			const abandoned = idleFor > SessionContext.TOKEN_IDLE_TTL_MS;
+			if (deadNoRefresh || abandoned) {
 				this._userTokens.delete(userKey);
 				removed++;
 			}

@@ -89,43 +89,59 @@ describe('SessionContext token storage', () => {
 
 describe('SessionContext token eviction', () => {
 	let sc: SessionContext;
-	const NOW = 1_000_000;
+	const NOW = 2_000_000_000_000; // fixed clock for the storedAtMs/idle math
+	const DAY = 24 * 60 * 60 * 1000;
 
 	beforeEach(() => {
 		sc = new SessionContext();
 	});
 
-	it('keeps unexpired tokens regardless of sessions', async () => {
-		await sc.setTokensForUser('u1', { accessToken: 'a', accessTokenExpiryMs: NOW + 5000 });
+	it('keeps unexpired tokens', async () => {
+		await sc.setTokensForUser('u1', {
+			accessToken: 'a',
+			accessTokenExpiryMs: NOW + 5000,
+			storedAtMs: NOW,
+		});
 		expect(sc.evictStaleTokens(NOW)).toBe(0);
 		expect((await sc.getTokensForUser('u1'))?.accessToken).toBe('a');
 	});
 
-	it('evicts an expired token with no refresh token', async () => {
-		await sc.setTokensForUser('u1', { accessToken: 'a', accessTokenExpiryMs: NOW - 1 });
-		expect(sc.evictStaleTokens(NOW)).toBe(1);
-		expect(await sc.getTokensForUser('u1')).toBeNull();
-	});
-
-	it('evicts an expired refreshable token when no session anchors it', async () => {
+	it('evicts an expired token with no refresh token (dead weight)', async () => {
 		await sc.setTokensForUser('u1', {
 			accessToken: 'a',
 			accessTokenExpiryMs: NOW - 1,
-			refreshToken: 'r',
+			storedAtMs: NOW,
 		});
 		expect(sc.evictStaleTokens(NOW)).toBe(1);
 		expect(await sc.getTokensForUser('u1')).toBeNull();
 	});
 
-	it('keeps an expired refreshable token while a session is still active', async () => {
+	it('keeps a recently-stored expired refreshable token even with NO session (Bearer client)', async () => {
+		// Regression: refresh is keyed by userKey, not session — this must NOT be evicted.
 		await sc.setTokensForUser('u1', {
 			accessToken: 'a',
 			accessTokenExpiryMs: NOW - 1,
 			refreshToken: 'r',
+			storedAtMs: NOW,
 		});
-		sc.createSession('s1', 'u1');
 		expect(sc.evictStaleTokens(NOW)).toBe(0);
 		expect((await sc.getTokensForUser('u1'))?.refreshToken).toBe('r');
+	});
+
+	it('evicts a refreshable token once idle past the TTL (abandoned)', async () => {
+		await sc.setTokensForUser('u1', {
+			accessToken: 'a',
+			accessTokenExpiryMs: NOW - 1,
+			refreshToken: 'r',
+			storedAtMs: NOW,
+		});
+		expect(sc.evictStaleTokens(NOW + DAY + 1)).toBe(1);
+		expect(await sc.getTokensForUser('u1')).toBeNull();
+	});
+
+	it('stamps storedAtMs on store so idle eviction has a baseline', async () => {
+		await sc.setTokensForUser('u1', { accessToken: 'a', accessTokenExpiryMs: NOW + 1000 });
+		expect((await sc.getTokensForUser('u1'))?.storedAtMs).toBeTypeOf('number');
 	});
 });
 
