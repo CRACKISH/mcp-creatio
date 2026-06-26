@@ -181,6 +181,30 @@ export class SessionContext {
 		}
 	}
 
+	/**
+	 * Bound the per-user token map on a long-running process. A token entry is kept only
+	 * while it is still usable: either the access token is unexpired, or it is both
+	 * refreshable (has a refresh token) AND anchored to at least one active session. An
+	 * expired token with no refresh path, or one whose owning sessions have all closed, is
+	 * unreachable and gets evicted. Returns the number removed.
+	 */
+	public evictStaleTokens(now: number = Date.now()): number {
+		let removed = 0;
+		for (const [userKey, tokens] of this._userTokens.entries()) {
+			const expired = now > tokens.accessTokenExpiryMs;
+			const refreshableInUse =
+				Boolean(tokens.refreshToken) && this.getSessionsForUser(userKey).length > 0;
+			if (expired && !refreshableInUse) {
+				this._userTokens.delete(userKey);
+				removed++;
+			}
+		}
+		if (removed > 0) {
+			log.info('session.tokens.evicted', { removed, remaining: this._userTokens.size });
+		}
+		return removed;
+	}
+
 	public async getEffectiveTokens(
 		sessionId?: string,
 		userKey?: string,

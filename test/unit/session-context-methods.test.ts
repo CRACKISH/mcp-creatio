@@ -87,6 +87,48 @@ describe('SessionContext token storage', () => {
 	});
 });
 
+describe('SessionContext token eviction', () => {
+	let sc: SessionContext;
+	const NOW = 1_000_000;
+
+	beforeEach(() => {
+		sc = new SessionContext();
+	});
+
+	it('keeps unexpired tokens regardless of sessions', async () => {
+		await sc.setTokensForUser('u1', { accessToken: 'a', accessTokenExpiryMs: NOW + 5000 });
+		expect(sc.evictStaleTokens(NOW)).toBe(0);
+		expect((await sc.getTokensForUser('u1'))?.accessToken).toBe('a');
+	});
+
+	it('evicts an expired token with no refresh token', async () => {
+		await sc.setTokensForUser('u1', { accessToken: 'a', accessTokenExpiryMs: NOW - 1 });
+		expect(sc.evictStaleTokens(NOW)).toBe(1);
+		expect(await sc.getTokensForUser('u1')).toBeNull();
+	});
+
+	it('evicts an expired refreshable token when no session anchors it', async () => {
+		await sc.setTokensForUser('u1', {
+			accessToken: 'a',
+			accessTokenExpiryMs: NOW - 1,
+			refreshToken: 'r',
+		});
+		expect(sc.evictStaleTokens(NOW)).toBe(1);
+		expect(await sc.getTokensForUser('u1')).toBeNull();
+	});
+
+	it('keeps an expired refreshable token while a session is still active', async () => {
+		await sc.setTokensForUser('u1', {
+			accessToken: 'a',
+			accessTokenExpiryMs: NOW - 1,
+			refreshToken: 'r',
+		});
+		sc.createSession('s1', 'u1');
+		expect(sc.evictStaleTokens(NOW)).toBe(0);
+		expect((await sc.getTokensForUser('u1'))?.refreshToken).toBe('r');
+	});
+});
+
 describe('SessionContext OAuth-state cleanup', () => {
 	afterEach(() => vi.useRealTimers());
 

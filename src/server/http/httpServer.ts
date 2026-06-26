@@ -138,11 +138,13 @@ export class HttpServer {
 				this._connections.add(socket);
 				socket.once('close', () => this._connections.delete(socket));
 			});
-			// Periodically evict expired OAuth codes/states so these maps stay bounded
-			// over a long-running process. Unref'd so it never holds the event loop open.
+			// Periodically evict expired OAuth codes/states and unreachable user tokens so
+			// these maps stay bounded over a long-running process. Unref'd so it never holds
+			// the event loop open.
 			this._cleanupTimer = setInterval(() => {
 				this._oauthServer.cleanup();
 				this._sessionContext.cleanupExpiredOAuthStates();
+				this._sessionContext.evictStaleTokens();
 			}, HttpServer.CLEANUP_INTERVAL_MS);
 			this._cleanupTimer.unref();
 		});
