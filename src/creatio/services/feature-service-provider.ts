@@ -22,7 +22,7 @@ export class FeatureServiceProvider implements FeatureProvider {
 
 	public async clearFeaturesCache(featureCode?: string): Promise<ClearFeatureCacheResult> {
 		const url = this._getClearCacheUrl(featureCode);
-		return this._client.executeWithTiming(
+		return this._client.request<ClearFeatureCacheResult>(
 			'clear-features-cache',
 			url,
 			async () => {
@@ -43,18 +43,10 @@ export class FeatureServiceProvider implements FeatureProvider {
 				}
 				return result;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'clear-features-cache',
-					response,
-					duration,
-					'creatio_clear_features_cache_failed',
-					{
-						featureCode: featureCode ?? '(all)',
-						url,
-					},
-				),
-			{ featureCode: featureCode ?? '(all)' },
+			{
+				errorPrefix: 'creatio_clear_features_cache_failed',
+				logContext: { featureCode: featureCode ?? '(all)' },
+			},
 		);
 	}
 }

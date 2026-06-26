@@ -141,6 +141,31 @@ export class CreatioHttpClient {
 		}
 	}
 
+	/**
+	 * Common service-call shape: time the request, parse on 2xx via `onSuccess`, and on a
+	 * non-2xx route through {@link handleErrorResponse} with `errorPrefix`. Removes the
+	 * identical error-handler closure every provider used to repeat around
+	 * {@link executeWithTiming}.
+	 */
+	public async request<T>(
+		operation: string,
+		url: string,
+		buildRequest: () => Promise<Response>,
+		onSuccess: SuccessHandler<T>,
+		opts: { errorPrefix: string; logContext?: LogContext },
+	): Promise<T> {
+		const logContext = opts.logContext ?? {};
+		return this.executeWithTiming(
+			operation,
+			url,
+			buildRequest,
+			onSuccess,
+			(response, duration) =>
+				this.handleErrorResponse(operation, response, duration, opts.errorPrefix, logContext),
+			logContext,
+		);
+	}
+
 	public async handleErrorResponse(
 		operation: string,
 		response: Response,

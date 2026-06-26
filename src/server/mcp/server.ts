@@ -66,6 +66,15 @@ export interface ServerConfig {
 	readonlyMode?: boolean;
 }
 
+/** A client tool as data: its name, MCP descriptor, zod input schema, and a handler that
+ *  returns raw domain data (MCP content wrapping is applied centrally at registration). */
+interface ClientToolDef {
+	name: string;
+	descriptor: any;
+	input: any;
+	run: (args: any) => Promise<unknown>;
+}
+
 export class Server {
 	private readonly _engines: CreatioEngineManager;
 	private readonly _descriptors = new Map<string, any>();
@@ -183,17 +192,6 @@ export class Server {
 		}
 	}
 
-	private _textResult(payload: unknown) {
-		return {
-			content: [
-				{
-					type: 'text' as const,
-					text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2),
-				},
-			],
-		};
-	}
-
 	/** Adapter exposing handler registration to {@link ToolPreparer}s. */
 	private _toolRegistrar(): ToolRegistrar {
 		return {
@@ -227,264 +225,197 @@ export class Server {
 		return this._capabilities.get(this._dataForgePreparer.name) === true;
 	}
 
-	private _registerClientTools() {
-		const crud = this._engines.crud;
-		const user = this._engines.user;
-		const sysSettings = this._engines.sysSettings;
-		this._registerHandlerWithDescriptor(
-			'get-current-user-info',
-			getCurrentUserInfoDescriptor,
-			withValidation(getCurrentUserInfoInput, () => user.getCurrentUserInfo()),
-		);
-		this._registerHandlerWithDescriptor(
-			'list-entities',
-			listEntitiesDescriptor,
-			withValidation(listEntitiesInput, async () => {
-				const sets = await crud.listEntitySets();
-				return {
-					content: [
-						{
-							type: 'text',
-							text: JSON.stringify({ results: sets }),
-						},
-					],
-				};
-			}),
-		);
-		this._registerHandlerWithDescriptor(
-			'describe-entity',
-			describeEntityDescriptor,
-			withValidation(describeEntityInput, async ({ entitySet }) => {
-				// When DataForge is enabled, prefer its richer column details and
-				// fall back to exact OData $metadata on a per-call miss; when it is
-				// not enabled, go straight to OData without any remote attempt.
-				if (this._isDataForgeReady()) {
-					const dataForge = await this._dataForge.getColumnsOrNull(entitySet);
-					if (dataForge !== null) {
-						return this._textResult({ source: 'dataforge', entitySet, dataForge });
-					}
-				}
-				const schema = await crud.describeEntity(entitySet);
-				return this._textResult({ source: 'odata', entitySet, metadata: schema });
-			}),
-		);
-		this._registerHandlerWithDescriptor(
-			'read',
-			readDescriptor,
-			withValidation(
-				readInput,
-				async ({ entity, filter, filters, select, top, expand, orderBy, skip, count }) => {
-					const structured = buildFilterFromStructured(filters);
-					let finalFilter = filter || structured;
-					if (filter && structured) {
-						finalFilter = `(${filter}) and (${structured})`;
-					}
-					return crud.read({
-						entity,
-						filter: finalFilter ?? undefined,
-						select,
-						top: top ?? DEFAULT_READ_TOP,
-						expand,
-						orderBy,
-						skip,
-						count,
-					});
-				},
-			),
-		);
-		this._registerHandlerWithDescriptor(
-			'query-sys-settings',
-			querySysSettingsDescriptor,
-			withValidation(querySysSettingsInput, async ({ sysSettingCodes }) => {
-				const result = await sysSettings.queryValues(sysSettingCodes);
-				return {
-					content: [
-						{
-							type: 'text',
-							text: JSON.stringify(result, null, 2),
-						},
-					],
-				};
-			}),
-		);
-		if (!this._readonly) {
-			const process = this._engines.process;
-			const feature = this._engines.feature;
-			const adminOperation = this._engines.adminOperation;
-			const configuration = this._engines.configuration;
-			this._registerHandlerWithDescriptor(
-				'create',
-				createDescriptor,
-				withValidation(createInput, async ({ entity, data }) =>
-					crud.create({ entity, data }),
-				),
-			);
-			this._registerHandlerWithDescriptor(
-				'update',
-				updateDescriptor,
-				withValidation(updateInput, async ({ entity, id, data }) =>
-					crud.update({ entity, id, data }),
-				),
-			);
-			this._registerHandlerWithDescriptor(
-				'delete',
-				deleteDescriptor,
-				withValidation(deleteInput, async ({ entity, id }) => crud.delete({ entity, id })),
-			);
-			this._registerHandlerWithDescriptor(
-				'execute-process',
-				executeProcessDescriptor,
-				withValidation(executeProcessInput, async ({ processName, parameters }) => {
-					const result = await process.execute({
-						processName,
-						parameters: parameters || {},
-					});
-					return {
-						content: [
-							{
-								type: 'text',
-								text: JSON.stringify(result, null, 2),
-							},
-						],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'set-sys-settings-value',
-				setSysSettingsValueDescriptor,
-				withValidation(setSysSettingsValueInput, async ({ sysSettingsValues }) => {
-					const result = await sysSettings.setValues(sysSettingsValues);
-					return {
-						content: [
-							{
-								type: 'text',
-								text: JSON.stringify(result),
-							},
-						],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'create-sys-setting',
-				createSysSettingDescriptor,
-				withValidation(createSysSettingInput, async ({ definition, initialValue }) => {
-					const result = await sysSettings.createSetting({ definition, initialValue });
-					return {
-						content: [
-							{
-								type: 'text',
-								text: JSON.stringify(result, null, 2),
-							},
-						],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'update-sys-setting-definition',
-				updateSysSettingDefinitionDescriptor,
-				withValidation(updateSysSettingDefinitionInput, async ({ id, definition }) => {
-					const result = await sysSettings.updateDefinition({
+	/** Resolve `read` into a single OData filter: structured `filters` compiled and, if a
+	 *  raw `filter` is also supplied, AND-combined with it. */
+	private _read(args: any): Promise<unknown> {
+		const { entity, filter, filters, select, top, expand, orderBy, skip, count } = args;
+		const structured = buildFilterFromStructured(filters);
+		let finalFilter = filter || structured;
+		if (filter && structured) {
+			finalFilter = `(${filter}) and (${structured})`;
+		}
+		return this._engines.crud.read({
+			entity,
+			filter: finalFilter ?? undefined,
+			select,
+			top: top ?? DEFAULT_READ_TOP,
+			expand,
+			orderBy,
+			skip,
+			count,
+		});
+	}
+
+	/** When DataForge is enabled, prefer its richer column details and fall back to exact
+	 *  OData `$metadata` on a per-call miss; otherwise go straight to OData. The `source`
+	 *  discriminator is part of the public tool contract — preserve it. */
+	private async _describeEntity(entitySet: string): Promise<unknown> {
+		if (this._isDataForgeReady()) {
+			const dataForge = await this._dataForge.getColumnsOrNull(entitySet);
+			if (dataForge !== null) {
+				return { source: 'dataforge', entitySet, dataForge };
+			}
+		}
+		const metadata = await this._engines.crud.describeEntity(entitySet);
+		return { source: 'odata', entitySet, metadata };
+	}
+
+	/**
+	 * The client tool surface as data. Handlers return raw domain results; MCP content
+	 * wrapping is applied once by {@link _normalizeToToolHandler}. Adding a tool is a new
+	 * row here (plus its descriptor) — no new bespoke wrapping. Mutating tools are listed
+	 * separately and only registered when not in readonly mode.
+	 */
+	private _clientToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
+		const { crud, user, sysSettings, process, feature, adminOperation, configuration } =
+			this._engines;
+		const core: ClientToolDef[] = [
+			{
+				name: 'get-current-user-info',
+				descriptor: getCurrentUserInfoDescriptor,
+				input: getCurrentUserInfoInput,
+				run: () => user.getCurrentUserInfo(),
+			},
+			{
+				name: 'list-entities',
+				descriptor: listEntitiesDescriptor,
+				input: listEntitiesInput,
+				run: async () => ({ results: await crud.listEntitySets() }),
+			},
+			{
+				name: 'describe-entity',
+				descriptor: describeEntityDescriptor,
+				input: describeEntityInput,
+				run: ({ entitySet }) => this._describeEntity(entitySet),
+			},
+			{
+				name: 'read',
+				descriptor: readDescriptor,
+				input: readInput,
+				run: (args) => this._read(args),
+			},
+			{
+				name: 'query-sys-settings',
+				descriptor: querySysSettingsDescriptor,
+				input: querySysSettingsInput,
+				run: ({ sysSettingCodes }) => sysSettings.queryValues(sysSettingCodes),
+			},
+		];
+		const mutating: ClientToolDef[] = [
+			{
+				name: 'create',
+				descriptor: createDescriptor,
+				input: createInput,
+				run: ({ entity, data }) => crud.create({ entity, data }),
+			},
+			{
+				name: 'update',
+				descriptor: updateDescriptor,
+				input: updateInput,
+				run: ({ entity, id, data }) => crud.update({ entity, id, data }),
+			},
+			{
+				name: 'delete',
+				descriptor: deleteDescriptor,
+				input: deleteInput,
+				run: ({ entity, id }) => crud.delete({ entity, id }),
+			},
+			{
+				name: 'execute-process',
+				descriptor: executeProcessDescriptor,
+				input: executeProcessInput,
+				run: ({ processName, parameters }) =>
+					process.execute({ processName, parameters: parameters || {} }),
+			},
+			{
+				name: 'set-sys-settings-value',
+				descriptor: setSysSettingsValueDescriptor,
+				input: setSysSettingsValueInput,
+				run: ({ sysSettingsValues }) => sysSettings.setValues(sysSettingsValues),
+			},
+			{
+				name: 'create-sys-setting',
+				descriptor: createSysSettingDescriptor,
+				input: createSysSettingInput,
+				run: ({ definition, initialValue }) =>
+					sysSettings.createSetting({ definition, initialValue }),
+			},
+			{
+				name: 'update-sys-setting-definition',
+				descriptor: updateSysSettingDefinitionDescriptor,
+				input: updateSysSettingDefinitionInput,
+				run: ({ id, definition }) =>
+					sysSettings.updateDefinition({
 						...(definition as SysSettingDefinitionUpdate),
 						id,
-					});
-					return {
-						content: [
-							{
-								type: 'text',
-								text: JSON.stringify(result, null, 2),
-							},
-						],
-					};
-				}),
-			);
+					}),
+			},
+			{
+				name: 'refresh-feature-cache',
+				descriptor: refreshFeatureCacheDescriptor,
+				input: refreshFeatureCacheInput,
+				run: ({ featureCode }) => feature.clearFeaturesCache(featureCode),
+			},
+			{
+				name: 'upsert-admin-operation',
+				descriptor: upsertAdminOperationDescriptor,
+				input: upsertAdminOperationInput,
+				run: ({ id, name, code, description }) =>
+					adminOperation.upsertAdminOperation({
+						...(id !== undefined ? { id } : {}),
+						name,
+						code,
+						...(description !== undefined ? { description } : {}),
+					}),
+			},
+			{
+				name: 'delete-admin-operation',
+				descriptor: deleteAdminOperationDescriptor,
+				input: deleteAdminOperationInput,
+				run: ({ ids }) => adminOperation.deleteAdminOperation(ids),
+			},
+			{
+				name: 'set-admin-operation-grantee',
+				descriptor: setAdminOperationGranteeDescriptor,
+				input: setAdminOperationGranteeInput,
+				run: ({ adminOperationId, adminUnitIds, canExecute }) =>
+					adminOperation.setAdminOperationGrantee({
+						adminOperationId,
+						adminUnitIds,
+						canExecute,
+					}),
+			},
+			{
+				name: 'delete-admin-operation-grantee',
+				descriptor: deleteAdminOperationGranteeDescriptor,
+				input: deleteAdminOperationGranteeInput,
+				run: ({ ids }) => adminOperation.deleteAdminOperationGrantee(ids),
+			},
+			{
+				name: 'call-configuration-service',
+				descriptor: callConfigurationServiceDescriptor,
+				input: callConfigurationServiceInput,
+				run: ({ service, method, httpMethod, body, query }) =>
+					configuration.call({
+						service,
+						method,
+						httpMethod,
+						...(body !== undefined ? { body } : {}),
+						...(query !== undefined ? { query } : {}),
+					}),
+			},
+		];
+		return { core, mutating };
+	}
+
+	private _registerClientTools() {
+		const { core, mutating } = this._clientToolDefs();
+		const defs = this._readonly ? core : [...core, ...mutating];
+		for (const def of defs) {
 			this._registerHandlerWithDescriptor(
-				'refresh-feature-cache',
-				refreshFeatureCacheDescriptor,
-				withValidation(refreshFeatureCacheInput, async ({ featureCode }) => {
-					const result = await feature.clearFeaturesCache(featureCode);
-					return {
-						content: [
-							{
-								type: 'text',
-								text: JSON.stringify(result, null, 2),
-							},
-						],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'upsert-admin-operation',
-				upsertAdminOperationDescriptor,
-				withValidation(
-					upsertAdminOperationInput,
-					async ({ id, name, code, description }) => {
-						const result = await adminOperation.upsertAdminOperation({
-							...(id !== undefined ? { id } : {}),
-							name,
-							code,
-							...(description !== undefined ? { description } : {}),
-						});
-						return {
-							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-						};
-					},
-				),
-			);
-			this._registerHandlerWithDescriptor(
-				'delete-admin-operation',
-				deleteAdminOperationDescriptor,
-				withValidation(deleteAdminOperationInput, async ({ ids }) => {
-					const result = await adminOperation.deleteAdminOperation(ids);
-					return {
-						content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'set-admin-operation-grantee',
-				setAdminOperationGranteeDescriptor,
-				withValidation(
-					setAdminOperationGranteeInput,
-					async ({ adminOperationId, adminUnitIds, canExecute }) => {
-						const result = await adminOperation.setAdminOperationGrantee({
-							adminOperationId,
-							adminUnitIds,
-							canExecute,
-						});
-						return {
-							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-						};
-					},
-				),
-			);
-			this._registerHandlerWithDescriptor(
-				'delete-admin-operation-grantee',
-				deleteAdminOperationGranteeDescriptor,
-				withValidation(deleteAdminOperationGranteeInput, async ({ ids }) => {
-					const result = await adminOperation.deleteAdminOperationGrantee(ids);
-					return {
-						content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-					};
-				}),
-			);
-			this._registerHandlerWithDescriptor(
-				'call-configuration-service',
-				callConfigurationServiceDescriptor,
-				withValidation(
-					callConfigurationServiceInput,
-					async ({ service, method, httpMethod, body, query }) => {
-						const result = await configuration.call({
-							service,
-							method,
-							httpMethod,
-							...(body !== undefined ? { body } : {}),
-							...(query !== undefined ? { query } : {}),
-						});
-						return {
-							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-						};
-					},
-				),
+				def.name,
+				def.descriptor,
+				withValidation(def.input, def.run),
 			);
 		}
 	}

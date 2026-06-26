@@ -46,7 +46,7 @@ export class AdminOperationServiceProvider implements AdminOperationProvider {
 		payload: Record<string, unknown>,
 	): Promise<AdminOperationServiceResult> {
 		const url = this._getMethodUrl(method);
-		return this._client.executeWithTiming(
+		return this._client.request<AdminOperationServiceResult>(
 			method,
 			url,
 			async () => {
@@ -66,15 +66,7 @@ export class AdminOperationServiceProvider implements AdminOperationProvider {
 				}
 				return result;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					method,
-					response,
-					duration,
-					`creatio_${method.toLowerCase()}_failed`,
-					{ url },
-				),
-			{ method },
+			{ errorPrefix: `creatio_${method.toLowerCase()}_failed`, logContext: { method } },
 		);
 	}
 

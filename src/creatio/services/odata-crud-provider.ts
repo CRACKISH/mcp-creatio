@@ -99,7 +99,7 @@ export class ODataCrudProvider implements CrudProvider {
 
 	public async create({ entity, data }: CrudWriteParams) {
 		const url = this._buildEntityUrl(entity);
-		return this._client.executeWithTiming(
+		return this._client.request(
 			'create',
 			url,
 			async () => {
@@ -114,18 +114,7 @@ export class ODataCrudProvider implements CrudProvider {
 				this._client.logSuccess('create', response.status, duration, { entity });
 				return response.json().catch(() => ({}));
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'create',
-					response,
-					duration,
-					'creatio_create_failed',
-					{
-						entity,
-						url,
-					},
-				),
-			{ entity },
+			{ errorPrefix: 'creatio_create_failed', logContext: { entity } },
 		);
 	}
 
@@ -181,7 +170,7 @@ export class ODataCrudProvider implements CrudProvider {
 
 	public async update({ entity, id, data }: CrudUpdateParams) {
 		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
-		return this._client.executeWithTiming(
+		return this._client.request(
 			'update',
 			url,
 			async () => {
@@ -196,25 +185,13 @@ export class ODataCrudProvider implements CrudProvider {
 				this._client.logSuccess('update', response.status, duration, { entity, id });
 				return response.text();
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'update',
-					response,
-					duration,
-					'creatio_update_failed',
-					{
-						entity,
-						id,
-						url,
-					},
-				),
-			{ entity, id },
+			{ errorPrefix: 'creatio_update_failed', logContext: { entity, id } },
 		);
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams) {
 		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
-		return this._client.executeWithTiming(
+		return this._client.request(
 			'delete',
 			url,
 			async () => {
@@ -228,19 +205,7 @@ export class ODataCrudProvider implements CrudProvider {
 				this._client.logSuccess('delete', response.status, duration, { entity, id });
 				return response.text();
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'delete',
-					response,
-					duration,
-					'creatio_delete_failed',
-					{
-						entity,
-						id,
-						url,
-					},
-				),
-			{ entity, id },
+			{ errorPrefix: 'creatio_delete_failed', logContext: { entity, id } },
 		);
 	}
 }
