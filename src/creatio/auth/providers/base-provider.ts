@@ -39,4 +39,8 @@ export abstract class BaseProvider<
 	public finishAuthorization(code: string): Promise<void> {
 		throw new Error('Method not implemented.');
 	}
+
+	public cancelAllRefresh(): void {
+		// No background refresh timers by default; OAuth2CodeProvider overrides this.
+	}
 }

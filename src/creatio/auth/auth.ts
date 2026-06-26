@@ -7,6 +7,8 @@ export interface ICreatioAuthProvider {
 	revoke(): Promise<void>;
 	getAuthorizeUrl(state: string): Promise<string>;
 	finishAuthorization(code: string): Promise<void>;
+	/** Cancels any background token-refresh timers. Safe no-op for providers without them. */
+	cancelAllRefresh(): void;
 }
 
 export function buildHeaders(

@@ -20,7 +20,6 @@ export class OAuthServer {
 	private readonly _jwtSecret: string = crypto.randomBytes(32).toString('hex');
 	private readonly _storage = new OAuthStorage();
 	private readonly _tokenManager: OAuthTokenManager;
-	private readonly _accessTokens = new Map<string, OAuthAccessToken>();
 	private _baseUrl: string;
 
 	constructor(baseUrl: string = 'http://localhost:3000') {
@@ -157,7 +156,6 @@ export class OAuthServer {
 			authCode.userKey,
 			params.client_id,
 		);
-		this._accessTokens.set(tokenResponse.access_token, tokenResponse);
 		this._storage.deleteAuthorizationCode(params.code!);
 		log.info('oauth.token.issued', { client_id: params.client_id, userKey: authCode.userKey });
 		return tokenResponse;

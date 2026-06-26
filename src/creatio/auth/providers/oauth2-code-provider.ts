@@ -10,6 +10,9 @@ import { BaseOAuth2Provider } from './base-oauth2-provider';
 export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig> {
 	private readonly _sessionContext = SessionContext.instance;
 	private readonly _tokenRefreshScheduler = new TokenRefreshScheduler();
+	// Deduplicates concurrent refreshes per user so K simultaneous requests trigger
+	// one refresh call, not K (avoids the thundering herd + rotating-refresh-token races).
+	private readonly _inflightRefresh = new Map<string, Promise<UserTokens>>();
 
 	protected readonly authErrorCode = 'oauth2_code_need_consent';
 
@@ -128,17 +131,24 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		throw new Error(errorMessage);
 	}
 
-	protected async ensureAccessToken(force = false): Promise<string | undefined> {
-		log.info('oauth2_code.ensure_access_token.start', { force });
-		const now = Date.now();
-		if (
-			!force &&
-			this.accessToken &&
-			this.accessTokenExpiryMs &&
-			now < this.accessTokenExpiryMs
-		) {
-			return this.accessToken;
+	private _refreshTokensDeduped(userKey: string, refreshToken: string): Promise<UserTokens> {
+		const existing = this._inflightRefresh.get(userKey);
+		if (existing) {
+			return existing;
 		}
+		const promise = (async () => {
+			const updated = await this._refreshTokens(refreshToken);
+			await this._sessionContext.setTokensForUser(userKey, updated);
+			return updated;
+		})().finally(() => this._inflightRefresh.delete(userKey));
+		this._inflightRefresh.set(userKey, promise);
+		return promise;
+	}
+
+	protected async ensureAccessToken(force = false): Promise<string | undefined> {
+		// This provider is a process-wide singleton serving many concurrent users, so the
+		// per-user tokens in SessionContext are the only cache — never instance fields,
+		// which a second user would overwrite (token thrash + cross-user bleed).
 		const userKey = getEffectiveUserKey();
 		if (!userKey) {
 			log.warn('oauth2_code.no_user_key');
@@ -149,22 +159,18 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 			log.warn('oauth2_code.no_saved_tokens', { userKey });
 			return undefined;
 		}
+		const now = Date.now();
 		if (
 			!force &&
 			saved.accessToken &&
 			saved.accessTokenExpiryMs &&
 			now < saved.accessTokenExpiryMs
 		) {
-			this.accessToken = saved.accessToken;
-			this.accessTokenExpiryMs = saved.accessTokenExpiryMs;
-			return this.accessToken;
+			return saved.accessToken;
 		}
 		if (saved.refreshToken) {
-			const updated = await this._refreshTokens(saved.refreshToken);
-			await this._sessionContext.setTokensForUser(userKey, updated);
-			this.accessToken = updated.accessToken;
-			this.accessTokenExpiryMs = updated.accessTokenExpiryMs;
-			return this.accessToken;
+			const updated = await this._refreshTokensDeduped(userKey, saved.refreshToken);
+			return updated.accessToken;
 		}
 		await this._sessionContext.deleteTokensForUser(userKey);
 		return undefined;
@@ -178,8 +184,6 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		}
 		const tokens = await this._exchangeCodeForTokens(code);
 		await this._sessionContext.setTokensForUser(userKey, tokens);
-		this.accessToken = tokens.accessToken;
-		this.accessTokenExpiryMs = tokens.accessTokenExpiryMs;
 		this._tokenRefreshScheduler.scheduleRefresh(userKey);
 		log.info('oauth2_code.authorization_complete', { userKey });
 	}
@@ -242,8 +246,13 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		if (!saved?.refreshToken) {
 			throw new Error('oauth2_no_refresh_token');
 		}
-		const updated = await this._refreshTokens(saved.refreshToken);
-		await this._sessionContext.setTokensForUser(userKey, updated);
+		// Share the same in-flight refresh as on-demand callers to avoid colliding
+		// refresh calls that would invalidate each other's rotating refresh token.
+		await this._refreshTokensDeduped(userKey, saved.refreshToken);
 		log.info('oauth2_code.background_refresh_success', { userKey });
+	}
+
+	public cancelAllRefresh(): void {
+		this._tokenRefreshScheduler.cancelAllRefresh();
 	}
 }

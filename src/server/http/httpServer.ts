@@ -16,10 +16,12 @@ import { HttpMiddleware } from './middleware';
 import type { Server } from '../mcp';
 
 export class HttpServer {
+	private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 	private readonly _server: Server;
 	private readonly _app = express();
 	private readonly _connections = new Set<Socket>();
 	private _srv!: http.Server;
+	private _cleanupTimer: NodeJS.Timeout | undefined;
 	private readonly _sessionContext = SessionContext.instance;
 	private readonly _oauthServer: OAuthServer;
 	private readonly _middleware: HttpMiddleware;
@@ -110,14 +112,23 @@ export class HttpServer {
 				this._connections.add(socket);
 				socket.once('close', () => this._connections.delete(socket));
 			});
+			// Periodically evict expired OAuth codes/states so these maps stay bounded
+			// over a long-running process. Unref'd so it never holds the event loop open.
+			this._cleanupTimer = setInterval(() => {
+				this._oauthServer.cleanup();
+				this._sessionContext.cleanupExpiredOAuthStates();
+			}, HttpServer.CLEANUP_INTERVAL_MS);
+			this._cleanupTimer.unref();
 		});
 	}
 
 	public async stop() {
+		if (this._cleanupTimer) {
+			clearInterval(this._cleanupTimer);
+			this._cleanupTimer = undefined;
+		}
 		try {
-			if (this._server.authProvider && 'cancelAllRefresh' in this._server.authProvider) {
-				(this._server.authProvider as any).cancelAllRefresh();
-			}
+			this._server.authProvider.cancelAllRefresh();
 		} catch (err) {
 			log.warn('token_refresh_cleanup_failed', { error: String(err) });
 		}

@@ -6,12 +6,20 @@ import { EntitySchemaDescription } from '../providers';
 import { CreatioHttpClient } from './http-client';
 
 export class ODataMetadataStore {
+	private static readonly METADATA_TTL_MS = 30 * 60 * 1000;
 	private readonly _client: CreatioHttpClient;
 	private _metadataXml?: string;
 	private _metadataParsed?: any;
+	private _metadataFetchedAt = 0;
+	private _entitySetsCache?: string[];
+	private _entitySetsFetchedAt = 0;
 
 	constructor(client: CreatioHttpClient) {
 		this._client = client;
+	}
+
+	private _isFresh(fetchedAt: number): boolean {
+		return Date.now() - fetchedAt < ODataMetadataStore.METADATA_TTL_MS;
 	}
 
 	private _arrayify<T>(value: T | T[] | undefined | null): T[] {
@@ -22,21 +30,23 @@ export class ODataMetadataStore {
 	}
 
 	private async _getMetadataXml(): Promise<string> {
-		if (this._metadataXml) {
+		if (this._metadataXml && this._isFresh(this._metadataFetchedAt)) {
 			return this._metadataXml;
 		}
 		const headers = await this._client.getXmlHeaders();
 		const metadataUrl = `${this._client.odataRoot}/$metadata`;
 		const xmlContent = await this._client.fetchText(metadataUrl, async () => ({ headers }));
 		this._metadataXml = xmlContent;
+		this._metadataParsed = undefined; // force re-parse against the refreshed document
+		this._metadataFetchedAt = Date.now();
 		return this._metadataXml;
 	}
 
 	private async _getParsedMetadata(): Promise<any> {
+		const xmlContent = await this._getMetadataXml();
 		if (this._metadataParsed) {
 			return this._metadataParsed;
 		}
-		const xmlContent = await this._getMetadataXml();
 		const parser = new XMLParser({
 			ignoreAttributes: false,
 			attributeNamePrefix: '@_',
@@ -152,11 +162,14 @@ export class ODataMetadataStore {
 	}
 
 	public async listEntitySets(): Promise<string[]> {
-		const serviceSets = await this._tryGetEntitySetsFromService();
-		if (serviceSets) {
-			return serviceSets;
+		if (this._entitySetsCache && this._isFresh(this._entitySetsFetchedAt)) {
+			return this._entitySetsCache;
 		}
-		return this._getEntitySetsFromMetadata();
+		const serviceSets = await this._tryGetEntitySetsFromService();
+		const result = serviceSets ?? (await this._getEntitySetsFromMetadata());
+		this._entitySetsCache = result;
+		this._entitySetsFetchedAt = Date.now();
+		return result;
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {
