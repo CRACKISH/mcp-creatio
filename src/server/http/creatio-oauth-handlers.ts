@@ -1,6 +1,7 @@
 import log from '../../log';
 import { SessionContext } from '../../services';
-import { runWithContext } from '../../utils';
+import { getSessionIdFromRequest, runWithContext } from '../../utils';
+import { OAuthValidators } from '../oauth';
 
 import type { Server } from '../mcp';
 import type { OAuthServer } from '../oauth';
@@ -16,15 +17,6 @@ export class CreatioOAuthHandlers {
 		this._oauthServer = oauthServer;
 	}
 
-	private _mapAllSessionsToUser(userKey: string): void {
-		const sessions = this._sessionContext.getAllSessions();
-		const sessionIds = sessions.map((s) => s.id);
-		log.info('mapping_all_sessions', { userKey, sessionCount: sessionIds.length, sessionIds });
-		for (const sessionId of sessionIds) {
-			this._sessionContext.setSessionUserKey(sessionId, userKey);
-		}
-	}
-
 	public async handleOAuthStart(req: Request, res: Response): Promise<void> {
 		try {
 			const userKey = req.query.userKey as string;
@@ -36,7 +28,13 @@ export class CreatioOAuthHandlers {
 				);
 				return;
 			}
-			const state = this._sessionContext.createOAuthState(effectiveUserKey);
+			// Bind the OAuth state to the session that initiated the flow (if any),
+			// so the callback maps only that session — never every active session (CWE-639).
+			const initiatingSessionId = getSessionIdFromRequest(req) ?? undefined;
+			const state = this._sessionContext.createOAuthState(
+				effectiveUserKey,
+				initiatingSessionId,
+			);
 			const url = await this._server.authProvider.getAuthorizeUrl(state);
 			const mcpParams = req.query as any;
 			if (mcpParams.client_id && mcpParams.redirect_uri) {
@@ -57,9 +55,8 @@ export class CreatioOAuthHandlers {
 			const code = String(req.query?.code ?? '') || String((req as any).body?.code ?? '');
 			const state = String(req.query?.state ?? '') || String((req as any).body?.state ?? '');
 			log.info('oauth.callback.start', {
-				code: code ? '***' + code.slice(-4) : 'missing',
-				state: state ? state.substring(0, 50) + '...' : 'missing',
-				fullState: state,
+				hasCode: !!code,
+				hasState: !!state,
 			});
 			if (!code || !state) {
 				res.status(400).send('Missing code or state');
@@ -68,38 +65,48 @@ export class CreatioOAuthHandlers {
 			const stateParts = state.split('&');
 			const creatioState = stateParts[0];
 			log.info('oauth.callback.state_parse', {
-				originalState: state,
-				creatioState,
 				hasMcpParams: stateParts.length > 1,
 			});
 			if (!creatioState) {
-				log.error('oauth.callback.no_creatio_state', { originalState: state });
+				log.error('oauth.callback.no_creatio_state');
 				res.status(400).send('Invalid state format');
 				return;
 			}
-			const userKey = this._sessionContext.validateAndConsumeOAuthState(creatioState);
-			if (!userKey) {
-				log.error('oauth.callback.creatio_state_invalid', { creatioState });
+			const stateResult = this._sessionContext.validateAndConsumeOAuthState(creatioState);
+			if (!stateResult) {
+				log.error('oauth.callback.creatio_state_invalid');
 				res.status(400).send('Unknown or expired state');
 				return;
 			}
+			const { userKey, sessionId: boundSessionId } = stateResult;
 			await runWithContext({ userKey }, async () =>
 				this._server.authProvider.finishAuthorization(code),
 			);
-			this._mapAllSessionsToUser(userKey);
+			// Map ONLY the session that initiated this flow, if it still exists.
+			// Bearer-token MCP clients carry their identity in the issued JWT and need
+			// no session mapping at all.
+			if (boundSessionId && this._sessionContext.hasSession(boundSessionId)) {
+				this._sessionContext.mapSessionToUser(boundSessionId, userKey);
+			}
 			const stateParams = new URLSearchParams(state);
 			const clientId = stateParams.get('client_id');
 			const redirectUri = stateParams.get('redirect_uri');
 			const codeChallenge = stateParams.get('code_challenge');
 			if (clientId && redirectUri && codeChallenge) {
+				// Re-validate the redirect target before emitting any redirect: the MCP params
+				// are appended to the state in plaintext and must not be trusted blindly (CWE-601).
+				if (!OAuthValidators.isAllowedRedirectUri(redirectUri)) {
+					log.error('oauth.callback.redirect_uri_disallowed', { clientId });
+					res.status(400).send('Disallowed redirect_uri');
+					return;
+				}
 				const mcpState = stateParams.get('mcp_state');
 				log.info('oauth.callback.state_validation', {
-					mcpState,
 					clientId,
 					hasState: !!mcpState,
 				});
 				if (mcpState && !this._oauthServer.validateState(mcpState, clientId)) {
-					log.error('oauth.callback.state_invalid', { mcpState, clientId });
+					log.error('oauth.callback.state_invalid', { clientId });
 					const errorUrl = new URL(redirectUri);
 					errorUrl.searchParams.set('error', 'invalid_request');
 					errorUrl.searchParams.set('error_description', 'Unknown or expired state');
@@ -131,9 +138,11 @@ export class CreatioOAuthHandlers {
 
 	public async handleOAuthRevoke(req: Request, res: Response): Promise<void> {
 		try {
-			const userKey = (req.query.userKey as string) || (req.body?.userKey as string);
+			// Identity comes ONLY from the validated Bearer token (set by bearerAuth middleware).
+			// A caller must never be able to revoke another user's tokens via ?userKey= (CWE-639).
+			const userKey = (req as any).userKey as string | undefined;
 			if (!userKey) {
-				res.status(400).send('Missing userKey parameter');
+				res.status(401).send('Valid Bearer token required');
 				return;
 			}
 			await runWithContext({ userKey }, async () => this._server.authProvider.revoke());

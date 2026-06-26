@@ -4,7 +4,33 @@ import type {
 	OAuthError,
 	OAuthTokenRequest,
 } from './types';
+const DANGEROUS_SCHEMES = new Set(['javascript:', 'data:', 'file:', 'vbscript:', 'blob:']);
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
 export class OAuthValidators {
+	/**
+	 * Restricts OAuth redirect targets to loopback web addresses (native-app local
+	 * listeners) and custom app-scheme deep links, blocking redirects to arbitrary
+	 * remote origins and script-bearing schemes (open redirect / code interception, CWE-601).
+	 */
+	public static isAllowedRedirectUri(uri: string): boolean {
+		let parsed: URL;
+		try {
+			parsed = new URL(uri);
+		} catch {
+			return false;
+		}
+		const proto = parsed.protocol.toLowerCase();
+		if (DANGEROUS_SCHEMES.has(proto)) {
+			return false;
+		}
+		if (proto === 'http:' || proto === 'https:') {
+			return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase());
+		}
+		// Any other custom scheme (e.g. vscode:, cursor:, com.example.app:) is an app deep link.
+		return true;
+	}
+
 	public static validateAuthorizationRequest(
 		params: OAuthAuthorizationRequest,
 		client: OAuthClient | undefined,
@@ -49,6 +75,9 @@ export class OAuthValidators {
 				new URL(uri);
 			} catch {
 				return `Invalid redirect_uri: ${uri}`;
+			}
+			if (!OAuthValidators.isAllowedRedirectUri(uri)) {
+				return `Disallowed redirect_uri (must be loopback or an app scheme): ${uri}`;
 			}
 		}
 		return null;

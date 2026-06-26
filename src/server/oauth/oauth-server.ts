@@ -32,6 +32,12 @@ export class OAuthServer {
 		if (this._storage.hasClient(client_id)) {
 			return false;
 		}
+		// Never auto-register a client bound to a redirect target we would not allow,
+		// otherwise validateAuthorizationRequest would "pass" against an attacker URI (CWE-601).
+		if (!OAuthValidators.isAllowedRedirectUri(redirect_uri)) {
+			log.warn('oauth.client.auto_register_rejected', { client_id });
+			return false;
+		}
 		const client = OAuthClientManager.autoRegisterClient(client_id, redirect_uri);
 		this._storage.addClient(client);
 		return true;
@@ -73,38 +79,29 @@ export class OAuthServer {
 
 	public storeState(state: string, client_id: string): void {
 		this._storage.storeState(state, client_id);
-		log.info('oauth.state.stored', { state, client_id });
+		log.info('oauth.state.stored', { client_id });
 	}
 
 	public validateState(state: string, client_id: string): boolean {
-		log.info('oauth.state.validate_attempt', {
-			state,
-			client_id,
-			storedStates: this._storage.getAllStates(),
-		});
 		const stateData = this._storage.getState(state);
 		if (!stateData) {
-			log.warn('oauth.state.not_found', {
-				state,
-				storedStates: this._storage.getAllStates(),
-			});
+			log.warn('oauth.state.not_found', { client_id });
 			return false;
 		}
 		if (stateData.expires_at < Date.now()) {
 			this._storage.deleteState(state);
-			log.warn('oauth.state.expired', { state });
+			log.warn('oauth.state.expired', { client_id });
 			return false;
 		}
 		if (stateData.client_id !== client_id) {
 			log.warn('oauth.state.client_mismatch', {
-				state,
 				expected: stateData.client_id,
 				actual: client_id,
 			});
 			return false;
 		}
 		this._storage.deleteState(state);
-		log.info('oauth.state.validated_successfully', { state, client_id });
+		log.info('oauth.state.validated_successfully', { client_id });
 		return true;
 	}
 
@@ -133,11 +130,9 @@ export class OAuthServer {
 	): Promise<OAuthAccessToken | OAuthError> {
 		log.info('oauth.token.exchange_start', {
 			grant_type: params.grant_type,
-			code: params.code ? '***' + params.code.slice(-4) : 'missing',
 			client_id: params.client_id,
 			redirect_uri: params.redirect_uri,
 			has_code_verifier: !!params.code_verifier,
-			stored_codes: this._storage.getAllStoredCodes().map((k) => '***' + k.slice(-4)),
 		});
 		const validationError = OAuthValidators.validateTokenRequest(params);
 		if (validationError) {
@@ -145,10 +140,7 @@ export class OAuthServer {
 		}
 		const authCode = this._storage.getAuthorizationCode(params.code!);
 		if (!authCode) {
-			log.error('oauth.token.code_not_found', {
-				code: '***' + params.code!.slice(-4),
-				stored_codes: this._storage.getAllStoredCodes().map((k) => '***' + k.slice(-4)),
-			});
+			log.error('oauth.token.code_not_found', { client_id: params.client_id });
 			return { error: 'invalid_grant', error_description: 'Invalid authorization code' };
 		}
 		const codeValidationError = this._tokenManager.validateAuthCodeData(authCode, params);

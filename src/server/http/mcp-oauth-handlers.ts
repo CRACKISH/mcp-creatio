@@ -50,6 +50,22 @@ export class MCPOAuthHandlers {
 				code_challenge_method: req.query.code_challenge_method as string,
 				scope: req.query.scope as string,
 			};
+			// Never redirect to an unvalidated target. If the redirect_uri is missing or
+			// not allow-listed, fail closed with a direct error response (CWE-601).
+			if (!params.redirect_uri || !OAuthValidators.isAllowedRedirectUri(params.redirect_uri)) {
+				res.status(400).json({
+					error: 'invalid_request',
+					error_description: 'Missing or disallowed redirect_uri',
+				});
+				return;
+			}
+			// state is mandatory: it is the CSRF / session-binding control for the flow (CWE-352).
+			if (!params.state) {
+				const errorUrl = new URL(params.redirect_uri);
+				errorUrl.searchParams.set('error', 'invalid_request');
+				errorUrl.searchParams.set('error_description', 'state parameter is required');
+				return res.redirect(errorUrl.toString());
+			}
 			const validationError = this._oauthServer.validateAuthorizationRequest(params);
 			if (validationError) {
 				const errorUrl = new URL(params.redirect_uri);
@@ -60,14 +76,10 @@ export class MCPOAuthHandlers {
 						validationError.error_description,
 					);
 				}
-				if (params.state) {
-					errorUrl.searchParams.set('state', params.state);
-				}
+				errorUrl.searchParams.set('state', params.state);
 				return res.redirect(errorUrl.toString());
 			}
-			if (params.state) {
-				this._oauthServer.storeState(params.state, params.client_id);
-			}
+			this._oauthServer.storeState(params.state, params.client_id);
 			const authKey = randomUUID();
 			const creatioAuthUrl = `/oauth/start?authKey=${authKey}&client_id=${params.client_id}&redirect_uri=${encodeURIComponent(params.redirect_uri)}&code_challenge=${params.code_challenge}&code_challenge_method=${params.code_challenge_method}&state=${params.state || ''}`;
 			res.redirect(creatioAuthUrl);

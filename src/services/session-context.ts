@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import log from '../log';
@@ -19,8 +21,14 @@ export interface UserTokens {
 
 export interface OAuthState {
 	userKey: string;
+	sessionId?: string | undefined;
 	createdAt: number;
 	expiresAt: number;
+}
+
+export interface OAuthStateResult {
+	userKey: string;
+	sessionId?: string | undefined;
 }
 
 export class SessionContext {
@@ -38,10 +46,8 @@ export class SessionContext {
 	}
 
 	private _generateState(): string {
-		return (
-			Math.random().toString(36).substring(2, 15) +
-			Math.random().toString(36).substring(2, 15)
-		);
+		// Cryptographically secure, unguessable CSRF/state token (CWE-330).
+		return crypto.randomBytes(32).toString('base64url');
 	}
 
 	public createSession(sessionId: string, userKey?: string, remoteIp?: string): SessionInfo {
@@ -137,10 +143,11 @@ export class SessionContext {
 		this._userTokens.delete(userKey);
 	}
 
-	public createOAuthState(userKey: string): string {
+	public createOAuthState(userKey: string, sessionId?: string): string {
 		const state = this._generateState();
 		const stateInfo: OAuthState = {
 			userKey,
+			sessionId,
 			createdAt: Date.now(),
 			expiresAt: Date.now() + 10 * 60 * 1000,
 		};
@@ -148,9 +155,7 @@ export class SessionContext {
 		return state;
 	}
 
-	public validateOAuthState(state: string): {
-		userKey: string;
-	} | null {
+	public validateOAuthState(state: string): OAuthStateResult | null {
 		const stateInfo = this._oauthStates.get(state);
 		if (!stateInfo) {
 			return null;
@@ -160,20 +165,11 @@ export class SessionContext {
 			return null;
 		}
 		this._oauthStates.delete(state);
-		return { userKey: stateInfo.userKey };
+		return { userKey: stateInfo.userKey, sessionId: stateInfo.sessionId };
 	}
 
-	public validateAndConsumeOAuthState(state: string): string | undefined {
-		const result = this.validateOAuthState(state);
-		return result?.userKey;
-	}
-
-	public setSessionUserKey(sessionId: string, userKey: string): void {
-		const session = this._sessions.get(sessionId);
-		if (session) {
-			session.userKey = userKey;
-			log.info('session_mapping.set', { sessionId, userKey });
-		}
+	public validateAndConsumeOAuthState(state: string): OAuthStateResult | undefined {
+		return this.validateOAuthState(state) ?? undefined;
 	}
 
 	public cleanupExpiredOAuthStates(): void {
@@ -205,21 +201,6 @@ export class SessionContext {
 	): Promise<SessionInfo> {
 		const session = this.createSession(sessionId, userKey, remoteIp);
 		return session;
-	}
-
-	public mapAllSessionsToUser(userKey: string): void {
-		const sessionIds: string[] = [];
-		for (const [sessionId, session] of this._sessions.entries()) {
-			if (session.transport) {
-				session.userKey = userKey;
-				sessionIds.push(sessionId);
-			}
-		}
-		log.info('mapping_all_sessions', {
-			userKey,
-			sessionCount: sessionIds.length,
-			sessionIds,
-		});
 	}
 
 	public getStats(): { sessionsCount: number; tokensCount: number; oauthStatesCount: number } {

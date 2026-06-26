@@ -49,7 +49,6 @@ export class CreatioHttpClient {
 			url,
 			status: response.status,
 			triedRefresh: hasTriedRefresh,
-			responseHeaders: Object.fromEntries(response.headers.entries()),
 		});
 	}
 

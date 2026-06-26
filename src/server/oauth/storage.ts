@@ -78,14 +78,6 @@ export class OAuthStorage {
 		this._authorizationStates.delete(state);
 	}
 
-	public getAllStates(): string[] {
-		return Array.from(this._authorizationStates.keys());
-	}
-
-	public getAllStoredCodes(): string[] {
-		return Array.from(this._authorizationCodes.keys());
-	}
-
 	public cleanup(): void {
 		const now = Date.now();
 		for (const [code, data] of this._authorizationCodes.entries()) {

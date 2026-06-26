@@ -86,7 +86,11 @@ export class McpHandlers {
 			res.status(400).send('Session has no transport');
 			return;
 		}
-		const userKey = getUserKeyFromRequest(req as any);
+		// Prefer the validated Bearer identity and the session's own mapping over any
+		// caller-supplied ?userKey=/x-user-key, which must not override an authenticated
+		// identity (CWE-639).
+		const userKey =
+			(req as any).userKey || session?.userKey || getUserKeyFromRequest(req as any);
 		await runWithContext({ userKey, sessionId }, async () => transport.handleRequest(req, res));
 	}
 }

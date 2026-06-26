@@ -193,10 +193,7 @@ export class OAuth2CodeProvider extends BaseOAuth2Provider<OAuth2CodeAuthConfig>
 		u.searchParams.set('state', state);
 		const scopeParam = encodeURIComponent(this._scope);
 		u.search += '&scope=' + scopeParam;
-		log.info('oauth2_code.authorize_url', {
-			idBase,
-			url: u.toString(),
-		});
+		log.info('oauth2_code.authorize_url', { idBase });
 		return u.toString();
 	}
 

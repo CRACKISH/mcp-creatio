@@ -74,7 +74,7 @@ export class HttpServer {
 		this._app.get('/oauth/callback', (req, res) =>
 			this._creatioOauthHandlers.handleOAuthCallback(req, res),
 		);
-		this._app.post('/oauth/revoke', (req, res) =>
+		this._app.post('/oauth/revoke', this._middleware.bearerAuth(), (req, res) =>
 			this._creatioOauthHandlers.handleOAuthRevoke(req, res),
 		);
 	}
