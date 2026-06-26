@@ -14,7 +14,7 @@ interface RuntimeState {
 	server?: Server;
 }
 
-function printHelp(): void {
+export function printHelp(): void {
 	const text = `
 MCP Creatio CLI
 
@@ -40,7 +40,7 @@ Examples:
 	process.stdout.write(text + '\n');
 }
 
-function parseArgs(argv: string[]): CliOptions {
+export function parseArgs(argv: string[]): CliOptions {
 	const opts: CliOptions = {};
 	for (let i = 0; i < argv.length; i++) {
 		const token = argv[i];
@@ -78,13 +78,13 @@ function parseArgs(argv: string[]): CliOptions {
 	return opts;
 }
 
-function setEnvIfDefined(name: string, value?: string): void {
+export function setEnvIfDefined(name: string, value?: string): void {
 	if (typeof value === 'string' && value.length > 0) {
 		process.env[name] = value;
 	}
 }
 
-function applyCliEnv(opts: CliOptions): void {
+export function applyCliEnv(opts: CliOptions): void {
 	setEnvIfDefined('CREATIO_BASE_URL', opts['base-url'] || opts.url);
 	setEnvIfDefined('CREATIO_LOGIN', opts.login);
 	setEnvIfDefined('CREATIO_PASSWORD', opts.password);
@@ -156,7 +156,10 @@ async function main(): Promise<void> {
 	await startStdio(server);
 }
 
-main().catch((err) => {
-	log.error('startup.error', { error: String(err) });
-	process.exit(1);
-});
+// Only auto-run when invoked as the entry point (not when imported by tests).
+if (require.main === module) {
+	main().catch((err) => {
+		log.error('startup.error', { error: String(err) });
+		process.exit(1);
+	});
+}
