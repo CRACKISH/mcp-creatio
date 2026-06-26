@@ -5,6 +5,9 @@
   "bin": {
     "mcp-creatio": "dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
