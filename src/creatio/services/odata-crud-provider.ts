@@ -118,7 +118,16 @@ export class ODataCrudProvider implements CrudProvider {
 		);
 	}
 
-	public async read({ entity, filter, select, top, expand, orderBy, skip, count }: CrudReadParams) {
+	public async read({
+		entity,
+		filter,
+		select,
+		top,
+		expand,
+		orderBy,
+		skip,
+		count,
+	}: CrudReadParams) {
 		const startTime = Date.now();
 		const queryParams = this._buildODataQueryParams(
 			filter,

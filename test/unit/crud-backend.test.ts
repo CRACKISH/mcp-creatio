@@ -41,7 +41,9 @@ describe('DataServiceCrudProvider skeleton', () => {
 			() => provider.update({ entity: 'Contact', id: '1', data: {} }),
 			() => provider.delete({ entity: 'Contact', id: '1' }),
 		]) {
-			await expect(Promise.resolve().then(call)).rejects.toThrow(/dataservice_not_implemented/);
+			await expect(Promise.resolve().then(call)).rejects.toThrow(
+				/dataservice_not_implemented/,
+			);
 		}
 	});
 });
@@ -67,7 +69,12 @@ describe('DataServiceQueryBuilder (groundwork)', () => {
 	});
 
 	it('translates top/skip to rowCount/rowsOffset + pageable', () => {
-		const q = builder.buildSelectQuery({ entity: 'Contact', select: ['Name'], top: 25, skip: 50 });
+		const q = builder.buildSelectQuery({
+			entity: 'Contact',
+			select: ['Name'],
+			top: 25,
+			skip: 50,
+		});
 		expect(q.rowCount).toBe(25);
 		expect(q.isPageable).toBe(true);
 		expect(q.rowsOffset).toBe(50);

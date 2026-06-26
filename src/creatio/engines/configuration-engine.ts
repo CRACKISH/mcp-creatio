@@ -20,9 +20,7 @@ export class ConfigurationEngine extends BaseEngine {
 		return this._provider.kind;
 	}
 
-	public call(
-		request: CallConfigurationServiceRequest,
-	): Promise<CallConfigurationServiceResult> {
+	public call(request: CallConfigurationServiceRequest): Promise<CallConfigurationServiceResult> {
 		// The generic configuration caller can reach mutating endpoints, so it is treated
 		// as a mutation for both the readonly guard and the audit trail (it is also in the
 		// readonly-excluded tool list at the MCP layer).

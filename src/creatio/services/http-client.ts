@@ -161,7 +161,13 @@ export class CreatioHttpClient {
 			buildRequest,
 			onSuccess,
 			(response, duration) =>
-				this.handleErrorResponse(operation, response, duration, opts.errorPrefix, logContext),
+				this.handleErrorResponse(
+					operation,
+					response,
+					duration,
+					opts.errorPrefix,
+					logContext,
+				),
 			logContext,
 		);
 	}

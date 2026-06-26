@@ -46,11 +46,11 @@ export class AdminOperationEngine extends BaseEngine {
 		);
 	}
 
-	public deleteAdminOperationGrantee(
-		recordIds: string[],
-	): Promise<AdminOperationServiceResult> {
-		return this._mutate('admin-operation.delete-grantee', { count: recordIds?.length ?? 0 }, () =>
-			this._provider.deleteAdminOperationGrantee(recordIds),
+	public deleteAdminOperationGrantee(recordIds: string[]): Promise<AdminOperationServiceResult> {
+		return this._mutate(
+			'admin-operation.delete-grantee',
+			{ count: recordIds?.length ?? 0 },
+			() => this._provider.deleteAdminOperationGrantee(recordIds),
 		);
 	}
 }
