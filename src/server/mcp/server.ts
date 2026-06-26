@@ -9,8 +9,11 @@ import log from '../../log';
 import { withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
 
+import { DataForgeClient } from './dataforge/dataforge-client';
+import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
 import { buildFilterFromStructured } from './filters';
 import { ALL_PROMPTS } from './prompts-data';
+import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
 import {
 	callConfigurationServiceDescriptor,
 	callConfigurationServiceInput,
@@ -50,8 +53,6 @@ import {
 	upsertAdminOperationInput,
 } from './tools-data';
 
-type ToolHandler = (payload: any) => Promise<any>;
-
 export interface ServerConfig {
 	readonlyMode?: boolean;
 }
@@ -64,6 +65,13 @@ export class Server {
 	private _readonly = false;
 	private _serverName = NAME;
 	private _serverVersion = VERSION;
+	// DataForge access layer + optional-capability preparers. `_capabilities`
+	// records each preparer's startup verdict so core tools (describe-entity)
+	// can route through a capability only when it is actually enabled.
+	private readonly _dataForge: DataForgeClient;
+	private readonly _dataForgePreparer: DataForgeToolPreparer;
+	private readonly _preparers: ToolPreparer[];
+	private readonly _capabilities = new Map<string, boolean>();
 
 	public get authProvider(): ICreatioAuthProvider {
 		return this._engines.authProvider;
@@ -72,6 +80,9 @@ export class Server {
 	constructor(engines: CreatioEngineManager, config: ServerConfig) {
 		this._engines = engines;
 		this._readonly = config.readonlyMode ?? false;
+		this._dataForge = new DataForgeClient(engines.configuration, engines.sysSettings);
+		this._dataForgePreparer = new DataForgeToolPreparer(this._dataForge);
+		this._preparers = [this._dataForgePreparer];
 		this._registerClientTools();
 	}
 
@@ -150,6 +161,50 @@ export class Server {
 		}
 	}
 
+	private _textResult(payload: unknown) {
+		return {
+			content: [
+				{
+					type: 'text' as const,
+					text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2),
+				},
+			],
+		};
+	}
+
+	/** Adapter exposing handler registration to {@link ToolPreparer}s. */
+	private _toolRegistrar(): ToolRegistrar {
+		return {
+			register: (name, descriptor, handler) =>
+				this._registerHandlerWithDescriptor(name, descriptor, handler),
+		};
+	}
+
+	/**
+	 * Run every optional-capability preparer once: probe the environment and let
+	 * each register its tools only when available. A failing preparer is isolated
+	 * and recorded as disabled. Invoked from {@link startMcp} after the core tools
+	 * are in place.
+	 */
+	private async _prepareTools(): Promise<void> {
+		const registrar = this._toolRegistrar();
+		for (const preparer of this._preparers) {
+			let enabled = false;
+			try {
+				enabled = await preparer.prepare(registrar);
+			} catch (err) {
+				log.warn('mcp.prepare.failed', { preparer: preparer.name, error: String(err) });
+			}
+			this._capabilities.set(preparer.name, enabled);
+			log.info('mcp.prepare', { preparer: preparer.name, enabled });
+		}
+	}
+
+	/** Whether DataForge was probed as enabled at startup. */
+	private _isDataForgeReady(): boolean {
+		return this._capabilities.get(this._dataForgePreparer.name) === true;
+	}
+
 	private _registerClientTools() {
 		const crud = this._engines.crud;
 		const user = this._engines.user;
@@ -178,15 +233,17 @@ export class Server {
 			'describe-entity',
 			describeEntityDescriptor,
 			withValidation(describeEntityInput, async ({ entitySet }) => {
+				// When DataForge is enabled, prefer its richer column details and
+				// fall back to exact OData $metadata on a per-call miss; when it is
+				// not enabled, go straight to OData without any remote attempt.
+				if (this._isDataForgeReady()) {
+					const dataForge = await this._dataForge.getColumnsOrNull(entitySet);
+					if (dataForge !== null) {
+						return this._textResult({ source: 'dataforge', entitySet, dataForge });
+					}
+				}
 				const schema = await crud.describeEntity(entitySet);
-				return {
-					content: [
-						{
-							type: 'text',
-							text: JSON.stringify(schema),
-						},
-					],
-				};
+				return this._textResult({ source: 'odata', entitySet, metadata: schema });
 			}),
 		);
 		this._registerHandlerWithDescriptor(
@@ -334,19 +391,20 @@ export class Server {
 			this._registerHandlerWithDescriptor(
 				'upsert-admin-operation',
 				upsertAdminOperationDescriptor,
-				withValidation(upsertAdminOperationInput, async ({ id, name, code, description }) => {
-					const result = await adminOperation.upsertAdminOperation({
-						...(id !== undefined ? { id } : {}),
-						name,
-						code,
-						...(description !== undefined ? { description } : {}),
-					});
-					return {
-						content: [
-							{ type: 'text', text: JSON.stringify(result, null, 2) },
-						],
-					};
-				}),
+				withValidation(
+					upsertAdminOperationInput,
+					async ({ id, name, code, description }) => {
+						const result = await adminOperation.upsertAdminOperation({
+							...(id !== undefined ? { id } : {}),
+							name,
+							code,
+							...(description !== undefined ? { description } : {}),
+						});
+						return {
+							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+						};
+					},
+				),
 			);
 			this._registerHandlerWithDescriptor(
 				'delete-admin-operation',
@@ -354,9 +412,7 @@ export class Server {
 				withValidation(deleteAdminOperationInput, async ({ ids }) => {
 					const result = await adminOperation.deleteAdminOperation(ids);
 					return {
-						content: [
-							{ type: 'text', text: JSON.stringify(result, null, 2) },
-						],
+						content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
 					};
 				}),
 			);
@@ -372,9 +428,7 @@ export class Server {
 							canExecute,
 						});
 						return {
-							content: [
-								{ type: 'text', text: JSON.stringify(result, null, 2) },
-							],
+							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
 						};
 					},
 				),
@@ -385,9 +439,7 @@ export class Server {
 				withValidation(deleteAdminOperationGranteeInput, async ({ ids }) => {
 					const result = await adminOperation.deleteAdminOperationGrantee(ids);
 					return {
-						content: [
-							{ type: 'text', text: JSON.stringify(result, null, 2) },
-						],
+						content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
 					};
 				}),
 			);
@@ -405,9 +457,7 @@ export class Server {
 							...(query !== undefined ? { query } : {}),
 						});
 						return {
-							content: [
-								{ type: 'text', text: JSON.stringify(result, null, 2) },
-							],
+							content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
 						};
 					},
 				),
@@ -421,6 +471,7 @@ export class Server {
 		}
 		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
 		this._registerData();
+		await this._prepareTools();
 		log.serverStart(this._serverName, this._serverVersion, {
 			tools: Array.from(this._handlers.keys()),
 			prompts: ALL_PROMPTS.length,

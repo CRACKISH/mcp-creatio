@@ -51,9 +51,9 @@ function makeToolDescriptor(opts: {
 	};
 }
 
-const CREATIO_GUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-const creatioGuid = () =>
-	z.string().regex(CREATIO_GUID_REGEX, 'Must be a 36-character hex GUID');
+const CREATIO_GUID_REGEX =
+	/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const creatioGuid = () => z.string().regex(CREATIO_GUID_REGEX, 'Must be a 36-character hex GUID');
 
 const getCurrentUserInfoInputShape = {};
 export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
@@ -406,7 +406,8 @@ export const describeEntityInput = z.object(describeEntityInputShape);
 export const describeEntityDescriptor = makeToolDescriptor({
 	title: 'Get entity description from Creatio',
 	description:
-		'Inspect schema for the given entity set: entity type, primary key(s), and properties with types/nullable. Use this before CRUD to avoid invalid fields.',
+		'Inspect schema for the given entity set: entity type, primary key(s), and properties with types/nullable. Use this before CRUD to avoid invalid fields. ' +
+		'When DataForge is enabled on the environment, this tool transparently returns the richer DataForge column details (`source:"dataforge"`); otherwise it falls back to exact OData $metadata (`source:"odata"`). Behaviour and inputs are identical either way.',
 	inputShape: describeEntityInputShape,
 });
 
@@ -719,9 +720,7 @@ const callConfigurationServiceInputShape = {
 	method: z
 		.string()
 		.regex(SERVICE_NAME_PATTERN, 'Method name must match ^[A-Za-z][A-Za-z0-9_-]*$')
-		.describe(
-			'Service method name (UriTemplate) to invoke (e.g., "UpsertAdminOperation").',
-		),
+		.describe('Service method name (UriTemplate) to invoke (e.g., "UpsertAdminOperation").'),
 	httpMethod: z
 		.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
 		.default('POST')
@@ -745,4 +744,160 @@ export const callConfigurationServiceDescriptor = makeToolDescriptor({
 	description:
 		'Escape hatch for invoking any configuration-package REST service exposed at /0/rest/<service>/<method>. Use this when no dedicated MCP tool covers the operation. Always prefer the specific tools (`upsert-admin-operation`, `refresh-feature-cache`, sys-settings tools, etc.) when they exist — they validate inputs, handle wrapped responses, and document side effects. Returns `{status, contentType, body}`; JSON responses are auto-parsed.',
 	inputShape: callConfigurationServiceInputShape,
+});
+
+// ---------------------------------------------------------------------------
+// DataForge — AI-oriented semantic discovery over the Creatio data model.
+//
+// These tools call the Creatio-hosted DataForge read API
+// (POST /0/rest/DataForgeSchemaReadService/<method>) which forwards to the
+// remote DataForge microservice. They COMPLEMENT, and do not replace,
+// `list-entities`/`describe-entity`:
+//   • describe-entity = authoritative, exact OData $metadata (always available,
+//     needs the exact entity name) → use it to confirm fields before CRUD.
+//   • DataForge       = fuzzy / semantic discovery (natural-language → table),
+//     relationship pathing, and lookup-value search (needs DataForge configured
+//     and synced) → use it to FIND the right table/columns/values first.
+// Typical chain: dataforge-similar-tables → describe-entity → read/create.
+//
+// Requires the MCP user to have the `CanReadDataStructureColumnDetails`
+// operation, and DataForge to be enabled on the environment
+// (DataForgeServiceUrl + IdentityServer settings). Use `dataforge-status` to
+// verify it is online and the data/lookups are synced.
+// ---------------------------------------------------------------------------
+
+const DATAFORGE_PREREQ_NOTE =
+	'\n\nPrerequisites: DataForge must be enabled on this environment (DataForgeServiceUrl + IdentityServer settings) and the MCP user needs the `CanReadDataStructureColumnDetails` operation. ' +
+	'Run `dataforge-status` first if you are unsure whether DataForge is online. Returns `{status, contentType, body}`; on a disabled/misconfigured service `body.Success` is false with an `ErrorInfo`.';
+
+const dataforgeSimilarTablesInputShape = {
+	query: z
+		.string()
+		.min(1)
+		.describe(
+			'Natural-language description of the data you are looking for (e.g. "customer support tickets", "продажі по угодах"). DataForge returns the table names that best match the meaning, not an exact text match.',
+		),
+	limit: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(200)
+		.optional()
+		.describe('Optional max number of candidate tables to return (server default ~50).'),
+} as const;
+export const dataforgeSimilarTablesInput = z.object(dataforgeSimilarTablesInputShape);
+
+export const dataforgeSimilarTablesDescriptor = makeToolDescriptor({
+	title: 'DataForge: find tables by meaning',
+	description:
+		'Semantic search for Creatio tables/entities from a natural-language query. ' +
+		'Use this FIRST when you do not know which entity holds the data the user is talking about — it maps a concept to candidate table names. ' +
+		'Then call `describe-entity` on the chosen table to get the authoritative field list before reading/creating.' +
+		DATAFORGE_PREREQ_NOTE,
+	inputShape: dataforgeSimilarTablesInputShape,
+});
+
+const dataforgeTableDetailsInputShape = {
+	query: z
+		.string()
+		.min(1)
+		.describe('Natural-language query describing the table(s) you want detailed info about.'),
+	limit: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(200)
+		.optional()
+		.describe('Optional max number of tables to return with details.'),
+} as const;
+export const dataforgeTableDetailsInput = z.object(dataforgeTableDetailsInputShape);
+
+export const dataforgeTableDetailsDescriptor = makeToolDescriptor({
+	title: 'DataForge: matching tables with details',
+	description:
+		'Like `dataforge-similar-tables`, but returns richer per-table details (description/columns as known to DataForge) for the best semantic matches. ' +
+		'For the canonical, exact field schema still confirm with `describe-entity` before CRUD.' +
+		DATAFORGE_PREREQ_NOTE,
+	inputShape: dataforgeTableDetailsInputShape,
+});
+
+const dataforgeTableRelationshipsInputShape = {
+	sourceTable: z
+		.string()
+		.min(1)
+		.describe(
+			'Source table/entity name (e.g. "Contact"). Resolve it via dataforge-similar-tables if unsure.',
+		),
+	targetTable: z.string().min(1).describe('Target table/entity name (e.g. "Account").'),
+	limit: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(50)
+		.optional()
+		.describe('Optional max number of relationship paths to return (server default ~5).'),
+	bidirectional: z
+		.boolean()
+		.optional()
+		.describe('Search relationships in both directions. Defaults to true server-side.'),
+	skipDetails: z
+		.boolean()
+		.optional()
+		.describe('Return only the path without extra column-level detail.'),
+} as const;
+export const dataforgeTableRelationshipsInput = z.object(dataforgeTableRelationshipsInputShape);
+
+export const dataforgeTableRelationshipsDescriptor = makeToolDescriptor({
+	title: 'DataForge: how two tables are related',
+	description:
+		'Find the relationship path(s) between two Creatio tables (which columns/joins connect them). ' +
+		'Use this to figure out how to `$expand` or join entities in a `read`, or to understand the data model around an entity.' +
+		DATAFORGE_PREREQ_NOTE,
+	inputShape: dataforgeTableRelationshipsInputShape,
+});
+
+const dataforgeLookupValuesInputShape = {
+	query: z
+		.string()
+		.min(1)
+		.describe(
+			'Natural-language / partial text to match lookup values against (e.g. "in progress", "VIP").',
+		),
+	schemaName: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			'Optional lookup schema/entity name to restrict the search to a single lookup (e.g. "CaseStatus").',
+		),
+	limit: z.coerce
+		.number()
+		.int()
+		.positive()
+		.max(100)
+		.optional()
+		.describe('Optional max number of lookup values to return (server default ~5).'),
+} as const;
+export const dataforgeLookupValuesInput = z.object(dataforgeLookupValuesInputShape);
+
+export const dataforgeLookupValuesDescriptor = makeToolDescriptor({
+	title: 'DataForge: find lookup values by meaning',
+	description:
+		'Fuzzy/semantic search for lookup values across (or within) Creatio lookups — returns matching values and their identifiers. ' +
+		'Useful to resolve a human phrase ("high priority", "закрита угода") to the correct lookup record Id to use in a filter or create/update payload.' +
+		DATAFORGE_PREREQ_NOTE,
+	inputShape: dataforgeLookupValuesInputShape,
+});
+
+export const dataforgeStatusInput = z.object({});
+
+export const dataforgeStatusDescriptor = makeToolDescriptor({
+	title: 'DataForge: service status / is it enabled',
+	description:
+		'Check whether DataForge is enabled and healthy on this environment. ' +
+		'Calls DataForgeMaintenanceService.GetServiceStatus and returns `{ IsOnline, Liveness, Readiness, DataStructureReadiness, LookupsReadinessInfo }`. ' +
+		'Interpretation: IsOnline=false → DataForge is unreachable or DataForgeServiceUrl is not configured (the other dataforge-* tools will fail). ' +
+		'Readiness.HttpStatusCode=200 with non-empty DataStructureReadiness/LookupsReadinessInfo → the data model and lookups have been synced and search will return results. ' +
+		'If you only need a quick on/off signal, you can also query the `DataForgeServiceUrl` system setting (empty = disabled).',
+	inputShape: {},
 });

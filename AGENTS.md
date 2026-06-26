@@ -19,6 +19,8 @@ src/
   creatio/            ← Low-level Creatio API client & auth providers
   server/             ← MCP server + HTTP layer (OAuth server, handlers)
     mcp/              ← MCP tool descriptors, prompts, filters builder
+      tool-preparer.ts  ← ToolPreparer/ToolRegistrar contracts (env-gated tools)
+      dataforge/        ← DataForge capability: client + tool preparer
     oauth/            ← Local OAuth 2.1 authorization server for clients
   services/           ← Session/token refresh orchestration
   utils/              ← Reusable helpers (env, network, pkce, context)
@@ -56,14 +58,15 @@ Usage pattern:
 
 ## 3. Core Modules You Will Touch
 
-| Area                         | File(s)                          | Notes                                                                                                        |
-| ---------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Tool registration            | `src/server/mcp/server.ts`       | Add/remove tool handlers; keep descriptors in separate file.                                                 |
-| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`   | Use `zod` schemas; detailed descriptions help AI reasoning.                                                  |
-| Filters logic                | `src/server/mcp/filters.ts`      | Converts structured JSON filters into OData `$filter` strings.                                               |
-| Prompts                      | `src/server/mcp/prompts-data.ts` | Pre-baked instructional prompts consumed by clients.                                                         |
-| Creatio API                  | `src/creatio/services/*`         | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them. |
-| OAuth for clients            | `src/server/oauth/*`             | Maintains tokens for MCP clients; ephemeral memory by default.                                               |
+| Area                         | File(s)                                                         | Notes                                                                                                                                  |
+| ---------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool registration            | `src/server/mcp/server.ts`                                      | Add/remove tool handlers; keep descriptors in separate file. Composition root that also runs tool preparers.                           |
+| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`                                  | Use `zod` schemas; detailed descriptions help AI reasoning.                                                                            |
+| Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*` | `ToolPreparer` strategy: probe once at startup, register tools only when the capability is available. DataForge is the reference impl. |
+| Filters logic                | `src/server/mcp/filters.ts`                                     | Converts structured JSON filters into OData `$filter` strings.                                                                         |
+| Prompts                      | `src/server/mcp/prompts-data.ts`                                | Pre-baked instructional prompts consumed by clients.                                                                                   |
+| Creatio API                  | `src/creatio/services/*`                                        | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them.                           |
+| OAuth for clients            | `src/server/oauth/*`                                            | Maintains tokens for MCP clients; ephemeral memory by default.                                                                         |
 
 ## 4. Invariants & Rules (Do NOT Break)
 
@@ -86,7 +89,34 @@ Usage pattern:
 6. Ensure responses are formatted as `{ content: [{ type: 'text', text: JSON.stringify(result) }] }` when not already MCP native.
 7. Add edge-case validation (empty arrays, invalid GUID, missing required filter fields).
 8. **Write tests** (see §10): a `server.test.ts` case asserting the handler delegates + readonly gating, plus provider-level tests via `makeHttpClientHarness` for any new `src/creatio/services` code. Run `npm run test:coverage` and stay ≥90%.
-9. Update documentation (README if public feature; otherwise just Agent.md).
+9. Update documentation (README if public feature; otherwise just AGENTS.md).
+
+### 5.1 Environment-gated tools (Tool Preparers)
+
+Some capabilities only exist on certain Creatio environments (e.g. **DataForge** — the AI semantic layer over the data model — is present only when `DataForgeServiceUrl` is configured). Such tools must NOT be registered unconditionally. Use the `ToolPreparer` pattern instead of inlining probes into `server.ts`.
+
+Contracts live in `src/server/mcp/tool-preparer.ts`:
+
+- `ToolPreparer` — `{ name; prepare(registrar): Promise<boolean> }`. Probes the environment and, only when available, registers its tools. Returns whether the capability is enabled.
+- `ToolRegistrar` — thin sink (`register(name, descriptor, handler)`) that decouples preparers from `Server` internals.
+
+How it wires up:
+
+1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers`.
+2. `startMcp()` calls `_prepareTools()` **after** core tools are registered. Each preparer is probed once; failures are isolated and recorded as disabled in `_capabilities`.
+3. Core tools can branch on a capability via `_capabilities` (e.g. `describe-entity` routes through DataForge when ready, otherwise falls back to OData — see below).
+
+Reference implementation (`src/server/mcp/dataforge/`):
+
+- `DataForgeClient` — single responsibility: talk to the Creatio-hosted DataForge REST services (`DataForgeSchemaReadService`, `DataForgeMaintenanceService`). Wraps single-parameter DTOs under `request` (WCF `BodyStyle = Wrapped`), depends on narrow `ConfigurationCaller`/`SysSettingReader` interfaces (DIP), and exposes `isEnabled()` (probe via `DataForgeServiceUrl`) plus `getColumnsOrNull()` for graceful per-call fallback.
+- `DataForgeToolPreparer` — registers `dataforge-similar-tables`, `-table-details`, `-table-relationships`, `-lookup-values`, `-status` only when `isEnabled()` is true.
+
+Rules for new gated capabilities:
+
+- Add a client (talks to Creatio, no MCP knowledge) + a `ToolPreparer` (registers tools). Do not put endpoint logic in `server.ts`.
+- Probe must be cheap and degrade to "disabled" on any error (never throw out of `prepare`).
+- Read-only gated tools are registered regardless of `READONLY_MODE` (they do not mutate); keep mutating gated tools behind the readonly check.
+- `describe-entity` enrichment: when DataForge is enabled it returns `{ source: 'dataforge', entitySet, dataForge }`, otherwise `{ source: 'odata', entitySet, metadata }`. Preserve this `source` discriminator if you touch it.
 
 ## 6. Error Handling Pattern
 
@@ -146,14 +176,14 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 
 ### Which level to use (pick the closest to what you changed)
 
-| You changed… | Test it like this |
-| --- | --- |
-| A pure function (filters, validators, pkce, env, key formatting) | Plain unit test, no mocks. |
-| A **service provider** (`src/creatio/services/*`) | `makeHttpClientHarness(responder)` gives a real `CreatioHttpClient` + stubbed `fetch`. Assert the request URL/method/body (`bodyOf(calls[0])`) and the parsed result. Cover the non-2xx error path too. |
-| A **tool handler / registration** (`server.ts`) | `new Server(new CreatioEngineManager(makeFakeContext()), {...})`, then invoke `(server as any)._handlers.get('tool-name')(payload)` and assert the provider stub was called. Also assert readonly-mode gating. |
-| An **HTTP / OAuth / MCP endpoint** | `createTestServer()` → `supertest(app)`. Call `resetSessionContext()` in `beforeEach`. Assert status codes, redirects, and that secrets/identity are handled correctly. |
-| An **auth provider** | `vi.stubGlobal('fetch', vi.fn(...))` for the token endpoint, wrap calls in `runWithContext({ userKey })`, seed/read `SessionContext.instance`. |
-| **Time- or concurrency-sensitive** code (TTL, refresh, schedulers) | `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(...)`; for dedup, fire N concurrent calls with `Promise.all` and assert the underlying op ran once. |
+| You changed…                                                       | Test it like this                                                                                                                                                                                              |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A pure function (filters, validators, pkce, env, key formatting)   | Plain unit test, no mocks.                                                                                                                                                                                     |
+| A **service provider** (`src/creatio/services/*`)                  | `makeHttpClientHarness(responder)` gives a real `CreatioHttpClient` + stubbed `fetch`. Assert the request URL/method/body (`bodyOf(calls[0])`) and the parsed result. Cover the non-2xx error path too.        |
+| A **tool handler / registration** (`server.ts`)                    | `new Server(new CreatioEngineManager(makeFakeContext()), {...})`, then invoke `(server as any)._handlers.get('tool-name')(payload)` and assert the provider stub was called. Also assert readonly-mode gating. |
+| An **HTTP / OAuth / MCP endpoint**                                 | `createTestServer()` → `supertest(app)`. Call `resetSessionContext()` in `beforeEach`. Assert status codes, redirects, and that secrets/identity are handled correctly.                                        |
+| An **auth provider**                                               | `vi.stubGlobal('fetch', vi.fn(...))` for the token endpoint, wrap calls in `runWithContext({ userKey })`, seed/read `SessionContext.instance`.                                                                 |
+| **Time- or concurrency-sensitive** code (TTL, refresh, schedulers) | `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(...)`; for dedup, fire N concurrent calls with `Promise.all` and assert the underlying op ran once.                                                        |
 
 ### Conventions
 
@@ -184,7 +214,7 @@ If adding new auth provider:
 
 1. Create provider under `src/creatio/auth/providers/` implementing shared interface.
 2. Add selection logic in `auth-manager.ts` maintaining precedence ordering.
-3. Document environment variables clearly in README + Agent.md.
+3. Document environment variables clearly in README + AGENTS.md.
 
 ## 14. Prompts Extension
 

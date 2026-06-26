@@ -14,6 +14,8 @@ export default defineConfig({
 				'src/**/index.ts',
 				'src/types/**',
 				'src/**/*-data.ts',
+				// Interface/type-only module (erased at compile time, nothing to run).
+				'src/server/mcp/tool-preparer.ts',
 				// Process entry points (orchestration/bootstrap). Their pure helpers are
 				// unit-tested; the wired binary is validated manually / at the CLI level.
 				'src/cli.ts',

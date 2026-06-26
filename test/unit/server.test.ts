@@ -56,11 +56,30 @@ describe('Server tool registration', () => {
 		}
 	});
 
+	it('does not register DataForge tools before preparation', () => {
+		const { handlers } = buildServer(false);
+		for (const name of [
+			'dataforge-similar-tables',
+			'dataforge-table-details',
+			'dataforge-table-relationships',
+			'dataforge-lookup-values',
+			'dataforge-status',
+		]) {
+			expect(handlers.has(name)).toBe(false);
+		}
+	});
+
 	it('omits write tools in readonly mode', () => {
 		const { handlers } = buildServer(true);
 		expect(handlers.has('read')).toBe(true);
 		expect(handlers.has('get-current-user-info')).toBe(true);
-		for (const name of ['create', 'update', 'delete', 'execute-process', 'upsert-admin-operation']) {
+		for (const name of [
+			'create',
+			'update',
+			'delete',
+			'execute-process',
+			'upsert-admin-operation',
+		]) {
 			expect(handlers.has(name)).toBe(false);
 		}
 	});
@@ -133,9 +152,16 @@ describe('Server tool handlers (write path)', () => {
 	it('create / update / delete delegate to the crud provider', async () => {
 		const { handlers, context } = buildServer();
 		await callTool(handlers, 'create', { entity: 'Contact', data: { Name: 'X' } });
-		expect(context.crud.create).toHaveBeenCalledWith({ entity: 'Contact', data: { Name: 'X' } });
+		expect(context.crud.create).toHaveBeenCalledWith({
+			entity: 'Contact',
+			data: { Name: 'X' },
+		});
 		await callTool(handlers, 'update', { entity: 'Contact', id: '1', data: { Name: 'Y' } });
-		expect(context.crud.update).toHaveBeenCalledWith({ entity: 'Contact', id: '1', data: { Name: 'Y' } });
+		expect(context.crud.update).toHaveBeenCalledWith({
+			entity: 'Contact',
+			id: '1',
+			data: { Name: 'Y' },
+		});
 		await callTool(handlers, 'delete', { entity: 'Contact', id: '1' });
 		expect(context.crud.delete).toHaveBeenCalledWith({ entity: 'Contact', id: '1' });
 	});
@@ -195,8 +221,137 @@ describe('Server tool handlers (write path)', () => {
 			httpMethod: 'POST',
 		});
 		expect(context.configuration.call).toHaveBeenCalledWith(
-			expect.objectContaining({ service: 'RightsService', method: 'GetCan', httpMethod: 'POST' }),
+			expect.objectContaining({
+				service: 'RightsService',
+				method: 'GetCan',
+				httpMethod: 'POST',
+			}),
 		);
+	});
+});
+
+const DATAFORGE_TOOLS = [
+	'dataforge-similar-tables',
+	'dataforge-table-details',
+	'dataforge-table-relationships',
+	'dataforge-lookup-values',
+	'dataforge-status',
+];
+
+type ServerContext = ReturnType<typeof buildServer>['context'];
+
+function enableDataForge(context: ServerContext) {
+	context.sysSettings.queryValues.mockResolvedValue({
+		success: true,
+		values: { DataForgeServiceUrl: 'https://data-forge.local/' },
+	});
+}
+
+async function prepare(server: ReturnType<typeof buildServer>['server']) {
+	await (server as unknown as { _prepareTools: () => Promise<void> })._prepareTools();
+}
+
+describe('DataForge tool preparation', () => {
+	it('registers DataForge tools only after a successful probe', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		for (const name of DATAFORGE_TOOLS) {
+			expect(handlers.has(name)).toBe(true);
+		}
+		expect(context.sysSettings.queryValues).toHaveBeenCalledWith(['DataForgeServiceUrl']);
+	});
+
+	it('keeps DataForge tools unregistered when the service URL is empty', async () => {
+		const { server, handlers } = buildServer();
+		await prepare(server); // default fake has no DataForgeServiceUrl
+		for (const name of DATAFORGE_TOOLS) {
+			expect(handlers.has(name)).toBe(false);
+		}
+	});
+
+	it('registers DataForge read tools even in readonly mode', async () => {
+		const { server, context, handlers } = buildServer(true);
+		enableDataForge(context);
+		await prepare(server);
+		expect(handlers.has('dataforge-similar-tables')).toBe(true);
+		expect(handlers.has('create')).toBe(false);
+	});
+
+	it('similar-tables tool wraps the query under request for the read service', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		await callTool(handlers, 'dataforge-similar-tables', { query: 'tickets', limit: 5 });
+		expect(context.configuration.call).toHaveBeenCalledWith(
+			expect.objectContaining({
+				service: 'DataForgeSchemaReadService',
+				method: 'GetSimilarTableNames',
+				httpMethod: 'POST',
+				body: { request: { query: 'tickets', limit: 5 } },
+			}),
+		);
+	});
+
+	it('every read tool maps to its DataForge service method', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		await callTool(handlers, 'dataforge-table-details', { query: 'orders' });
+		await callTool(handlers, 'dataforge-table-relationships', {
+			sourceTable: 'Contact',
+			targetTable: 'Account',
+		});
+		await callTool(handlers, 'dataforge-lookup-values', { query: 'vip' });
+		const methods = context.configuration.call.mock.calls.map((c: any[]) => c[0].method);
+		expect(methods).toEqual(
+			expect.arrayContaining(['GetTableDetails', 'GetTableRelationships', 'GetLookupValues']),
+		);
+	});
+
+	it('status tool calls the maintenance service', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		await callTool(handlers, 'dataforge-status', {});
+		expect(context.configuration.call).toHaveBeenCalledWith(
+			expect.objectContaining({
+				service: 'DataForgeMaintenanceService',
+				method: 'GetServiceStatus',
+			}),
+		);
+	});
+});
+
+describe('describe-entity DataForge routing', () => {
+	it('routes through DataForge when enabled', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
+		expect(JSON.parse(expectTextResult(res)).source).toBe('dataforge');
+		expect(context.crud.describeEntity).not.toHaveBeenCalled();
+	});
+
+	it('falls back to OData when DataForge reports failure', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context);
+		await prepare(server);
+		context.configuration.call.mockResolvedValue({
+			status: 200,
+			body: { Success: false, ErrorInfo: { ErrorCode: 'AccessDenied' } },
+		});
+		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
+		expect(JSON.parse(expectTextResult(res)).source).toBe('odata');
+		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
+	});
+
+	it('uses OData directly when DataForge is disabled', async () => {
+		const { handlers, context } = buildServer(); // no preparation → disabled
+		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
+		expect(JSON.parse(expectTextResult(res)).source).toBe('odata');
+		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
+		expect(context.configuration.call).not.toHaveBeenCalled();
 	});
 });
 

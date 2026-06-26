@@ -7,6 +7,7 @@
 Model Context Protocol (MCP) server for Creatio (https://www.creatio.com/) to connect Claude Desktop, ChatGPT, GitHub Copilot, and other AI tools to Creatio data.
 
 Also discoverable as:
+
 - Creatio MCP server
 - MCP server for Creatio CRM
 - Model Context Protocol for Creatio
@@ -60,19 +61,19 @@ VS Code MCP config (command-based):
 
 ```json
 {
-  "creatio": {
-    "command": "npx",
-    "args": [
-      "-y",
-      "mcp-creatio@latest",
-      "--base-url",
-      "https://your-creatio.com",
-      "--login",
-      "your_login",
-      "--password",
-      "your_password"
-    ]
-  }
+	"creatio": {
+		"command": "npx",
+		"args": [
+			"-y",
+			"mcp-creatio@latest",
+			"--base-url",
+			"https://your-creatio.com",
+			"--login",
+			"your_login",
+			"--password",
+			"your_password"
+		]
+	}
 }
 ```
 
@@ -100,10 +101,10 @@ Then connect using URL:
 
 ```json
 {
-  "creatio": {
-    "type": "http",
-    "url": "http://localhost:3000/mcp"
-  }
+	"creatio": {
+		"type": "http",
+		"url": "http://localhost:3000/mcp"
+	}
 }
 ```
 
@@ -188,25 +189,41 @@ docker run --rm -p 3000:3000 \
 
 ## Available Tools
 
-| Tool                             | Description                                                                                                                                  |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user                                                                             |
-| `list-entities`                  | List all available entity sets                                                                                                               |
-| `describe-entity`                | Get schema for an entity (fields, types, keys)                                                                                               |
-| `read`                           | Query records with optional filters, select, expand, ordering                                                                                |
-| `create`                         | Create a new record                                                                                                                          |
-| `update`                         | Update an existing record                                                                                                                    |
-| `delete`                         | Delete a record                                                                                                                              |
-| `execute-process`                | Run a Creatio business process                                                                                                               |
-| `query-sys-settings`             | Read current values and metadata for one or more system settings                                                                             |
-| `set-sys-settings-value`         | Update one or more system setting values                                                                                                     |
-| `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                    |
-| `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                             |
-| `refresh-feature-cache`          | Invalidate the in-memory feature-toggle cache. Call after editing `Feature` / `AdminUnitFeatureState` rows                                  |
-| `upsert-admin-operation`         | Create or update a `SysAdminOperation` (system operation / permission). Required because OData modifications are blocked for this entity     |
-| `delete-admin-operation`         | Delete one or more `SysAdminOperation` rows (related grantee rows are cleaned up automatically)                                              |
-| `set-admin-operation-grantee`    | Grant or revoke a system operation for users/roles. Repeated calls update the existing row instead of duplicating                            |
-| `delete-admin-operation-grantee` | Remove specific grant rows by Id. Prefer `set-admin-operation-grantee` to flip allow ↔ deny                                                  |
-| `call-configuration-service`     | Escape hatch: invoke any configuration-package REST service method by name. Use only when no dedicated tool covers the operation             |
+| Tool                             | Description                                                                                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user                                                                                         |
+| `list-entities`                  | List all available entity sets                                                                                                                           |
+| `describe-entity`                | Get schema for an entity (fields, types, keys). Routes through DataForge for richer column details when it is enabled, otherwise exact OData `$metadata` |
+| `read`                           | Query records with optional filters, select, expand, ordering                                                                                            |
+| `create`                         | Create a new record                                                                                                                                      |
+| `update`                         | Update an existing record                                                                                                                                |
+| `delete`                         | Delete a record                                                                                                                                          |
+| `execute-process`                | Run a Creatio business process                                                                                                                           |
+| `query-sys-settings`             | Read current values and metadata for one or more system settings                                                                                         |
+| `set-sys-settings-value`         | Update one or more system setting values                                                                                                                 |
+| `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                                |
+| `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                                         |
+| `refresh-feature-cache`          | Invalidate the in-memory feature-toggle cache. Call after editing `Feature` / `AdminUnitFeatureState` rows                                               |
+| `upsert-admin-operation`         | Create or update a `SysAdminOperation` (system operation / permission). Required because OData modifications are blocked for this entity                 |
+| `delete-admin-operation`         | Delete one or more `SysAdminOperation` rows (related grantee rows are cleaned up automatically)                                                          |
+| `set-admin-operation-grantee`    | Grant or revoke a system operation for users/roles. Repeated calls update the existing row instead of duplicating                                        |
+| `delete-admin-operation-grantee` | Remove specific grant rows by Id. Prefer `set-admin-operation-grantee` to flip allow ↔ deny                                                              |
+| `call-configuration-service`     | Escape hatch: invoke any configuration-package REST service method by name. Use only when no dedicated tool covers the operation                         |
 
 > **Note**: Previously documented `search`/`fetch` helper tools (for a specific connector workflow) have been removed as they are no longer required.
+
+### DataForge tools (registered only when DataForge is enabled)
+
+DataForge is Creatio's AI-oriented semantic layer over the data model. These tools are **probed once at startup** and registered **only when the environment has DataForge configured** (a non-empty `DataForgeServiceUrl` system setting). When DataForge is absent the tools are not exposed at all, and `describe-entity` silently uses OData metadata — no wasted remote calls.
+
+| Tool                            | Description                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `dataforge-similar-tables`      | Semantic search: map a natural-language query to the Creatio tables that best match its meaning   |
+| `dataforge-table-details`       | Like `dataforge-similar-tables` but returns richer per-table details for the best matches         |
+| `dataforge-table-relationships` | Find the relationship path(s) between two tables (how they join) — useful before `read`/`$expand` |
+| `dataforge-lookup-values`       | Fuzzy/semantic search for lookup values (resolve a phrase to the right lookup record Id)          |
+| `dataforge-status`              | Report whether DataForge is online and whether the data model / lookups are synced                |
+
+**Discovery → confirm → act:** use `dataforge-similar-tables` to find the right entity, then `describe-entity` for the authoritative field list, then `read`/`create`.
+
+**Enabling DataForge** requires (on the Creatio side): the `DataForgeServiceUrl` system setting plus IdentityServer settings (`IdentityServerUrl`, `IdentityServerClientId`/`Secret`), the `DataForge*` feature toggles, and the `CanReadDataStructureColumnDetails` operation granted to the MCP user. Restart the app pool (or run the `DataStructureTransferFromCreatio` / `LookupsTransferFromCreatio` processes) to sync the model.
