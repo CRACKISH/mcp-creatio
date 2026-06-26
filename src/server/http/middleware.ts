@@ -3,6 +3,9 @@ import { randomUUID } from 'crypto';
 import log from '../../log';
 import { getClientIp } from '../../utils';
 
+import { RateLimiter } from './rate-limiter';
+
+import type { RateLimitOptions } from './rate-limiter';
 import type { OAuthServer } from '../oauth';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -11,6 +14,29 @@ export class HttpMiddleware {
 
 	constructor(oauthServer: OAuthServer) {
 		this._oauthServer = oauthServer;
+	}
+
+	/**
+	 * Per-route fixed-window rate limit, keyed by the real connection IP (req.ip /
+	 * socket address) rather than the spoofable X-Forwarded-For header, so an
+	 * attacker cannot bypass the limit by rotating that header.
+	 */
+	public rateLimit(options: RateLimitOptions) {
+		const limiter = new RateLimiter(options);
+		return (req: Request, res: Response, next: NextFunction) => {
+			const key = req.ip || req.socket?.remoteAddress || 'unknown';
+			const { allowed, retryAfterMs } = limiter.check(key, Date.now());
+			if (!allowed) {
+				res.setHeader('Retry-After', String(Math.ceil(retryAfterMs / 1000)));
+				log.warn('http.rate_limited', { path: req.path, ip: getClientIp(req) });
+				res.status(429).json({
+					error: 'too_many_requests',
+					error_description: 'Rate limit exceeded. Try again later.',
+				});
+				return;
+			}
+			next();
+		};
 	}
 
 	public bearerAuth() {

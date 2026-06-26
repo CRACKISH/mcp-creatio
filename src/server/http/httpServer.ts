@@ -6,6 +6,7 @@ import express from 'express';
 import { AuthProviderType } from '../../creatio/';
 import log from '../../log';
 import { SessionContext } from '../../services';
+import { env } from '../../utils';
 import { OAuthServer } from '../oauth';
 
 import { CreatioOAuthHandlers } from './creatio-oauth-handlers';
@@ -17,6 +18,14 @@ import type { Server } from '../mcp';
 
 export class HttpServer {
 	private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+	// Generous, configurable cap so large CRM payloads/filters are not truncated.
+	// DoS on the OAuth surface is handled by the rate limiter (frequency), not body size.
+	private static readonly BODY_LIMIT = env('MCP_MAX_BODY_SIZE') || '10mb';
+	// Per-route fixed-window limits (per client IP) for the unauthenticated OAuth surface.
+	private static readonly RATE_LIMIT_AUTH_FLOW = { windowMs: 60_000, max: 60 };
+	private static readonly RATE_LIMIT_TOKEN = { windowMs: 60_000, max: 30 };
+	private static readonly RATE_LIMIT_REGISTER = { windowMs: 60_000, max: 10 };
+	private static readonly RATE_LIMIT_REVOKE = { windowMs: 60_000, max: 20 };
 	private readonly _server: Server;
 	private readonly _app = express();
 	private readonly _connections = new Set<Socket>();
@@ -43,8 +52,8 @@ export class HttpServer {
 	private _setupMiddleware(): void {
 		this._app.use(this._middleware.correlationId());
 		this._app.use(this._middleware.requestLogging());
-		this._app.use(express.json());
-		this._app.use(express.urlencoded({ extended: true }));
+		this._app.use(express.json({ limit: HttpServer.BODY_LIMIT }));
+		this._app.use(express.urlencoded({ extended: true, limit: HttpServer.BODY_LIMIT }));
 		if (this._isNeedMCPOAuth()) {
 			this._app.use('/mcp', this._middleware.bearerAuth());
 		}
@@ -70,14 +79,21 @@ export class HttpServer {
 	}
 
 	private _setupCreatioOAuthEndpoints(): void {
-		this._app.get('/oauth/start', (req, res) =>
-			this._creatioOauthHandlers.handleOAuthStart(req, res),
+		this._app.get(
+			'/oauth/start',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
+			(req, res) => this._creatioOauthHandlers.handleOAuthStart(req, res),
 		);
-		this._app.get('/oauth/callback', (req, res) =>
-			this._creatioOauthHandlers.handleOAuthCallback(req, res),
+		this._app.get(
+			'/oauth/callback',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
+			(req, res) => this._creatioOauthHandlers.handleOAuthCallback(req, res),
 		);
-		this._app.post('/oauth/revoke', this._middleware.bearerAuth(), (req, res) =>
-			this._creatioOauthHandlers.handleOAuthRevoke(req, res),
+		this._app.post(
+			'/oauth/revoke',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_REVOKE),
+			this._middleware.bearerAuth(),
+			(req, res) => this._creatioOauthHandlers.handleOAuthRevoke(req, res),
 		);
 	}
 
@@ -85,14 +101,20 @@ export class HttpServer {
 		this._app.get('/.well-known/oauth-authorization-server', (req, res) =>
 			this._mcpOauthHandlers.handleMetadata(req, res),
 		);
-		this._app.post('/register', (req, res) =>
-			this._mcpOauthHandlers.handleClientRegistration(req, res),
+		this._app.post(
+			'/register',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_REGISTER),
+			(req, res) => this._mcpOauthHandlers.handleClientRegistration(req, res),
 		);
-		this._app.get('/authorize', (req, res) =>
-			this._mcpOauthHandlers.handleAuthorization(req, res),
+		this._app.get(
+			'/authorize',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
+			(req, res) => this._mcpOauthHandlers.handleAuthorization(req, res),
 		);
-		this._app.post('/token', (req, res) =>
-			this._mcpOauthHandlers.handleTokenExchange(req, res),
+		this._app.post(
+			'/token',
+			this._middleware.rateLimit(HttpServer.RATE_LIMIT_TOKEN),
+			(req, res) => this._mcpOauthHandlers.handleTokenExchange(req, res),
 		);
 	}
 
