@@ -38,6 +38,10 @@ export class HttpServer {
 	private readonly _creatioOauthHandlers: CreatioOAuthHandlers;
 	private readonly _mcpOauthHandlers: MCPOAuthHandlers;
 
+	public get app(): express.Express {
+		return this._app;
+	}
+
 	constructor(server: Server) {
 		this._server = server;
 		this._oauthServer = new OAuthServer();
