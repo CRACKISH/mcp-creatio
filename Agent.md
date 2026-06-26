@@ -85,7 +85,8 @@ Usage pattern:
 5. Implement the handler by calling the appropriate provider on the `CreatioServiceContext` (via `CreatioEngineManager`); if functionality is missing, extend or add a provider under `src/creatio/services` rather than issuing raw fetch calls.
 6. Ensure responses are formatted as `{ content: [{ type: 'text', text: JSON.stringify(result) }] }` when not already MCP native.
 7. Add edge-case validation (empty arrays, invalid GUID, missing required filter fields).
-8. Update documentation (README if public feature; otherwise just Agent.md).
+8. **Write tests** (see §10): a `server.test.ts` case asserting the handler delegates + readonly gating, plus provider-level tests via `makeHttpClientHarness` for any new `src/creatio/services` code. Run `npm run test:coverage` and stay ≥90%.
+9. Update documentation (README if public feature; otherwise just Agent.md).
 
 ## 6. Error Handling Pattern
 
@@ -112,12 +113,54 @@ Usage pattern:
 - Strip or mask token-like values if accidentally included in objects.
 - Validate GUID format (8-4-4-4-12 hex) when exposing user input into queries.
 
-## 10. Testing (Minimal Approach)
+## 10. Testing (MANDATORY)
 
-Currently no formal test suite. For quick validation:
+There is a real test suite (Vitest + supertest) and **every code change must ship with tests**. This is not optional.
 
-- Start server locally (`npm start`) and manually invoke tools from an MCP client.
-- Consider adding lightweight Jest tests for filter builder and client methods (future enhancement).
+### Rules
+
+1. **No PR without tests.** Any new tool, provider, handler, util, or bug fix must add or update tests in the same change.
+2. **Coverage gate: ≥90%** statements/functions/lines. Run `npm run test:coverage` and do not regress below 90%.
+3. **Fixing a bug = writing a regression test first** that fails on the old behavior, then making it pass. For security/perf fixes, label the test with the finding (e.g. `// C1`, `// H2`) so the intent survives.
+4. `npm test` and `npm run build` must both be green before committing.
+
+### Commands
+
+- `npm test` — run the whole suite once.
+- `npm run test:watch` — watch mode while developing.
+- `npm run test:coverage` — coverage report (v8).
+
+### Layout
+
+```
+test/
+  unit/        ← pure logic + classes with fakes (most tests live here)
+  api/         ← supertest against the real Express app (HTTP/OAuth/MCP routes)
+  support/     ← shared test harness (USE THESE, do not reinvent)
+    http-client.ts   → makeHttpClientHarness(responder), jsonResponse, textResponse, bodyOf
+    fake-context.ts  → makeFakeContext(authType) — a full CreatioProviderContext of vi.fn() stubs
+    test-server.ts   → createTestServer(), createAuthProviderMock(), resetSessionContext()
+```
+
+Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test.ts`. Keep the logger quiet (the vitest config already sets `MCP_CREATIO_LOG_LEVEL=silent`).
+
+### Which level to use (pick the closest to what you changed)
+
+| You changed… | Test it like this |
+| --- | --- |
+| A pure function (filters, validators, pkce, env, key formatting) | Plain unit test, no mocks. |
+| A **service provider** (`src/creatio/services/*`) | `makeHttpClientHarness(responder)` gives a real `CreatioHttpClient` + stubbed `fetch`. Assert the request URL/method/body (`bodyOf(calls[0])`) and the parsed result. Cover the non-2xx error path too. |
+| A **tool handler / registration** (`server.ts`) | `new Server(new CreatioEngineManager(makeFakeContext()), {...})`, then invoke `(server as any)._handlers.get('tool-name')(payload)` and assert the provider stub was called. Also assert readonly-mode gating. |
+| An **HTTP / OAuth / MCP endpoint** | `createTestServer()` → `supertest(app)`. Call `resetSessionContext()` in `beforeEach`. Assert status codes, redirects, and that secrets/identity are handled correctly. |
+| An **auth provider** | `vi.stubGlobal('fetch', vi.fn(...))` for the token endpoint, wrap calls in `runWithContext({ userKey })`, seed/read `SessionContext.instance`. |
+| **Time- or concurrency-sensitive** code (TTL, refresh, schedulers) | `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(...)`; for dedup, fire N concurrent calls with `Promise.all` and assert the underlying op ran once. |
+
+### Conventions
+
+- Reset shared singletons (`SessionContext.instance`) with `resetSessionContext()` between tests; build fresh `RateLimiter`/`HttpServer`/providers per test.
+- Prefer driving real code through the harness over asserting on mocks-of-mocks. Service-provider tests use a **real** `CreatioHttpClient`; only `fetch` is stubbed.
+- Cover the unhappy paths explicitly (4xx/5xx, parse failure, expired, missing token/identity) — that is where the bugs are.
+- Process entry points (`cli.ts`, `index.ts`) are excluded from coverage; unit-test their pure helpers instead.
 
 ## 11. Versioning & Release
 
@@ -168,18 +211,20 @@ Baseline rules live in `docs/coding-style.md`. Highlights:
 
 ## 17. Quick Start for Agent Changes
 
-1. Make code edits.
-2. Run `npm run build` to ensure TypeScript passes.
-3. Optionally lint: `npm run lint`.
-4. Commit using conventional message.
-5. Push; consider tag if version bump.
+1. Make code edits **and their tests together** (§10).
+2. Run `npm test` — the suite must be green.
+3. Run `npm run build` to ensure TypeScript passes.
+4. Run `npm run test:coverage` and confirm ≥90% (no regression).
+5. Optionally lint: `npm run lint`.
+6. Commit using a conventional message.
+7. Push; consider tag if version bump.
 
 ## 18. Future Enhancements (Suggestions)
 
-- Add Jest test suite for filter builder + auth flows.
 - Implement persistent token storage (e.g., file/Redis) for OAuth tokens.
-- Add rate limiting to prevent excessive query load.
 - Provide structured error codes instead of raw messages.
+- Raise branch coverage toward 90% and wire `npm test` into CI.
+- Move the raw OData `$filter` to a fully structured contract (reduce injection surface).
 
 ## 19. Contact Points
 
