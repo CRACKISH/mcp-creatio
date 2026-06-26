@@ -112,6 +112,36 @@ describe('OAuth endpoints — security regressions (Batch B)', () => {
 	});
 });
 
+describe('OAuth endpoint branch coverage', () => {
+	let app: Express;
+
+	beforeEach(() => {
+		resetSessionContext();
+		app = createTestServer().app;
+	});
+
+	it('/oauth/start requires a userKey', async () => {
+		const res = await request(app).get('/oauth/start');
+		expect(res.status).toBe(400);
+	});
+
+	it('/oauth/callback requires code and state', async () => {
+		const res = await request(app).get('/oauth/callback');
+		expect(res.status).toBe(400);
+	});
+
+	it('serves the authorization-server metadata', async () => {
+		const res = await request(app).get('/.well-known/oauth-authorization-server');
+		expect(res.status).toBe(200);
+		expect(res.body.token_endpoint).toContain('/token');
+	});
+
+	it('/register rejects a non-array redirect_uris', async () => {
+		const res = await request(app).post('/register').send({ redirect_uris: 'nope' });
+		expect(res.status).toBe(400);
+	});
+});
+
 describe('OAuth proxy flow — contract test (Batch C)', () => {
 	let app: Express;
 

@@ -139,6 +139,23 @@ describe('env / envBool', () => {
 	});
 });
 
+describe('PKCE node fallbacks (no Web Crypto)', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it('generateCodeVerifier falls back to node randomBytes', () => {
+		vi.stubGlobal('crypto', {}); // no getRandomValues
+		const v = generateCodeVerifier(16);
+		expect(v).toMatch(/^[A-Za-z0-9_-]+$/);
+		expect(v.length).toBeGreaterThan(0);
+	});
+
+	it('challengeS256 falls back to node createHash', async () => {
+		const expected = crypto.createHash('sha256').update('verifier').digest('base64url');
+		vi.stubGlobal('crypto', {}); // no subtle.digest
+		expect(await challengeS256('verifier')).toBe(expected);
+	});
+});
+
 describe('withValidation', () => {
 	it('parses the payload and forwards the typed value', async () => {
 		const handler = withValidation(z.object({ n: z.number() }), async ({ n }) => n * 2);

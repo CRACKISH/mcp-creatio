@@ -55,6 +55,15 @@ describe('LegacyProvider', () => {
 		await expect(makeProvider().getHeaders(JSON_ACCEPT, true)).rejects.toThrow(/auth_failed/);
 	});
 
+	it('refresh() drops the cached session and logs in again', async () => {
+		const fetchMock = vi.fn(async () => loginResponse(['BPMCSRF=tok; Path=/']));
+		vi.stubGlobal('fetch', fetchMock);
+		const provider = makeProvider();
+		await provider.getHeaders(JSON_ACCEPT, true);
+		await provider.refresh();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
 	it('throws when no Set-Cookie is returned', async () => {
 		vi.stubGlobal(
 			'fetch',

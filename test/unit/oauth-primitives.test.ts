@@ -113,6 +113,15 @@ describe('OAuthClientManager', () => {
 		expect(client.token_endpoint_auth_method).toBe('none');
 	});
 
+	it('labels known MCP clients by client_id substring', () => {
+		// Exercises the name-detection branches; all stay public clients.
+		for (const id of ['claude-desktop', 'vscode-ext', 'cursor-app', 'something-else']) {
+			const client = OAuthClientManager.autoRegisterClient(id, 'http://localhost:1/cb');
+			expect(client.client_id).toBe(id);
+			expect(client.token_endpoint_auth_method).toBe('none');
+		}
+	});
+
 	it('creates a client with a generated id', () => {
 		const client = OAuthClientManager.createClient(['http://localhost:2/cb']);
 		expect(client.client_id).toMatch(

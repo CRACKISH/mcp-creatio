@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProviderType, CreatioEngineManager } from '../../src/creatio';
 import { HttpServer } from '../../src/server/http/httpServer';
@@ -52,5 +52,52 @@ describe('McpHandlers error branches', () => {
 		SessionContext.instance.createSession('s-no-transport');
 		const res = await request(app).get('/mcp').set('mcp-session-id', 's-no-transport');
 		expect(res.status).toBe(400);
+	});
+
+	it('routes GET /mcp to an existing session transport', async () => {
+		const handleRequest = vi.fn(async (_req: unknown, res: { status: (n: number) => { end: () => void } }) => {
+			res.status(200).end();
+		});
+		SessionContext.instance.createSession('s-live', 'u1');
+		SessionContext.instance.setSessionTransport('s-live', { handleRequest } as never);
+		const res = await request(app).get('/mcp').set('mcp-session-id', 's-live');
+		expect(res.status).toBe(200);
+		expect(handleRequest).toHaveBeenCalled();
+	});
+
+	it('initializes a brand-new MCP session over POST /mcp', async () => {
+		const res = await request(app)
+			.post('/mcp')
+			.set('content-type', 'application/json')
+			.set('Accept', 'application/json, text/event-stream')
+			.send({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'initialize',
+				params: {
+					protocolVersion: '2024-11-05',
+					capabilities: {},
+					clientInfo: { name: 'test-client', version: '1.0.0' },
+				},
+			});
+		expect(res.status).toBe(200);
+		expect(res.headers['mcp-session-id']).toBeTruthy();
+	});
+
+	it('routes POST /mcp with an existing session id to its transport', async () => {
+		const handleRequest = vi.fn(
+			async (_req: unknown, res: { status: (n: number) => { end: () => void } }) => {
+				res.status(200).end();
+			},
+		);
+		SessionContext.instance.createSession('s-post', 'u1');
+		SessionContext.instance.setSessionTransport('s-post', { handleRequest } as never);
+		const res = await request(app)
+			.post('/mcp')
+			.set('mcp-session-id', 's-post')
+			.set('content-type', 'application/json')
+			.send({ jsonrpc: '2.0', method: 'tools/list', id: 1 });
+		expect(res.status).toBe(200);
+		expect(handleRequest).toHaveBeenCalled();
 	});
 });

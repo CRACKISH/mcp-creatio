@@ -54,6 +54,30 @@ describe('log level gating', () => {
 		expect(parsed.meta.port).toBe(3000);
 	});
 
+	it('emits all the structured event helpers at info level', () => {
+		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
+		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		log.appStart({ a: 1 });
+		log.appStop();
+		log.serverStart('n', 'v');
+		log.serverStop('n', 'v');
+		log.httpStop(3000);
+		log.sessionConnect('s1', '1.1.1.1');
+		log.sessionDisconnect('s1', '1.1.1.1');
+		log.creatioAuthStart('https://x', 'legacy');
+		log.creatioAuthOk('https://x', 'legacy');
+		log.creatioAuthFailed('https://x', 'boom', 'legacy');
+		log.httpRequest('GET', '/x');
+		log.httpResponse('GET', '/x', 200, 12);
+		log.httpError('GET', '/x', 'err');
+		log.logOperation('op', 5, true);
+		log.logOperation('op', 5, false);
+		expect(out).toHaveBeenCalled();
+		expect(warn).toHaveBeenCalled(); // creatioAuthFailed logs at warn
+		expect(log.getCorrelationId).toBeTypeOf('function');
+	});
+
 	it('routes to stderr when stderr-only mode is enabled', () => {
 		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
 		const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

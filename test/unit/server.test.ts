@@ -64,6 +64,17 @@ describe('Server tool registration', () => {
 			expect(handlers.has(name)).toBe(false);
 		}
 	});
+
+	it('every engine exposes its provider kind', () => {
+		const { engines } = buildServer();
+		expect(engines.crud.kind).toBe('crud');
+		expect(engines.user.kind).toBe('user');
+		expect(engines.process.kind).toBe('process');
+		expect(engines.sysSettings.kind).toBe('sys-settings');
+		expect(engines.feature.kind).toBe('feature');
+		expect(engines.adminOperation.kind).toBe('admin-operation');
+		expect(engines.configuration.kind).toBe('configuration');
+	});
 });
 
 describe('Server tool handlers (read path)', () => {

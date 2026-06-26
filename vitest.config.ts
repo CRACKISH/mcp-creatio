@@ -10,7 +10,14 @@ export default defineConfig({
 			provider: 'v8',
 			reporter: ['text', 'html'],
 			include: ['src/**/*.ts'],
-			exclude: ['src/**/index.ts', 'src/types/**', 'src/**/*-data.ts'],
+			exclude: [
+				'src/**/index.ts',
+				'src/types/**',
+				'src/**/*-data.ts',
+				// Process entry points (orchestration/bootstrap). Their pure helpers are
+				// unit-tested; the wired binary is validated manually / at the CLI level.
+				'src/cli.ts',
+			],
 		},
 	},
 });

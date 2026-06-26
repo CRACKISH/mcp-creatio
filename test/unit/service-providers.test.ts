@@ -138,6 +138,24 @@ describe('SysSettingsServiceProvider', () => {
 		});
 	});
 
+	it('createSetting inserts only (no value call) when no initial value is given', async () => {
+		const { client, calls } = makeHttpClientHarness(() => jsonResponse({ success: true }));
+		const provider = new SysSettingsServiceProvider(client);
+		await provider.createSetting({
+			definition: { code: 'C', name: 'N', valueTypeName: 'Boolean' } as never,
+		});
+		expect(calls).toHaveLength(1);
+		expect(calls[0].url).toContain('/InsertSysSettingRequest');
+	});
+
+	it('updateDefinition posts to UpdateSysSettingRequest', async () => {
+		const { client, calls } = makeHttpClientHarness(() => jsonResponse({ success: true }));
+		const provider = new SysSettingsServiceProvider(client);
+		await provider.updateDefinition({ code: 'C', name: 'N', valueTypeName: 'Boolean' } as never);
+		expect(calls[0].url).toContain('/UpdateSysSettingRequest');
+		expect((bodyOf(calls[0]) as { code: string }).code).toBe('C');
+	});
+
 	it('createSetting inserts then sets the initial value', async () => {
 		const { client, calls } = makeHttpClientHarness((url) =>
 			url.includes('InsertSysSettingRequest')
