@@ -1,10 +1,11 @@
 import {
 	CrudDeleteParams,
 	CrudProvider,
-	CrudReadParams,
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
+	ReadQuery,
+	ReadResult,
 } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
 
@@ -33,8 +34,8 @@ export class DataServiceCrudProvider implements CrudProvider {
 	}
 
 	/** Visible for the upcoming read implementation + tests: build (don't send) the payload. */
-	public buildSelectQuery(params: CrudReadParams): DataServiceSelectQuery {
-		return this._queryBuilder.buildSelectQuery(params);
+	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
+		return this._queryBuilder.buildSelectQuery(query);
 	}
 
 	private _notImplemented(operation: string): never {
@@ -52,7 +53,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 		return this._notImplemented('describeEntity');
 	}
 
-	public read(_params: CrudReadParams): Promise<any> {
+	public read(_query: ReadQuery): Promise<ReadResult> {
 		return this._notImplemented('read');
 	}
 

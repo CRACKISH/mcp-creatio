@@ -1,114 +1,88 @@
-function isGuid(s: unknown): s is string {
-	return (
-		typeof s === 'string' &&
-		/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(s)
-	);
+import { FilterComparison, FilterNode, OrderSpec } from '../../creatio/contracts';
+
+/**
+ * Compiles the tool-level structured `filters` argument (`{ all?: [...], any?: [...] }`) into
+ * the backend-agnostic {@link FilterNode} AST. This is the boundary between the MCP tool
+ * surface and the neutral query contract — it knows the tool's `{field, op, value | in}`
+ * shape but NOTHING about OData or DataService. Each provider's translator turns the AST
+ * into its own dialect, so all dialect quirks live below this layer, not here.
+ */
+
+interface RawCondition {
+	field?: unknown;
+	op?: unknown;
+	value?: unknown;
+	in?: unknown[];
 }
 
-function isIdish(field: string): boolean {
-	return /(^|\/)Id$/.test(field) || /Id$/i.test(field);
+interface RawFilters {
+	all?: RawCondition[];
+	any?: RawCondition[];
 }
 
-function escapeStr(val: string): string {
-	return val.replace(/'/g, "''");
-}
-
-function literalFor(field: string, value: any): string {
-	if (value == null) {
-		return 'null';
-	}
-	const t = typeof value;
-	if (t === 'number') {
-		return String(value);
-	}
-	if (t === 'boolean') {
-		return value ? 'true' : 'false';
-	}
-	if (t === 'string') {
-		const v = String(value);
-		// Bare (unquoted) GUID for any Id-typed path — the scalar key `Id`, a lookup
-		// FK `XxxId`, or a navigation `Xxx/Id`. Other strings (incl. `Xxx/Name`) are quoted.
-		if (isGuid(v) && isIdish(field)) {
-			return v;
-		}
-		return `'${escapeStr(v)}'`;
-	}
-	return `'${escapeStr(JSON.stringify(value))}'`;
-}
-
-// Creatio OData cannot filter a lookup by its scalar FK column (`ContactId eq <guid>`
-// 500s "Column by path ContactId not found"); it must be filtered through the
-// navigation property (`Contact/Id eq <guid>`), per the official docs and verified
-// live. Rewrite `<Lookup>Id` -> `<Lookup>/Id` for equality against a GUID. The
-// primary key `Id` and already-navigated paths are left untouched.
-function lookupNavField(field: string, value: unknown): string {
-	if (isGuid(value) && field !== 'Id' && !field.includes('/') && /Id$/.test(field)) {
-		return `${field.slice(0, -2)}/Id`;
-	}
-	return field;
-}
-
-function buildCondition(c: any): string | undefined {
+function toNode(c: RawCondition): FilterNode | undefined {
 	if (!c || !c.field) {
 		return undefined;
 	}
 	const field = String(c.field);
-	if (Array.isArray((c as any).in)) {
-		const values = (c as any).in as any[];
-		if (!values.length) {
-			return undefined;
+	if (Array.isArray(c.in)) {
+		return c.in.length ? { kind: 'in', field, values: c.in } : undefined;
+	}
+	const op = (c.op ? String(c.op) : 'eq') as FilterComparison;
+	// A null/absent value against eq/ne is a null-check; route it through the dedicated
+	// neutral ops so each backend renders it correctly (OData `field eq null`,
+	// DataService `IsNullFilter`).
+	if (c.value === null || c.value === undefined) {
+		if (op === 'eq') {
+			return { kind: 'condition', field, op: 'isNull' };
 		}
-		const parts = values.map((v) => {
-			const f = lookupNavField(field, v);
-			return `${f} eq ${literalFor(f, v)}`;
-		});
-		return parts.length === 1 ? parts[0] : `(${parts.join(' or ')})`;
+		if (op === 'ne') {
+			return { kind: 'condition', field, op: 'isNotNull' };
+		}
 	}
-	const op = String(c.op || 'eq');
-	const value = (c as any).value;
-	if (op === 'contains' || op === 'startswith' || op === 'endswith') {
-		return `${op}(${field},${literalFor(field, value)})`;
-	}
-	if (value == null && (op === 'eq' || op === 'ne')) {
-		return `${field} ${op} null`;
-	}
-	const f = op === 'eq' || op === 'ne' ? lookupNavField(field, value) : field;
-	return `${f} ${op} ${literalFor(f, value)}`;
+	return { kind: 'condition', field, op, value: c.value };
 }
 
-export function buildFilterFromStructured(filters: any | undefined): string | undefined {
+function group(logic: 'and' | 'or', conditions: RawCondition[]): FilterNode | undefined {
+	const items = conditions.map(toNode).filter((n): n is FilterNode => Boolean(n));
+	if (!items.length) {
+		return undefined;
+	}
+	return { kind: 'group', logic, items };
+}
+
+/** Build the neutral {@link FilterNode} from the structured `filters` argument (AND of the
+ *  `all` group with the `any` group), or undefined when there is nothing to filter on. */
+export function buildFilterNode(filters: unknown): FilterNode | undefined {
 	if (!filters || typeof filters !== 'object') {
 		return undefined;
 	}
-	const andParts: string[] = [];
-	const orParts: string[] = [];
-	if (Array.isArray(filters.all)) {
-		for (const c of filters.all) {
-			const s = buildCondition(c);
-			if (s) {
-				andParts.push(s);
-			}
-		}
-	}
-	if (Array.isArray(filters.any)) {
-		for (const c of filters.any) {
-			const s = buildCondition(c);
-			if (s) {
-				orParts.push(s);
-			}
-		}
-	}
-	const andStr = andParts.join(' and ');
-	const orStr = orParts.join(' or ');
-	const parts: string[] = [];
-	if (andStr) {
-		parts.push(andParts.length > 1 ? `(${andStr})` : andStr);
-	}
-	if (orStr) {
-		parts.push(orParts.length > 1 ? `(${orStr})` : orStr);
-	}
+	const f = filters as RawFilters;
+	const allNode = Array.isArray(f.all) ? group('and', f.all) : undefined;
+	const anyNode = Array.isArray(f.any) ? group('or', f.any) : undefined;
+	const parts = [allNode, anyNode].filter((n): n is FilterNode => Boolean(n));
 	if (!parts.length) {
 		return undefined;
 	}
-	return parts.join(' and ');
+	if (parts.length === 1) {
+		return parts[0];
+	}
+	return { kind: 'group', logic: 'and', items: parts };
+}
+
+/** Parse an OData-style `$orderby` clause ("Name asc, CreatedOn desc") into neutral order
+ *  terms. Direction defaults to ascending when omitted. */
+export function parseOrderBy(orderBy: unknown): OrderSpec[] | undefined {
+	if (typeof orderBy !== 'string' || !orderBy.trim()) {
+		return undefined;
+	}
+	const terms = orderBy
+		.split(',')
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.map((part): OrderSpec => {
+			const [field, dir] = part.split(/\s+/);
+			return { field: field as string, dir: (dir ?? '').toLowerCase() === 'desc' ? 'desc' : 'asc' };
+		});
+	return terms.length ? terms : undefined;
 }

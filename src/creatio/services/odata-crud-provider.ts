@@ -2,58 +2,32 @@ import log from '../../log';
 import {
 	CrudDeleteParams,
 	CrudProvider,
-	CrudReadParams,
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
+	ReadQuery,
+	ReadResult,
 } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';
+import { ODataQueryTranslator } from './odata-query-translator';
 
 export class ODataCrudProvider implements CrudProvider {
 	private readonly _client: CreatioHttpClient;
 	private readonly _metadataStore: ODataMetadataStore;
+	private readonly _translator: ODataQueryTranslator;
 
 	public readonly kind = 'creatio-odata';
 
-	constructor(client: CreatioHttpClient, metadataStore: ODataMetadataStore) {
+	constructor(
+		client: CreatioHttpClient,
+		metadataStore: ODataMetadataStore,
+		translator = new ODataQueryTranslator(),
+	) {
 		this._client = client;
 		this._metadataStore = metadataStore;
-	}
-
-	private _buildODataQueryParams(
-		filter?: string,
-		select?: string[],
-		top?: number,
-		expand?: string[],
-		orderBy?: string,
-		skip?: number,
-		count?: boolean,
-	): string[] {
-		const params: string[] = [];
-		if (filter) {
-			params.push(`$filter=${encodeURIComponent(filter)}`);
-		}
-		if (select && select.length > 0) {
-			params.push(`$select=${encodeURIComponent(select.join(','))}`);
-		}
-		if (expand && expand.length > 0) {
-			params.push(`$expand=${encodeURIComponent(expand.join(','))}`);
-		}
-		if (orderBy) {
-			params.push(`$orderby=${encodeURIComponent(orderBy)}`);
-		}
-		if (typeof top === 'number') {
-			params.push(`$top=${top}`);
-		}
-		if (typeof skip === 'number' && skip > 0) {
-			params.push(`$skip=${skip}`);
-		}
-		if (count) {
-			params.push('$count=true');
-		}
-		return params;
+		this._translator = translator;
 	}
 
 	private _buildQueryString(params: string[]): string {
@@ -118,53 +92,35 @@ export class ODataCrudProvider implements CrudProvider {
 		);
 	}
 
-	public async read({
-		entity,
-		filter,
-		select,
-		top,
-		expand,
-		orderBy,
-		skip,
-		count,
-	}: CrudReadParams) {
+	public async read(query: ReadQuery): Promise<ReadResult> {
+		const { entity, count } = query;
 		const startTime = Date.now();
-		const queryParams = this._buildODataQueryParams(
-			filter,
-			select,
-			top,
-			expand,
-			orderBy,
-			skip,
-			count,
-		);
+		const queryParams = this._translator.buildQueryParams(query);
 		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
 		const headers = await this._client.getJsonHeaders();
 		try {
 			const body = await this._client.fetchJson(url, async () => ({ headers }));
 			const value = this._extractODataValue(body);
+			const items = Array.isArray(value) ? value : value != null ? [value] : [];
 			const duration = Date.now() - startTime;
-			const resultCount = Array.isArray(value) ? value.length : value ? 1 : 0;
 			// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
 			const total =
 				body && typeof body === 'object' && '@odata.count' in body
-					? (body as Record<string, unknown>)['@odata.count']
+					? Number((body as Record<string, unknown>)['@odata.count'])
 					: undefined;
 			log.info('creatio.crud.read.success', {
 				entity,
-				filter,
-				select: select?.join(','),
-				expand: expand?.join(','),
-				orderBy,
-				top,
-				skip,
+				select: query.columns?.join(','),
+				expand: query.odata?.expand?.join(','),
+				top: query.top,
+				skip: query.skip,
 				count,
-				resultCount,
+				resultCount: items.length,
 				total,
 				duration,
 			});
-			// When a count was requested, surface the total alongside the rows.
-			return count ? { total, value } : value;
+			// Surface the server-side total only when a count was requested and present.
+			return count && total !== undefined ? { items, totalCount: total } : { items };
 		} catch (error: any) {
 			const duration = Date.now() - startTime;
 			log.error('creatio.crud.read.error', {

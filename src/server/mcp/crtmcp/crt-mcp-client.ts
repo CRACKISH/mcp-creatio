@@ -1,3 +1,4 @@
+import { ReadQuery, ReadResult } from '../../../creatio/contracts';
 import log from '../../../log';
 import { ConfigurationCaller } from '../creatio-rest';
 
@@ -33,7 +34,7 @@ export interface PublishedTool {
 
 /** Narrow capability needed to enumerate published servers (DIP over the CRUD engine). */
 export interface EntityReader {
-	read(params: { entity: string; select?: string[]; top?: number }): Promise<unknown>;
+	read(query: Pick<ReadQuery, 'entity' | 'columns' | 'top'>): Promise<ReadResult>;
 }
 
 const SERVER_ENTITY = 'McpServer';
@@ -50,7 +51,7 @@ export class CrtMcpPublishingClient {
 	/** Whether the publishing app is installed on this environment (its `McpServer` entity exists). */
 	public async isInstalled(): Promise<boolean> {
 		try {
-			await this._crud.read({ entity: SERVER_ENTITY, select: ['Id'], top: 1 });
+			await this._crud.read({ entity: SERVER_ENTITY, columns: ['Id'], top: 1 });
 			return true;
 		} catch (err) {
 			log.info('crtmcp.probe.not-installed', { error: String(err) });
@@ -60,12 +61,12 @@ export class CrtMcpPublishingClient {
 
 	/** Online published servers (the app filters offline ones out of routing anyway). */
 	public async listOnlineServers(): Promise<PublishedServer[]> {
-		const rows = await this._crud.read({
+		const { items } = await this._crud.read({
 			entity: SERVER_ENTITY,
-			select: ['Id', 'Name', 'Code', 'IsOnline'],
+			columns: ['Id', 'Name', 'Code', 'IsOnline'],
 			top: 200,
 		});
-		const list = Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+		const list = Array.isArray(items) ? (items as Array<Record<string, unknown>>) : [];
 		return list
 			.filter((r) => r?.IsOnline === true && typeof r.Code === 'string' && r.Code.length > 0)
 			.map((r) => ({ code: r.Code as string, title: (r.Name as string) ?? (r.Code as string) }));

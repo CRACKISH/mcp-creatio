@@ -65,9 +65,56 @@ export enum ExpressionType {
 	Parameter = 2,
 }
 
+/** `Terrasoft.QueryOperationType` (op is actually selected by the endpoint; sent for fidelity). */
+export enum QueryOperationType {
+	Select = 0,
+	Insert = 1,
+	Update = 2,
+	Delete = 3,
+	Batch = 4,
+}
+
 export interface DataServiceColumnExpression {
 	expressionType: ExpressionType.SchemaColumn;
 	columnPath: string;
+}
+
+/** A typed parameter value (`BaseExpression.Parameter`). DataValueType is mandatory — the
+ *  platform does not infer it from the JSON value (an absent type silently defaults to Text). */
+export interface DataServiceParameter {
+	dataValueType: DataValueType;
+	value: unknown;
+}
+
+export interface DataServiceParameterExpression {
+	expressionType: ExpressionType.Parameter;
+	parameter: DataServiceParameter;
+}
+
+export type DataServiceExpression = DataServiceColumnExpression | DataServiceParameterExpression;
+
+/**
+ * A node of the DataService `Filters` tree. A group uses `filterType: Group` + `items`
+ * (a keyed map of child filters) + `logicalOperation`; a comparison uses
+ * `filterType: CompareFilter` + `comparisonType` + left/right expressions; a null-check
+ * uses `filterType: IsNullFilter` + `comparisonType: IsNull|IsNotNull` + `leftExpression`.
+ */
+export interface DataServiceFilter {
+	filterType: FilterType;
+	comparisonType?: FilterComparisonType;
+	logicalOperation?: LogicalOperation;
+	isNull?: boolean;
+	isNot?: boolean;
+	isEnabled?: boolean;
+	leftExpression?: DataServiceExpression;
+	rightExpression?: DataServiceExpression;
+	rightExpressions?: DataServiceExpression[];
+	items?: Record<string, DataServiceFilter>;
+}
+
+/** Root of a filter tree — a {@link DataServiceFilter} carrying the schema name. */
+export interface DataServiceFilters extends DataServiceFilter {
+	rootSchemaName?: string;
 }
 
 export interface DataServiceSelectColumn {
@@ -78,10 +125,36 @@ export interface DataServiceSelectColumn {
 
 export interface DataServiceSelectQuery {
 	rootSchemaName: string;
-	operationType: 0; // Select
+	operationType: QueryOperationType.Select;
 	columns: { items: Record<string, DataServiceSelectColumn> };
 	allColumns: boolean;
+	isDistinct?: boolean;
+	filters?: DataServiceFilters;
 	rowCount?: number;
 	rowsOffset?: number;
 	isPageable?: boolean;
+}
+
+/** `ColumnValues` map for Insert/Update — each entry a typed parameter expression. */
+export interface DataServiceColumnValues {
+	items: Record<string, DataServiceParameterExpression>;
+}
+
+export interface DataServiceInsertQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Insert;
+	columnValues: DataServiceColumnValues;
+}
+
+export interface DataServiceUpdateQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Update;
+	columnValues: DataServiceColumnValues;
+	filters: DataServiceFilters;
+}
+
+export interface DataServiceDeleteQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Delete;
+	filters: DataServiceFilters;
 }

@@ -1,10 +1,11 @@
 import {
 	CrudDeleteParams,
 	CrudProvider,
-	CrudReadParams,
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
+	ReadQuery,
+	ReadResult,
 } from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
@@ -31,8 +32,8 @@ export class CrudEngine extends BaseEngine {
 		return this._provider.describeEntity(entitySet);
 	}
 
-	public read(params: CrudReadParams): Promise<any> {
-		return this._provider.read(params);
+	public read(query: ReadQuery): Promise<ReadResult> {
+		return this._provider.read(query);
 	}
 
 	public create(params: CrudWriteParams): Promise<any> {

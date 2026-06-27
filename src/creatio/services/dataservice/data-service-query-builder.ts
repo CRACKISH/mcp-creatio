@@ -1,49 +1,41 @@
-import { CrudReadParams } from '../../contracts';
+import { OrderSpec, ReadQuery } from '../../contracts';
 
+import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import {
 	DataServiceSelectColumn,
 	DataServiceSelectQuery,
 	ExpressionType,
 	OrderDirection,
+	QueryOperationType,
 } from './data-service-types';
 
 /**
- * Pure builder that projects the (currently OData-shaped) {@link CrudReadParams} onto a
- * Creatio DataService `SelectQuery` payload. GROUNDWORK for the planned DataService CRUD
- * provider — it covers the parts that are already backend-agnostic in the contract
- * (columns, paging, sorting). Filter translation is intentionally NOT handled here: the
- * read contract still carries a raw OData `$filter` string, and translating that into a
- * DataService filter tree is the job of the future neutral query-contract rework
- * (audit finding #9), not this skeleton. Kept side-effect free for direct unit testing.
+ * Pure builder that projects the neutral {@link ReadQuery} onto a Creatio DataService
+ * `SelectQuery` payload (columns, paging, sorting, filters). Side-effect free for direct
+ * unit testing; the transport lives in {@link DataServiceCrudProvider}.
  */
 export class DataServiceQueryBuilder {
-	/** Parse an OData-style `$orderby` clause ("Name desc, CreatedOn") into column order hints. */
-	private _parseOrderBy(orderBy?: string): Array<{ path: string; dir: OrderDirection }> {
-		if (!orderBy) {
-			return [];
-		}
-		return orderBy
-			.split(',')
-			.map((part) => part.trim())
-			.filter(Boolean)
-			.map((part) => {
-				const [path, dir] = part.split(/\s+/);
-				return {
-					path: path as string,
-					dir:
-						(dir ?? '').toLowerCase() === 'desc'
-							? OrderDirection.Descending
-							: OrderDirection.Ascending,
-				};
-			});
+	private readonly _filters: DataServiceFilterTranslator;
+
+	constructor(filters = new DataServiceFilterTranslator()) {
+		this._filters = filters;
 	}
 
-	public buildSelectQuery(params: CrudReadParams): DataServiceSelectQuery {
-		const order = this._parseOrderBy(params.orderBy);
-		const orderByPath = new Map(order.map((o, i) => [o.path, { dir: o.dir, pos: i + 1 }]));
+	private _orderMap(order: OrderSpec[] | undefined): Map<string, { dir: OrderDirection; pos: number }> {
+		const map = new Map<string, { dir: OrderDirection; pos: number }>();
+		(order ?? []).forEach((o, i) => {
+			map.set(o.field, {
+				dir: o.dir === 'desc' ? OrderDirection.Descending : OrderDirection.Ascending,
+				pos: i + 1,
+			});
+		});
+		return map;
+	}
 
+	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
+		const orderByPath = this._orderMap(query.order);
 		const items: Record<string, DataServiceSelectColumn> = {};
-		const selected = params.select && params.select.length > 0 ? params.select : [];
+		const selected = query.columns && query.columns.length > 0 ? query.columns : [];
 		for (const path of selected) {
 			const column: DataServiceSelectColumn = {
 				expression: { expressionType: ExpressionType.SchemaColumn, columnPath: path },
@@ -56,19 +48,23 @@ export class DataServiceQueryBuilder {
 			items[path] = column;
 		}
 
-		const query: DataServiceSelectQuery = {
-			rootSchemaName: params.entity,
-			operationType: 0,
+		const select: DataServiceSelectQuery = {
+			rootSchemaName: query.entity,
+			operationType: QueryOperationType.Select,
 			columns: { items },
 			allColumns: selected.length === 0,
 		};
-		if (typeof params.top === 'number') {
-			query.rowCount = params.top;
-			query.isPageable = true;
+		const filters = this._filters.translate(query.entity, query.filter);
+		if (filters) {
+			select.filters = filters;
 		}
-		if (typeof params.skip === 'number' && params.skip > 0) {
-			query.rowsOffset = params.skip;
+		if (typeof query.top === 'number') {
+			select.rowCount = query.top;
+			select.isPageable = true;
 		}
-		return query;
+		if (typeof query.skip === 'number' && query.skip > 0) {
+			select.rowsOffset = query.skip;
+		}
+		return select;
 	}
 }
