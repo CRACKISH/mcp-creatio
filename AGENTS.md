@@ -296,6 +296,12 @@ the full release — never bump without tagging AND publishing:**
 
 Skipping the tag or the npm publish leaves the release half-done — always finish all 7 steps.
 
+**Automated on the tag push** (no manual step): `.github/workflows/release.yml` extracts the
+CHANGELOG section and creates the **GitHub Release**; `docker-publish.yml` builds the multi-arch
+image (`:latest` + `:vX.Y.Z`) and syncs the README to the Docker Hub overview. (Note: `gh` in
+this dev env is authed to the GHE host, not github.com — creating github.com releases must go
+through CI, not local `gh`. Backfill an old tag via the workflow's `workflow_dispatch`.)
+
 ## 12. Common Edge Cases
 
 | Case                                      | Mitigation                                                     |
