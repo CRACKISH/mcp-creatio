@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	AggregationType,
+	DataServiceCrudProvider,
 	DataServiceFilterTranslator,
 	DataValueType,
 	ExpressionType,
@@ -10,6 +12,29 @@ import {
 	inferDataValueType,
 } from '../../src/creatio';
 import type { FilterNode } from '../../src/creatio';
+
+/** Fake CreatioHttpClient that records POSTed DataService payloads and returns canned bodies. */
+function makeClient(responses: any[]) {
+	const calls: Array<{ url: string; body: any }> = [];
+	let i = 0;
+	const client = {
+		normalizedBaseUrl: 'https://tenant',
+		async createPostRequest(body: unknown) {
+			return { method: 'POST', body: JSON.stringify(body) };
+		},
+		async fetchWithAuth(url: string, initFactory: () => Promise<any>) {
+			const init = await initFactory();
+			calls.push({ url, body: JSON.parse(init.body) });
+			const body = responses[i++] ?? {};
+			return { ok: true, status: 200, async json() { return body; } } as never;
+		},
+		async request(_op: string, _url: string, buildRequest: () => Promise<any>, onSuccess: any) {
+			return onSuccess(await buildRequest(), 1);
+		},
+		logSuccess() {},
+	};
+	return { client, calls };
+}
 
 const GUID = '11111111-2222-3333-4444-555555555555';
 
@@ -136,5 +161,51 @@ describe('DataServiceFilterTranslator', () => {
 		expect(f.rightExpression).toMatchObject({
 			parameter: { dataValueType: DataValueType.Lookup },
 		});
+	});
+});
+
+describe('DataServiceCrudProvider.read (transport)', () => {
+	const GUID2 = '11111111-2222-3333-4444-555555555555';
+
+	it('POSTs a SelectQuery to the DataService endpoint and normalizes rows to items', async () => {
+		const { client, calls } = makeClient([{ rows: [{ Id: '1' }, { Id: '2' }] }]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const res = await provider.read({ entity: 'Contact', columns: ['Id'] });
+		expect(res).toEqual({ items: [{ Id: '1' }, { Id: '2' }] });
+		expect(calls[0].url).toBe('https://tenant/0/DataService/json/SyncReply/SelectQuery');
+		expect(calls[0].body.rootSchemaName).toBe('Contact');
+		expect(Object.keys(calls[0].body.columns.items)).toEqual(['Id']);
+	});
+
+	it('translates a structured filter into the SelectQuery Filters tree', async () => {
+		const { client, calls } = makeClient([{ rows: [] }]);
+		const provider = new DataServiceCrudProvider(client as never);
+		await provider.read({
+			entity: 'Opportunity',
+			filter: { kind: 'group', logic: 'and', items: [{ kind: 'condition', field: 'ContactId', op: 'eq', value: GUID2 }] },
+		});
+		expect(calls[0].body.filters.rootSchemaName).toBe('Opportunity');
+		expect(calls[0].body.filters.rightExpression.parameter.dataValueType).toBe(DataValueType.Guid);
+	});
+
+	it('issues a second COUNT aggregation query when count is requested', async () => {
+		const { client, calls } = makeClient([
+			{ rows: [{ Id: '1' }] },
+			{ rows: [{ recordsCount: 42 }] },
+		]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const res = await provider.read({ entity: 'Contact', count: true });
+		expect(res).toEqual({ items: [{ Id: '1' }], totalCount: 42 });
+		expect(calls).toHaveLength(2);
+		expect(calls[1].body.columns.items.recordsCount.expression.aggregationType).toBe(
+			AggregationType.Count,
+		);
+	});
+
+	it('rejects an invalid entity name before any request', async () => {
+		const { client, calls } = makeClient([]);
+		const provider = new DataServiceCrudProvider(client as never);
+		await expect(provider.read({ entity: '../Hack' })).rejects.toThrow(/invalid_entity_name/);
+		expect(calls).toHaveLength(0);
 	});
 });

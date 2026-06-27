@@ -30,13 +30,12 @@ describe('createCrudProvider (backend selection seam)', () => {
 	});
 });
 
-describe('DataServiceCrudProvider skeleton', () => {
-	it('fails fast with a clear, greppable error on every CRUD op', async () => {
+describe('DataServiceCrudProvider not-yet-implemented surface', () => {
+	it('fails fast with a clear, greppable error on write/schema ops', async () => {
 		const provider = new DataServiceCrudProvider({} as never);
 		for (const call of [
 			() => provider.listEntitySets(),
 			() => provider.describeEntity('Contact'),
-			() => provider.read({ entity: 'Contact' }),
 			() => provider.create({ entity: 'Contact', data: {} }),
 			() => provider.update({ entity: 'Contact', id: '1', data: {} }),
 			() => provider.delete({ entity: 'Contact', id: '1' }),

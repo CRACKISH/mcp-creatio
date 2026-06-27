@@ -2,12 +2,18 @@ import { OrderSpec, ReadQuery } from '../../contracts';
 
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import {
+	AggregationEvalType,
+	AggregationType,
 	DataServiceSelectColumn,
 	DataServiceSelectQuery,
 	ExpressionType,
+	FunctionType,
 	OrderDirection,
 	QueryOperationType,
 } from './data-service-types';
+
+/** Result-set key under which the count aggregate is returned. */
+export const COUNT_COLUMN_ALIAS = 'recordsCount';
 
 /**
  * Pure builder that projects the neutral {@link ReadQuery} onto a Creatio DataService
@@ -64,6 +70,32 @@ export class DataServiceQueryBuilder {
 		}
 		if (typeof query.skip === 'number' && query.skip > 0) {
 			select.rowsOffset = query.skip;
+		}
+		return select;
+	}
+
+	/** Build a COUNT(*) SelectQuery over the same filters (ignores paging), used to resolve
+	 *  the total when a read requests `count`. The aggregate is returned under
+	 *  {@link COUNT_COLUMN_ALIAS} in the single response row. */
+	public buildCountQuery(query: ReadQuery): DataServiceSelectQuery {
+		const countColumn: DataServiceSelectColumn = {
+			expression: {
+				expressionType: ExpressionType.Function,
+				functionType: FunctionType.Aggregation,
+				functionArgument: { expressionType: ExpressionType.SchemaColumn, columnPath: 'Id' },
+				aggregationType: AggregationType.Count,
+				aggregationEvalType: AggregationEvalType.None,
+			},
+		};
+		const select: DataServiceSelectQuery = {
+			rootSchemaName: query.entity,
+			operationType: QueryOperationType.Select,
+			columns: { items: { [COUNT_COLUMN_ALIAS]: countColumn } },
+			allColumns: false,
+		};
+		const filters = this._filters.translate(query.entity, query.filter);
+		if (filters) {
+			select.filters = filters;
 		}
 		return select;
 	}

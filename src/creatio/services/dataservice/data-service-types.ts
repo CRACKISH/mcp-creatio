@@ -62,7 +62,33 @@ export enum OrderDirection {
 /** `Terrasoft.ExpressionType` (the only ones we emit). */
 export enum ExpressionType {
 	SchemaColumn = 0,
+	Function = 1,
 	Parameter = 2,
+	SubQuery = 3,
+}
+
+/** `Terrasoft.FunctionType` (subset). */
+export enum FunctionType {
+	None = 0,
+	Macros = 1,
+	Aggregation = 2,
+}
+
+/** `Terrasoft.AggregationType` (subset — we only need Count). */
+export enum AggregationType {
+	None = 0,
+	Count = 1,
+	Sum = 2,
+	Avg = 3,
+	Min = 4,
+	Max = 5,
+}
+
+/** `Terrasoft.AggregationEvalType`. */
+export enum AggregationEvalType {
+	None = 0,
+	All = 1,
+	Distinct = 2,
 }
 
 /** `Terrasoft.QueryOperationType` (op is actually selected by the endpoint; sent for fidelity). */
@@ -117,8 +143,17 @@ export interface DataServiceFilters extends DataServiceFilter {
 	rootSchemaName?: string;
 }
 
+/** An aggregate-function expression (e.g. COUNT) over a column argument. */
+export interface DataServiceAggregationExpression {
+	expressionType: ExpressionType.Function;
+	functionType: FunctionType.Aggregation;
+	functionArgument: DataServiceColumnExpression;
+	aggregationType: AggregationType;
+	aggregationEvalType: AggregationEvalType;
+}
+
 export interface DataServiceSelectColumn {
-	expression: DataServiceColumnExpression;
+	expression: DataServiceColumnExpression | DataServiceAggregationExpression;
 	orderDirection?: OrderDirection;
 	orderPosition?: number;
 }
