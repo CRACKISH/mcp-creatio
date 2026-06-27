@@ -173,7 +173,9 @@ const readInputShape = {
 			z.string().min(1).optional(),
 		)
 		.describe(
-			"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
+			'⚠️ OData backend ONLY — ignored when the DataService backend is active (the default). ' +
+				'Prefer the structured `filters` parameter, which works on both backends.\n' +
+				"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
 				'Operators: eq, ne, gt, ge, lt, le, and, or, not. Functions: contains(F,\'v\'), startswith(F,\'v\'), endswith(F,\'v\'), length(F), day(F).\n\n' +
 				CRITICAL_WARNINGS.GUID_NO_QUOTES +
 				'\n\n' +
@@ -223,7 +225,9 @@ const readInputShape = {
 			z.array(z.string()).optional(),
 		)
 		.describe(
-			'Navigation properties to expand (load related entities in one request).\n\n' +
+			'⚠️ OData backend ONLY — ignored when the DataService backend is active (the default). ' +
+				'With DataService, read related fields by dotted column path in `select`/`filters` (e.g. `Account.Name`).\n\n' +
+				'Navigation properties to expand (load related entities in one request).\n\n' +
 				'This is the OData $expand parameter. Loads related entity objects.\n' +
 				'Very useful to get complete data without multiple requests!\n\n' +
 				'✅ HOW TO USE:\n' +
