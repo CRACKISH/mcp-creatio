@@ -9,16 +9,19 @@ import {
 	ReadQuery,
 	ReadResult,
 } from '../../contracts';
-import { CreatioHttpClient } from '../http-client';
-
 import { assertEntityName } from '../entity-name';
+import { CreatioHttpClient } from '../http-client';
 
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
 import { DataServiceSchemaProvider } from './data-service-schema';
-import { DataServiceFilters, DataServiceSelectQuery, QueryOperationType } from './data-service-types';
 import { DataServiceTransport } from './data-service-transport';
+import {
+	DataServiceFilters,
+	DataServiceSelectQuery,
+	QueryOperationType,
+} from './data-service-types';
 
 const PRIMARY_KEY = 'Id';
 

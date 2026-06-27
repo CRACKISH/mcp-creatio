@@ -3,8 +3,8 @@ import { CrudProvider } from '../contracts';
 
 import { DataServiceCrudProvider } from './dataservice/data-service-crud-provider';
 import { CreatioHttpClient } from './http-client';
-import { ODataCrudProvider } from './odata/odata-crud-provider';
 import { ODataMetadataStore } from './odata/metadata-store';
+import { ODataCrudProvider } from './odata/odata-crud-provider';
 
 export interface CrudProviderDeps {
 	client: CreatioHttpClient;

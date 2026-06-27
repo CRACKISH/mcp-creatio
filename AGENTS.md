@@ -20,16 +20,17 @@ src/
     contracts/        ← provider interfaces (CrudProvider, ProcessProvider, … — the "ports")
     services/         ← provider impls; CRUD backends in odata/ + dataservice/, plus process, sys-settings, …
     engines/          ← domain layer over the contracts (readonly guard + audit; see below)
-    auth/             ← auth providers (legacy / OAuth2 / OAuth2 code) + capability interfaces
-  server/             ← MCP server + HTTP layer (OAuth server, handlers)
+    auth/             ← auth providers (legacy / OAuth2 client-credentials / stateless Bearer / broker) + core contract (contracts/headers/identity/constants)
+  server/             ← MCP server + HTTP layer (bearer edge, broker OAuth server, handlers)
     mcp/              ← MCP tool descriptors, prompts, filters builder
       tool-preparer.ts  ← ToolPreparer/ToolRegistrar contracts (env-gated tools)
       creatio-rest.ts   ← shared REST/sys-setting contracts + helpers for capability clients
       dataforge/        ← DataForge capability: client + tool preparer
       globalsearch/     ← Global Search capability: client + tool preparer
-    oauth/            ← Local OAuth 2.1 authorization server for clients
-  sessions/           ← Session/token store + refresh orchestration (was src/services/)
-  utils/              ← Reusable helpers (env, network, pkce, context)
+    bearer/           ← stateless per-request Bearer edge (delegated: RFC 9728 + fail-fast expiry; gateway: trust)
+    oauth/            ← broker mode: the MCP's own OAuth 2.1 AS (DCR + /authorize + /token, JWT + PKCE)
+  sessions/           ← per-process MCP session/transport lifecycle + per-user Creatio token store (broker only)
+  utils/              ← Reusable helpers (env, network, context)
   types/              ← Shared TypeScript interfaces & DTO shapes
 ```
 
@@ -41,11 +42,19 @@ src/
 
 Two entry points, one `Server` core:
 
-- **HTTP web service** — `src/index.ts` (`npm start`) → `HttpServer` on `PORT` (default 3000),
-  MCP over Streamable HTTP at `/mcp`. For remote/hosted/multi-client; **required for the OAuth2
-  authorization-code flow**. Config from env (`getCreatioClientConfig`).
+- **HTTP web service** — `src/index.ts` (`npm start`) → `HttpServer` on `CREATIO_MCP_PORT` (default
+  3000), MCP over Streamable HTTP at `/mcp`. The multi-user transport, serving three HTTP auth
+  modes: **`broker`** (the MCP is its own OAuth 2.1 AS and holds users' Creatio tokens),
+  **`delegated`** (default — client brings the token), and **`gateway`** (a Control-Plane injects
+  it). Config from env (`getCreatioClientConfig`); HTTP defaults to `delegated` when no auth is set.
 - **stdio** — `src/cli.ts` (the npm `bin` `mcp-creatio`; `npm run start:stdio`) → `StdioServerTransport`.
   For a local client (Claude Desktop) that spawns the process. CLI args map onto the same env vars.
+
+> **One `McpServer` per session (multi-user invariant).** `Server.createSessionServer()` builds a
+> fresh `McpServer` bound to each transport — a single `McpServer` connects to only one transport,
+> so a shared instance would reject the 2nd concurrent session's `connect()`. The tool/descriptor
+> maps are user-agnostic (identity is read from the per-request `AsyncLocalStorage` context at call
+> time) and shared across sessions. `stopAll()` closes them on shutdown.
 
 The **Docker** image (multi-stage, `node:24-alpine`, runs the built `dist/` — not `ts-node`)
 serves **HTTP by default**; set `MCP_TRANSPORT=stdio` (run with `docker run -i`) to switch. The
@@ -55,7 +64,7 @@ the README to the Docker Hub overview.
 
 Key flows:
 
-1. Client authenticates (legacy credentials OR OAuth2 variants).
+1. Client authenticates (HTTP: `broker` — MCP-issued token, or per-request Bearer — delegated/gateway; stdio: client-credentials or legacy).
 2. MCP server registers tools using descriptors from `server/mcp/tools-data.ts`.
 3. Tool handlers call into `CreatioEngineManager`, which resolves a `CreatioServiceContext` (built from `src/creatio/services/*`) and delegates work to the appropriate provider (CRUD, process, sys-settings, user).
 4. Responses are normalized into MCP content blocks.
@@ -64,7 +73,7 @@ Key flows:
 
 ```
 CreatioServiceContext
-  ├─ CreatioAuthManager → selects concrete auth provider (legacy / OAuth2 / OAuth2 code)
+  ├─ CreatioAuthManager → selects the provider for CREATIO_MCP_AUTH_MODE (legacy / client-credentials / stateless Bearer / broker)
   ├─ CreatioHttpClient → transport + logging + retry + header helpers
   │     └─ request(op, url, build, onSuccess, {errorPrefix, logContext}) → the standard
   │        timed call (wraps executeWithTiming + handleErrorResponse); prefer it in providers
@@ -72,7 +81,7 @@ CreatioServiceContext
   │     ├─ DataServiceCrudProvider (DEFAULT) → SelectQuery/Insert/Update/Delete via
   │     │     /0/DataService/json/SyncReply/*; schema via RuntimeEntitySchemaRequest +
   │     │     VwSysSchemaInWorkspace (services/dataservice/*)
-  │     └─ ODataCrudProvider (CREATIO_CRUD_BACKEND=odata) → http + ODataMetadataStore
+  │     └─ ODataCrudProvider (CREATIO_MCP_CRUD_BACKEND=odata) → http + ODataMetadataStore
   │           (services/odata/*)
   ├─ ProcessServiceProvider → POSTs to ProcessEngineService
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
@@ -90,11 +99,11 @@ Usage pattern:
 
 ### Engine layer (domain cross-cutting — NOT a pass-through)
 
-The engines under `src/creatio/engines/` are the domain seam ABOVE the provider interface, so cross-cutting policy is written once for every CRUD backend. `BaseEngine._mutate(action, details, run)` enforces `readonly` (throws `ReadonlyModeError`) and records an audit entry (`log.audit`) before delegating. **Every new mutating engine method MUST route through `_mutate`; read methods stay direct pass-throughs.** `CreatioEngineManager` owns the shared `EngineEnv` ({readonly, audit}); readonly is threaded from `READONLY_MODE`.
+The engines under `src/creatio/engines/` are the domain seam ABOVE the provider interface, so cross-cutting policy is written once for every CRUD backend. `BaseEngine._mutate(action, details, run)` enforces `readonly` (throws `ReadonlyModeError`) and records an audit entry (`log.audit`) before delegating. **Every new mutating engine method MUST route through `_mutate`; read methods stay direct pass-throughs.** `CreatioEngineManager` owns the shared `EngineEnv` ({readonly, audit}); readonly is threaded from `CREATIO_MCP_READONLY`.
 
 ### CRUD backend selection + neutral query contract
 
-`createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_CRUD_BACKEND` (**`dataservice` default** | `odata`), mirroring `CreatioAuthManager`. Both backends are fully implemented; each lives in its own folder (`services/dataservice/*`, `services/odata/*`). To add a backend: implement `CrudProvider`, add a branch in the factory — nothing above the interface changes.
+`createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_MCP_CRUD_BACKEND` (**`dataservice` default** | `odata`), mirroring `CreatioAuthManager`. Both backends are fully implemented; each lives in its own folder (`services/dataservice/*`, `services/odata/*`). To add a backend: implement `CrudProvider`, add a branch in the factory — nothing above the interface changes.
 
 The seam is a **backend-agnostic query contract** (`src/creatio/contracts/query.ts`): `ReadQuery` carries a structured `FilterNode` AST (NOT a dialect string), neutral `columns`/`order`/paging, and an `odata` bag for OData-only escape hatches (`rawFilter`, `expand`). `read` returns a normalized `ReadResult { items, totalCount? }`. Each backend owns a **translator** (Information Expert): `ODataQueryTranslator` (AST → `$filter`/`$select`/`$orderby`, incl. the lookup-nav `XxxId→Xxx/Id` + bare-GUID quirks) and `DataServiceFilterTranslator`/`DataServiceQueryBuilder` (AST → `Filters` tree + `Columns`, paths normalized `Contact/Id → Contact.Id`). DataService writes type `ColumnValues` from `RuntimeEntitySchemaRequest` metadata (authoritative `dataValueType`) with a heuristic fallback — the platform never infers the type from the JSON value. `mcp/filters.ts` only compiles the tool's `{all,any}` arg into a `FilterNode` (`buildFilterNode`) + parses `orderBy`; it knows nothing about either dialect.
 
@@ -104,8 +113,8 @@ These are exact platform contracts confirmed against `core` / the devkit ESQ. Ea
 bug found in live regression; the values are load-bearing, not stylistic:
 
 - **`FilterComparisonType`** numbers (core `EntitySchemaQueryFilter.cs`): `IsNull=1, IsNotNull=2,
-  Equal=3, NotEqual=4, Less=5, LessOrEqual=6, Greater=7, GreaterOrEqual=8, StartWith=9,
-  Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
+Equal=3, NotEqual=4, Less=5, LessOrEqual=6, Greater=7, GreaterOrEqual=8, StartWith=9,
+Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 - **`IsNullFilter` needs an explicit `isNull` boolean** (`true` for is-null, `false` for
   is-not-null). The platform `Filter.IsNull` defaults to TRUE, so omitting it makes every
   null-check an IS NULL (inverts `isNotNull`).
@@ -125,17 +134,17 @@ bug found in live regression; the values are load-bearing, not stylistic:
 
 ## 3. Core Modules You Will Touch
 
-| Area                         | File(s)                                                         | Notes                                                                                                                                  |
-| ---------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Tool registration            | `src/server/mcp/server.ts`                                      | Add/remove tool handlers; keep descriptors in separate file. Composition root that also runs tool preparers.                           |
-| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`                                  | Use `zod` schemas; detailed descriptions help AI reasoning.                                                                            |
-| Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*` | `ToolPreparer` strategy: probe once at startup, register tools only when the capability is available. DataForge is the reference impl. |
-| Query contract               | `src/creatio/contracts/query.ts`                                | Neutral `ReadQuery`/`FilterNode`/`ReadResult`; the seam both CRUD backends translate from.                                              |
-| Filters logic                | `src/server/mcp/filters.ts`                                     | `buildFilterNode` compiles the tool `{all,any}` arg into the neutral `FilterNode` AST (+ `parseOrderBy`). NO dialect here.              |
-| Backend translators          | `src/creatio/services/{odata,dataservice}/*`                    | `ODataQueryTranslator` / `DataServiceFilterTranslator`+builder turn `FilterNode` into each dialect.                                     |
-| Prompts                      | `src/server/mcp/prompts-data.ts`                                | Pre-baked instructional prompts consumed by clients.                                                                                   |
-| Creatio API                  | `src/creatio/services/*`                                        | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them.                           |
-| OAuth for clients            | `src/server/oauth/*`                                            | Maintains tokens for MCP clients; ephemeral memory by default.                                                                         |
+| Area                         | File(s)                                                                 | Notes                                                                                                                                                                                                                                                                                                  |
+| ---------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tool registration            | `src/server/mcp/server.ts`                                              | Add/remove tool handlers; keep descriptors in separate file. Composition root that also runs tool preparers.                                                                                                                                                                                           |
+| Tool schemas & text guidance | `src/server/mcp/tools-data.ts`                                          | Use `zod` schemas; detailed descriptions help AI reasoning.                                                                                                                                                                                                                                            |
+| Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*`         | `ToolPreparer` strategy: probe once (in the first request's context), register tools only when the capability is available. DataForge is the reference impl.                                                                                                                                           |
+| Query contract               | `src/creatio/contracts/query.ts`                                        | Neutral `ReadQuery`/`FilterNode`/`ReadResult`; the seam both CRUD backends translate from.                                                                                                                                                                                                             |
+| Filters logic                | `src/server/mcp/filters.ts`                                             | `buildFilterNode` compiles the tool `{all,any}` arg into the neutral `FilterNode` AST (+ `parseOrderBy`). NO dialect here.                                                                                                                                                                             |
+| Backend translators          | `src/creatio/services/{odata,dataservice}/*`                            | `ODataQueryTranslator` / `DataServiceFilterTranslator`+builder turn `FilterNode` into each dialect.                                                                                                                                                                                                    |
+| Prompts                      | `src/server/mcp/prompts-data.ts`                                        | Pre-baked instructional prompts consumed by clients.                                                                                                                                                                                                                                                   |
+| Creatio API                  | `src/creatio/services/*`                                                | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them.                                                                                                                                                                                           |
+| Client auth (HTTP)           | `src/server/bearer/*`, `src/server/oauth/*` + `http/broker-handlers.ts` | `bearer/` = stateless edge (delegated: RFC 9728 metadata; gateway: trust injected token). `oauth/` + broker-handlers = the `broker` mode: MCP is its own OAuth 2.1 AS (DCR + /authorize + /token) brokering authorization_code+PKCE to Creatio and holding user tokens server-side (`SessionContext`). |
 
 ## 4. Invariants & Rules (Do NOT Break)
 
@@ -144,9 +153,9 @@ bug found in live regression; the values are load-bearing, not stylistic:
 3. Avoid adding blocking network calls in tool descriptors—descriptors must be static; logic belongs in handlers.
 4. Never silently swallow errors coming from Creatio—log via `log.error` then rethrow.
 5. Keep tool names stable: lowercase kebab-case (e.g. `execute-process`).
-6. Keep authentication precedence: Authorization Code > Client Credentials > Legacy.
+6. Auth selection: an explicit `CREATIO_MCP_AUTH_MODE` always wins; when unset the mode is INFERRED in order legacy (login+password) → client_credentials (id+secret) → delegated. `broker`/`delegated`/`gateway` are HTTP-only. Token handling differs by mode: **`broker`** issues its own client tokens AND stores users' Creatio tokens server-side (`SessionContext`); `delegated`/`gateway` pass the client/gateway token straight through and store nothing; `client_credentials`/`legacy` hold one server-side identity.
 7. Do not leak secrets or access tokens in tool responses.
-8. `READONLY_MODE=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered. This is now enforced at two layers: the MCP layer does not register these tools, AND the engine layer's `_mutate` throws `ReadonlyModeError` (defense-in-depth) — both read `READONLY_MODE`.
+8. `CREATIO_MCP_READONLY=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered. This is enforced at two layers: the MCP layer does not register these tools, AND the engine layer's `_mutate` throws `ReadonlyModeError` (defense-in-depth) — both read `CREATIO_MCP_READONLY`.
 
 ## 5. Adding a New Tool (Checklist)
 
@@ -171,8 +180,8 @@ Contracts live in `src/server/mcp/tool-preparer.ts`:
 
 How it wires up:
 
-1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers` — UNLESS the capability is force-disabled via `ServerConfig` (`disableDataForge` / `disableGlobalSearch`, fed from env `DISABLE_DATAFORGE` / `DISABLE_GLOBAL_SEARCH`). A disabled capability is never added to `_preparers`, so it is neither probed (no network / no token spend) nor registered — even on an environment where it IS available. `_isDataForgeReady()` then stays false, so `describe-entity` falls back to the active CRUD backend.
-2. `startMcp()` calls `_prepareTools()` **after** core tools are registered. Each preparer is probed once; failures are isolated and recorded as disabled in `_capabilities`.
+1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers` — UNLESS the capability is force-disabled via `ServerConfig` (`disableDataForge` / `disableGlobalSearch`, fed from env `CREATIO_MCP_DISABLE_DATAFORGE` / `CREATIO_MCP_DISABLE_GLOBAL_SEARCH`). A disabled capability is never added to `_preparers`, so it is neither probed (no network / no token spend) nor registered — even on an environment where it IS available. `_isDataForgeReady()` then stays false, so `describe-entity` falls back to the active CRUD backend.
+2. `ensureCapabilitiesProbed()` runs `_prepareTools()` once, lazily, from INSIDE the first request's `runWithContext` — so the probe's Creatio calls carry the caller's identity (broker mode has no user otherwise). It is **non-blocking** (fire-and-forget, so the MCP handshake isn't delayed) and **self-healing**: a preparer that returns cleanly records its verdict in `_capabilities` and is never re-probed; one that THROWS (e.g. identity not usable yet) records nothing, so a later authenticated connect retries it. Newly-registered tools are pushed into every live session server (the SDK emits `tools/list_changed`).
 3. Core tools can branch on a capability via `_capabilities` (e.g. `describe-entity` routes through DataForge when ready, otherwise falls back to OData — see below).
 
 Capability clients share the narrow REST/sys-setting contracts and the
@@ -184,7 +193,7 @@ Three capabilities follow this pattern today:
 - **DataForge** (`dataforge/`, 5 tools + describe-entity routing) — gated on `DataForgeServiceUrl`.
 - **Global Search** (`globalsearch/`, one `global-search` tool) — gated on `GlobalSearchUrl`.
 - **Published tools** (`crtmcp/`) — a hidden, opt-in proxy for the `CrtMCPPublishingApp`
-  composable app. Gated on the `ENABLE_PUBLISHED_TOOLS` env flag (default off) AND the app
+  composable app. Gated on the `CREATIO_MCP_ENABLE_PUBLISHED_TOOLS` env flag (default off) AND the app
   being installed. Enumerates online `McpServer`s, calls each server's JSON-RPC
   `/0/rest/ToolServiceMcp/{code}/v1/mcp` `tools/list`, and re-exposes each published tool
   under a `pub-<server>-<tool>` name that proxies `tools/call` back to the app (the app keeps
@@ -203,7 +212,7 @@ Rules for new gated capabilities:
 
 - Add a client (talks to Creatio, no MCP knowledge) + a `ToolPreparer` (registers tools). Do not put endpoint logic in `server.ts`.
 - Probe must be cheap and degrade to "disabled" on any error (never throw out of `prepare`).
-- Read-only gated tools are registered regardless of `READONLY_MODE` (they do not mutate); keep mutating gated tools behind the readonly check.
+- Read-only gated tools are registered regardless of `CREATIO_MCP_READONLY` (they do not mutate); keep mutating gated tools behind the readonly check.
 - `describe-entity` enrichment: when DataForge is enabled it returns `{ source: 'dataforge', entitySet, dataForge }`, otherwise `{ source: 'odata', entitySet, metadata }`. Preserve this `source` discriminator if you touch it.
 
 ## 6. Error Handling Pattern
@@ -253,14 +262,14 @@ There is a real test suite (Vitest + supertest) and **every code change must shi
 ```
 test/
   unit/        ← pure logic + classes with fakes (most tests live here)
-  api/         ← supertest against the real Express app (HTTP/OAuth/MCP routes)
+  api/         ← supertest against the real Express app (HTTP/MCP routes)
   support/     ← shared test harness (USE THESE, do not reinvent)
     http-client.ts   → makeHttpClientHarness(responder), jsonResponse, textResponse, bodyOf
     fake-context.ts  → makeFakeContext(authType) — a full CreatioProviderContext of vi.fn() stubs
     test-server.ts   → createTestServer(), createAuthProviderMock(), resetSessionContext()
 ```
 
-Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test.ts`. Keep the logger quiet (the vitest config already sets `MCP_CREATIO_LOG_LEVEL=silent`).
+Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test.ts`. Keep the logger quiet (the vitest config already sets `CREATIO_MCP_LOG_LEVEL=silent`).
 
 ### Which level to use (pick the closest to what you changed)
 
@@ -279,6 +288,45 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 - Prefer driving real code through the harness over asserting on mocks-of-mocks. Service-provider tests use a **real** `CreatioHttpClient`; only `fetch` is stubbed.
 - Cover the unhappy paths explicitly (4xx/5xx, parse failure, expired, missing token/identity) — that is where the bugs are.
 - Process entry points (`cli.ts`, `index.ts`) are excluded from coverage; unit-test their pure helpers instead.
+
+### Verifying the auth modes live (manual, against a real Creatio)
+
+The unit suite covers the auth logic; this is the recipe for a live end-to-end smoke test of each
+`CREATIO_MCP_AUTH_MODE` against a real instance. Common to all: build first (`npm run build`), then
+`node dist/index.js` with the env below. The dev stand's TLS cert key is weak, so the Node process
+needs `NODE_TLS_REJECT_UNAUTHORIZED=0` (and even then Node's `fetch` rejects it with
+`EE certificate key too weak` — fetch a token with `curl -k` instead, see delegated/gateway).
+
+**`broker` — drive with a real OAuth MCP client** (e.g. Claude Code), because the OAuth + browser
+consent flow is the point of the mode:
+
+```bash
+CREATIO_MCP_AUTH_MODE=broker CREATIO_BASE_URL=… CREATIO_CLIENT_ID=… \
+CREATIO_CLIENT_SECRET=…           # only for a confidential Creatio app
+CREATIO_MCP_JWT_SECRET=…          # optional; set it so client tokens survive a restart
+NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/index.js
+```
+
+Point the client at `http://localhost:3000/mcp`; it discovers the AS (RFC 9728/8414), registers
+(DCR), and opens the browser for Creatio login. Verify in logs: `/oauth/callback → 302` (no
+`broker.creatio.exchange_failed`) → `session.connect` → `mcp.prepare … enabled:true`. The same Creatio
+app works public (PKCE only), confidential (`+ client_secret`), and with "Enforce PKCE" on/off — the
+broker always sends S256 PKCE. After a restart the in-memory Creatio tokens are gone, so the client's
+still-valid JWT gets `401 invalid_token` → it must re-authorize (in Claude Code: **Clear
+authentication** → reconnect).
+
+**`client_credentials` / `legacy` / `delegated` / `gateway` — drive with a direct handshake.** These
+have no per-user OAuth, so a plain MCP client can't trigger a login; test them with a raw
+Streamable-HTTP handshake instead: `POST /mcp` `initialize` → `notifications/initialized` →
+`tools/call get-current-user-info` (carry the `mcp-session-id` header the initialize response
+returns). Expect the call to resolve to the expected user.
+
+- `client_credentials`: env `CREATIO_MCP_AUTH_MODE=client_credentials` + `CREATIO_CLIENT_ID`/`SECRET`;
+  `/mcp` is open (no edge), the provider injects the M2M token. Confirm `creatio.auth.ok authKind=oauth2`.
+- `legacy`: env `…=legacy` + `CREATIO_LOGIN`/`CREATIO_PASSWORD`. Confirm `creatio.auth.ok authKind=legacy`.
+- `delegated`/`gateway`: the request must carry `Authorization: Bearer <a real Creatio token>`. Mint
+  one out-of-band (e.g. `curl -k` the client_credentials grant at `<base>/0/connect/token`) and pass
+  it through. A request with **no** token must get `401`; `gateway` also honors `X-Creatio-Base-Url`.
 
 ## 11. Versioning & Release (MANDATORY checklist)
 
@@ -316,9 +364,17 @@ through CI, not local `gh`. Backfill an old tag via the workflow's `workflow_dis
 
 If adding new auth provider:
 
-1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the core capability: `getHeaders` + `refresh`). Implement `IRevocableAuthProvider` and/or `IInteractiveAuthProvider` ONLY if the provider actually supports revocation / the interactive authorization-code flow — do not stub unsupported methods (consumers use the `supportsRevoke` / `supportsInteractiveAuth` guards).
-2. Add selection logic in `auth-manager.ts` maintaining precedence ordering.
+1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the single `ICreatioAuthProvider` contract: `getHeaders` + `refresh` + `cancelAllRefresh`). The current providers are `LegacyProvider`, `OAuth2Provider` (client credentials), `OAuth2BearerProvider` (stateless per-request passthrough — delegated/gateway), and `BrokerProvider` (serves the user's broker-held Creatio tokens, refreshing on demand).
+2. Add selection logic in `auth-manager.ts` and `config-builder.ts`, preserving the order: explicit `CREATIO_MCP_AUTH_MODE` wins, else inferred legacy → client_credentials → delegated.
 3. Document environment variables clearly in README + AGENTS.md.
+
+> **Token model by mode.** In **`broker`** the MCP IS its own OAuth 2.1 authorization server for
+> clients (`src/server/oauth/` + `http/broker-handlers.ts`): it does DCR + `/authorize` + `/token`,
+> brokers the login to Creatio via authorization_code+PKCE, and holds each user's Creatio tokens
+> server-side in `SessionContext` (in-memory; lost on restart — a `401 invalid_token` then makes the
+> client re-authorize). In **`delegated`/`gateway`** the MCP stores nothing: the client (delegated,
+> obtained from Creatio Identity, advertised via RFC 9728) or a fronting Control-Plane (gateway)
+> supplies the token and the Bearer edge in `src/server/bearer/` passes it through.
 
 ## 14. Prompts Extension
 
@@ -337,15 +393,15 @@ design that an experienced reviewer would: clear responsibilities, small seams, 
 - **SOLID** — SRP (one reason to change per class: see the provider/translator/engine split);
   OCP (extend via a new Strategy + factory branch, e.g. CRUD backends, not `if/else` edits);
   LSP (every `CrudProvider`/auth provider is fully substitutable — no throwing stubs); ISP
-  (split fat interfaces by capability, e.g. `IRevocable/IInteractiveAuthProvider`,
-  `CrudCapabilities`); DIP (handlers depend on contract interfaces, never concrete transports).
+  (keep contracts minimal, e.g. the single-capability `ICreatioAuthProvider`, `CrudCapabilities`);
+  DIP (handlers depend on contract interfaces, never concrete transports).
 - **GRASP** — Information Expert (the dialect lives in its translator; the backend owns its
   capabilities), Pure Fabrication (translators/transport/query-builder), Low Coupling / High
   Cohesion, Protected Variations (the neutral `ReadQuery`/`FilterNode` seam shields callers
   from backend differences).
 - **Clean Code** — intention-revealing names, small single-responsibility functions, no
   duplication (extract shared helpers like `assertEntityName`/`lookupIdPath`), comments explain
-  *why* (platform quirks, wire-value provenance), guard clauses over deep nesting.
+  _why_ (platform quirks, wire-value provenance), guard clauses over deep nesting.
 - **Patterns** — Strategy (CRUD backends, auth, tool preparers), Factory (`createCrudProvider`),
   Adapter (translators OData/DataService), Template Method (`BaseEngine._mutate`), Facade
   (`CreatioServiceContext`). Reach for the pattern that removes the smell — don't over-engineer.
@@ -379,7 +435,7 @@ unit for pure logic (translators, value-type, filters) and full-stack/API for wi
 
 ## 18. Future Enhancements (Suggestions)
 
-- Implement persistent token storage (e.g., file/Redis) for OAuth tokens.
+- Implement persistent token storage (e.g., file/Redis) for broker-held Creatio tokens (today in-memory in `SessionContext`, lost on restart).
 - Provide structured error codes instead of raw messages.
 - Raise branch coverage toward 90% and wire `npm test` into CI.
 - Live-regress the DataService backend against a real environment, then consider dropping the

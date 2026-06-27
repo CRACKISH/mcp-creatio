@@ -2,8 +2,8 @@ import { EntitySchemaDescription } from '../../contracts';
 
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { DataServiceQueryBuilder } from './data-service-query-builder';
-import { DataServiceSelectQuery, DataValueType } from './data-service-types';
 import { DataServiceTransport } from './data-service-transport';
+import { DataServiceSelectQuery, DataValueType } from './data-service-types';
 
 interface RuntimeColumn {
 	uId?: string;
@@ -66,7 +66,9 @@ export class DataServiceSchemaProvider {
 			logContext: { entity: ENTITY_LIST_SCHEMA },
 		});
 		const rows: any[] = Array.isArray(body?.rows) ? body.rows : [];
-		const names = rows.map((r) => String(r?.Name)).filter((name) => name && name !== 'undefined');
+		const names = rows
+			.map((r) => String(r?.Name))
+			.filter((name) => name && name !== 'undefined');
 		// The view yields one row per (schema, workspace/caption); a SelectQuery DISTINCT on
 		// Name+Caption still leaves Name duplicates, so dedupe by Name here.
 		return [...new Set(names)];

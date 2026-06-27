@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe('log level gating', () => {
 	it('logs nothing when silent (default)', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'silent');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'silent');
 		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
 		log.info('hi');
@@ -20,7 +20,7 @@ describe('log level gating', () => {
 	});
 
 	it('logs info/warn/error at info level', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
 		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -33,7 +33,7 @@ describe('log level gating', () => {
 	});
 
 	it('logs only errors at error level', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'error');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'error');
 		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
 		log.info('i');
@@ -43,7 +43,7 @@ describe('log level gating', () => {
 	});
 
 	it('includes the correlation id and structured meta in the payload', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
 		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
 		log.setCorrelationId('corr-123');
 		log.httpStart(3000, { extra: 'x' });
@@ -55,7 +55,7 @@ describe('log level gating', () => {
 	});
 
 	it('emits all the structured event helpers at info level', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
 		const out = vi.spyOn(console, 'log').mockImplementation(() => {});
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 		log.appStart({ a: 1 });
@@ -79,7 +79,7 @@ describe('log level gating', () => {
 	});
 
 	it('routes to stderr when stderr-only mode is enabled', () => {
-		vi.stubEnv('MCP_CREATIO_LOG_LEVEL', 'info');
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
 		const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 		log.useStderrOnlyLogs();
 		log.info('to-stderr');

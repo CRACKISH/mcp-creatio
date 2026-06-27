@@ -1,12 +1,10 @@
-import { OAuth2AuthConfig, OAuth2CodeAuthConfig } from '../../client-config';
-import { EXPIRES_MARGIN_SECONDS, buildHeaders } from '../auth';
+import { OAuth2AuthConfig } from '../../client-config';
+import { EXPIRES_MARGIN_SECONDS, buildHeaders, resolveIdentityBase } from '../auth';
 
 import { BaseProvider } from './base-provider';
 
-type OAuthConfig = OAuth2AuthConfig | OAuth2CodeAuthConfig;
-
 export abstract class BaseOAuth2Provider<
-	T extends OAuthConfig = OAuthConfig,
+	T extends OAuth2AuthConfig = OAuth2AuthConfig,
 > extends BaseProvider<T> {
 	protected abstract readonly authErrorCode: string;
 
@@ -21,25 +19,7 @@ export abstract class BaseOAuth2Provider<
 	}
 
 	protected getIdentityBase(): string {
-		if (this.authConfig.idBaseUrl) {
-			let base = String(this.authConfig.idBaseUrl).replace(/\/$/, '');
-			if (!/\/0$/.test(base)) {
-				base = base + '/0';
-			}
-			return base;
-		}
-		let base = this.config.baseUrl.replace(/\/$/, '');
-		if (!/\/0$/.test(base)) {
-			base = base + '/0';
-		}
-		return base;
-	}
-
-	protected storageKey(userKey: string): string {
-		const base = this.getIdentityBase();
-		const kind = (this.config as any)?.auth?.kind ?? 'unknown';
-		const clientId = (this.config as any)?.auth?.clientId ?? 'noclient';
-		return `${kind}|${base}|${clientId}|${userKey}`;
+		return resolveIdentityBase(this.config.baseUrl, this.authConfig.idBaseUrl);
 	}
 
 	protected throwNoTokenError(): void {

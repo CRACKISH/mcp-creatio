@@ -91,14 +91,17 @@ export function applyCliEnv(opts: CliOptions): void {
 	setEnvIfDefined('CREATIO_CLIENT_ID', opts['client-id']);
 	setEnvIfDefined('CREATIO_CLIENT_SECRET', opts['client-secret']);
 	setEnvIfDefined('CREATIO_ID_BASE_URL', opts['id-base-url']);
-	setEnvIfDefined('READONLY_MODE', opts.readonly);
-	setEnvIfDefined('MCP_CREATIO_LOG_LEVEL', opts['log-level']);
+	setEnvIfDefined('CREATIO_MCP_READONLY', opts.readonly);
+	setEnvIfDefined('CREATIO_MCP_LOG_LEVEL', opts['log-level']);
 }
 
 async function startStdio(server: Server): Promise<void> {
-	const mcp = await server.startMcp();
+	const mcp = server.createSessionServer();
 	const transport = new StdioServerTransport();
 	await mcp.connect(transport);
+	// stdio uses a single-user provider (legacy/client_credentials) that carries its own
+	// credentials, so the probe needs no request context here.
+	server.ensureCapabilitiesProbed();
 	log.info('stdio.server.start');
 }
 
@@ -111,7 +114,7 @@ async function shutdown(signal: string, state: RuntimeState): Promise<void> {
 	shuttingDown = true;
 	log.appStop({ reason: signal || 'shutdown' });
 	try {
-		await state.server?.stopMcp();
+		await state.server?.stopAll();
 	} catch (err) {
 		log.error('shutdown.error', { error: String(err) });
 	}
@@ -128,19 +131,24 @@ async function main(): Promise<void> {
 	applyCliEnv(opts);
 	const cfg = getCreatioClientConfig();
 
-	if (cfg.auth.kind === AuthProviderType.OAuth2Code) {
+	// stdio is a single-process, single-user transport. The multi-user HTTP auth modes
+	// (delegated/gateway/broker) have no incoming web request to authenticate here.
+	if (
+		cfg.auth.kind === AuthProviderType.OAuth2Bearer ||
+		cfg.auth.kind === AuthProviderType.Broker
+	) {
 		throw new Error(
-			'oauth2_code_requires_http_server: use "npm start" (HTTP /mcp mode) for OAuth2 authorization-code flow',
+			`auth_mode_requires_http_server: CREATIO_MCP_AUTH_MODE=${cfg.auth.kind === AuthProviderType.Broker ? 'broker' : 'delegated/gateway'} needs the HTTP /mcp server — use "npm start". stdio supports client-credentials or legacy auth.`,
 		);
 	}
 
 	const provider = new CreatioServiceContext(cfg);
-	const readonlyMode = envBool('READONLY_MODE', false);
+	const readonlyMode = envBool('CREATIO_MCP_READONLY', false);
 	const engines = new CreatioEngineManager(provider, { readonly: readonlyMode });
 	const server = new Server(engines, {
 		readonlyMode,
-		disableDataForge: envBool('DISABLE_DATAFORGE', false),
-		disableGlobalSearch: envBool('DISABLE_GLOBAL_SEARCH', false),
+		disableDataForge: envBool('CREATIO_MCP_DISABLE_DATAFORGE', false),
+		disableGlobalSearch: envBool('CREATIO_MCP_DISABLE_GLOBAL_SEARCH', false),
 	});
 	const state: RuntimeState = { server };
 

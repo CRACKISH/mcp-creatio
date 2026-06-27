@@ -52,10 +52,10 @@ describe('setEnvIfDefined / applyCliEnv', () => {
 		expect(process.env.CREATIO_BASE_URL).toBe('https://tenant.creatio.local');
 		expect(process.env.CREATIO_LOGIN).toBe('admin');
 		expect(process.env.CREATIO_PASSWORD).toBe('secret');
-		expect(process.env.READONLY_MODE).toBe('true');
+		expect(process.env.CREATIO_MCP_READONLY).toBe('true');
 		delete process.env.CREATIO_BASE_URL;
 		delete process.env.CREATIO_LOGIN;
 		delete process.env.CREATIO_PASSWORD;
-		delete process.env.READONLY_MODE;
+		delete process.env.CREATIO_MCP_READONLY;
 	});
 });

@@ -1,5 +1,6 @@
 import log from '../../log';
 import { JSON_ACCEPT, XML_ACCEPT } from '../../types';
+import { getBaseUrlOverride } from '../../utils';
 import { CreatioAuthManager, ICreatioAuthProvider } from '../auth';
 import { CreatioClientConfig } from '../client-config';
 
@@ -18,8 +19,14 @@ export class CreatioHttpClient {
 		return this._authManager.getProvider();
 	}
 
+	/**
+	 * Effective Creatio instance base for the current request. A per-request override is honored
+	 * only in gateway mode (the trusted Control-Plane sets `X-Creatio-Base-Url` for multi-tenant
+	 * routing); the delegated edge never populates it, so a client cannot redirect calls elsewhere.
+	 */
 	public get normalizedBaseUrl(): string {
-		return this._normalizedBaseUrl;
+		const override = getBaseUrlOverride();
+		return override ? override.replace(/\/$/, '') : this._normalizedBaseUrl;
 	}
 
 	constructor(config: CreatioClientConfig, authManager: CreatioAuthManager) {

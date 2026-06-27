@@ -1,8 +1,5 @@
 export * from './auth-manager';
-export type {
-	ICreatioAuthProvider,
-	IRevocableAuthProvider,
-	IInteractiveAuthProvider,
-} from './auth';
-export { supportsRevoke, supportsInteractiveAuth } from './auth';
-export { AuthProviderType } from './providers/type';
+export type { ICreatioAuthProvider } from './auth';
+export { resolveIdentityBase } from './auth';
+export { CreatioOAuthClient } from './providers';
+export { AuthProviderType, BearerAuthMode } from './providers/type';

@@ -1,7 +1,13 @@
 import { CreatioClientConfig } from '../client-config';
 
 import { ICreatioAuthProvider } from './auth';
-import { AuthProviderType, LegacyProvider, OAuth2CodeProvider, OAuth2Provider } from './providers';
+import {
+	AuthProviderType,
+	BrokerProvider,
+	LegacyProvider,
+	OAuth2BearerProvider,
+	OAuth2Provider,
+} from './providers';
 
 export class CreatioAuthManager {
 	private readonly _config: CreatioClientConfig;
@@ -12,8 +18,10 @@ export class CreatioAuthManager {
 		const authKind = this._config.auth.kind;
 		if (authKind === AuthProviderType.OAuth2) {
 			this._provider = new OAuth2Provider(this._config);
-		} else if (authKind === AuthProviderType.OAuth2Code) {
-			this._provider = new OAuth2CodeProvider(this._config);
+		} else if (authKind === AuthProviderType.OAuth2Bearer) {
+			this._provider = new OAuth2BearerProvider(this._config);
+		} else if (authKind === AuthProviderType.Broker) {
+			this._provider = new BrokerProvider(this._config);
 		} else if (authKind === AuthProviderType.Legacy) {
 			this._provider = new LegacyProvider(this._config);
 		} else {

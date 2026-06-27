@@ -69,7 +69,10 @@ export class CrtMcpPublishingClient {
 		const list = Array.isArray(items) ? (items as Array<Record<string, unknown>>) : [];
 		return list
 			.filter((r) => r?.IsOnline === true && typeof r.Code === 'string' && r.Code.length > 0)
-			.map((r) => ({ code: r.Code as string, title: (r.Name as string) ?? (r.Code as string) }));
+			.map((r) => ({
+				code: r.Code as string,
+				title: (r.Name as string) ?? (r.Code as string),
+			}));
 	}
 
 	/** Tool definitions advertised by a server's MCP `tools/list`. */

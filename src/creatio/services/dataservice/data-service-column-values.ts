@@ -1,10 +1,10 @@
 import { DataServiceColumnValues, DataValueType, ExpressionType } from './data-service-types';
 import {
+	ValueTypeResolver,
 	encodeParameterValue,
 	inferDataValueType,
 	isGuid,
 	toParameterDataValueType,
-	ValueTypeResolver,
 } from './data-service-value-type';
 
 /**

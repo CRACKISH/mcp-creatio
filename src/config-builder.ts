@@ -1,76 +1,151 @@
+import crypto from 'node:crypto';
+
 import {
 	AuthProviderType,
+	BearerAuthConfig,
+	BearerAuthMode,
+	BrokerAuthConfig,
 	CreatioClientAuthConfig,
 	CreatioClientConfig,
 	CrudBackend,
 	LegacyAuthConfig,
 	OAuth2AuthConfig,
-	OAuth2CodeAuthConfig,
 } from './creatio';
+import log from './log';
 import { env } from './utils';
 
-function getCreatioClientAuthConfig(): CreatioClientAuthConfig {
-	const codeConf = _getOAuth2CodeAuthConfig();
-	if (codeConf) {
-		return codeConf;
+/**
+ * The single user-facing auth selector (`CREATIO_MCP_AUTH_MODE`). When unset it is INFERRED from
+ * the supplied credentials (see {@link resolveAuthConfig}); `delegated`/`gateway` need none.
+ */
+const AUTH_MODES = ['delegated', 'gateway', 'broker', 'client_credentials', 'legacy'] as const;
+type AuthMode = (typeof AUTH_MODES)[number];
+
+const MISSING_CLIENT_CREDENTIALS =
+	'client_credentials auth requires CREATIO_CLIENT_ID and CREATIO_CLIENT_SECRET';
+const MISSING_LEGACY = 'legacy auth requires CREATIO_LOGIN and CREATIO_PASSWORD';
+const MISSING_BROKER = 'broker auth requires CREATIO_CLIENT_ID';
+
+function readExplicitMode(): AuthMode | undefined {
+	const raw = env('CREATIO_MCP_AUTH_MODE')?.toLowerCase();
+	if (!raw) {
+		return undefined;
 	}
-	const oauth2Conf = _getOAuth2AuthConfig();
-	if (oauth2Conf) {
-		return oauth2Conf;
+	if ((AUTH_MODES as readonly string[]).includes(raw)) {
+		return raw as AuthMode;
 	}
-	const legacyConf = _getLegacyAuthConfig();
-	if (legacyConf) {
-		return legacyConf;
-	}
-	throw new Error(
-		'You must set either CREATIO_CODE_* (client id, client secret, redirect, scope) or CREATIO_CLIENT_ID/CREATIO_CLIENT_SECRET, or both CREATIO_LOGIN and CREATIO_PASSWORD',
-	);
+	throw new Error(`unsupported_auth_mode:${raw} (expected one of ${AUTH_MODES.join(', ')})`);
 }
 
-function _getOAuth2CodeAuthConfig(): OAuth2CodeAuthConfig | null {
-	const codeClientId = env('CREATIO_CODE_CLIENT_ID');
-	const codeClientSecret = env('CREATIO_CODE_CLIENT_SECRET');
-	const codeRedirectUri = env('CREATIO_CODE_REDIRECT_URI');
-	const codeScope = env('CREATIO_CODE_SCOPE');
-	if (codeClientId && codeClientSecret && codeRedirectUri && codeScope) {
-		return {
-			kind: AuthProviderType.OAuth2Code,
-			clientId: codeClientId,
-			clientSecret: codeClientSecret,
-			redirectUri: codeRedirectUri,
-			scope: codeScope,
-		};
+/**
+ * Infers the mode from supplied credentials when `CREATIO_MCP_AUTH_MODE` is unset:
+ * legacy (login/password) → client_credentials (id/secret) → delegated (stateless, no creds).
+ */
+function inferMode(): AuthMode {
+	if (env('CREATIO_LOGIN') && env('CREATIO_PASSWORD')) {
+		return 'legacy';
 	}
-	return null;
+	if (env('CREATIO_CLIENT_ID') && env('CREATIO_CLIENT_SECRET')) {
+		return 'client_credentials';
+	}
+	return 'delegated';
 }
 
-function _getOAuth2AuthConfig(): OAuth2AuthConfig | null {
+function bearerConfig(mode: BearerAuthMode): BearerAuthConfig {
+	const conf: BearerAuthConfig = { kind: AuthProviderType.OAuth2Bearer, mode };
+	const idb = env('CREATIO_ID_BASE_URL');
+	if (idb) {
+		conf.idBaseUrl = idb;
+	}
+	return conf;
+}
+
+function clientCredentialsConfig(): OAuth2AuthConfig {
 	const clientId = env('CREATIO_CLIENT_ID');
 	const clientSecret = env('CREATIO_CLIENT_SECRET');
-	if (clientId && clientSecret) {
-		const conf: OAuth2AuthConfig = { kind: AuthProviderType.OAuth2, clientId, clientSecret };
-		const idb = env('CREATIO_ID_BASE_URL');
-		if (idb) {
-			conf.idBaseUrl = idb;
-		}
-		return conf;
+	if (!clientId || !clientSecret) {
+		throw new Error(MISSING_CLIENT_CREDENTIALS);
 	}
-	return null;
+	const conf: OAuth2AuthConfig = { kind: AuthProviderType.OAuth2, clientId, clientSecret };
+	const idb = env('CREATIO_ID_BASE_URL');
+	if (idb) {
+		conf.idBaseUrl = idb;
+	}
+	return conf;
 }
 
-function _getLegacyAuthConfig(): LegacyAuthConfig | null {
+/**
+ * The secret that signs the tokens the broker issues to its OWN clients. A stable secret is
+ * required to (a) keep client tokens valid across restarts and (b) validate them across multiple
+ * instances. When unset we generate an ephemeral one so local/dev just works — with a warning,
+ * since both properties above are lost.
+ */
+function resolveBrokerJwtSecret(): string {
+	const configured = env('CREATIO_MCP_JWT_SECRET');
+	if (configured) {
+		return configured;
+	}
+	log.warn('broker.jwt_secret.ephemeral', {
+		detail:
+			'CREATIO_MCP_JWT_SECRET is not set — generated a random one. Tokens issued to clients ' +
+			'will be invalidated on restart and will not validate across multiple instances. Set a ' +
+			'stable secret for production or horizontal scaling.',
+	});
+	return crypto.randomBytes(32).toString('base64url');
+}
+
+function brokerConfig(): BrokerAuthConfig {
+	const clientId = env('CREATIO_CLIENT_ID');
+	if (!clientId) {
+		throw new Error(MISSING_BROKER);
+	}
+	const jwtSecret = resolveBrokerJwtSecret();
+	const conf: BrokerAuthConfig = { kind: AuthProviderType.Broker, clientId, jwtSecret };
+	const clientSecret = env('CREATIO_CLIENT_SECRET');
+	if (clientSecret) {
+		conf.clientSecret = clientSecret;
+	}
+	const idb = env('CREATIO_ID_BASE_URL');
+	if (idb) {
+		conf.idBaseUrl = idb;
+	}
+	return conf;
+}
+
+function legacyConfig(): LegacyAuthConfig {
 	const login = env('CREATIO_LOGIN');
 	const password = env('CREATIO_PASSWORD');
-	if (login && password) {
-		return { kind: AuthProviderType.Legacy, login, password };
+	if (!login || !password) {
+		throw new Error(MISSING_LEGACY);
 	}
-	return null;
+	return { kind: AuthProviderType.Legacy, login, password };
+}
+
+/**
+ * Resolves the one effective auth config from the unified `CREATIO_MCP_AUTH_MODE` selector
+ * (explicit or inferred). Credential-based modes throw a clear error when their inputs are missing;
+ * stateless Bearer modes (delegated/gateway) need none.
+ */
+function resolveAuthConfig(): CreatioClientAuthConfig {
+	const mode = readExplicitMode() ?? inferMode();
+	switch (mode) {
+		case 'delegated':
+			return bearerConfig(BearerAuthMode.Delegated);
+		case 'gateway':
+			return bearerConfig(BearerAuthMode.Gateway);
+		case 'broker':
+			return brokerConfig();
+		case 'client_credentials':
+			return clientCredentialsConfig();
+		case 'legacy':
+			return legacyConfig();
+	}
 }
 
 function getCrudBackend(): CrudBackend {
-	const raw = env('CREATIO_CRUD_BACKEND')?.toLowerCase();
+	const raw = env('CREATIO_MCP_CRUD_BACKEND')?.toLowerCase();
 	// DataService is the default backend (Creatio's native data API, what the UI uses);
-	// set CREATIO_CRUD_BACKEND=odata to opt into the OData backend instead.
+	// set CREATIO_MCP_CRUD_BACKEND=odata to opt into the OData backend instead.
 	if (!raw || raw === 'dataservice') {
 		return 'dataservice';
 	}
@@ -80,11 +155,18 @@ function getCrudBackend(): CrudBackend {
 	return 'odata';
 }
 
-export function getCreatioClientConfig(): CreatioClientConfig {
+function getRequiredBaseUrl(): string {
 	const baseUrl = env('CREATIO_BASE_URL');
 	if (!baseUrl) {
 		throw new Error('Environment variable CREATIO_BASE_URL is required but not set');
 	}
-	const auth = getCreatioClientAuthConfig();
-	return { baseUrl, auth, crudBackend: getCrudBackend() };
+	return baseUrl;
+}
+
+export function getCreatioClientConfig(): CreatioClientConfig {
+	return {
+		baseUrl: getRequiredBaseUrl(),
+		auth: resolveAuthConfig(),
+		crudBackend: getCrudBackend(),
+	};
 }

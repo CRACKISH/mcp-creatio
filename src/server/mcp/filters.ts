@@ -82,7 +82,10 @@ export function parseOrderBy(orderBy: unknown): OrderSpec[] | undefined {
 		.filter(Boolean)
 		.map((part): OrderSpec => {
 			const [field, dir] = part.split(/\s+/);
-			return { field: field as string, dir: (dir ?? '').toLowerCase() === 'desc' ? 'desc' : 'asc' };
+			return {
+				field: field as string,
+				dir: (dir ?? '').toLowerCase() === 'desc' ? 'desc' : 'asc',
+			};
 		});
 	return terms.length ? terms : undefined;
 }

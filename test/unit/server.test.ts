@@ -506,13 +506,59 @@ describe('Server result normalization', () => {
 });
 
 describe('Server MCP lifecycle', () => {
-	it('startMcp registers tools/prompts and is idempotent; stopMcp closes', async () => {
+	it('createSessionServer builds an independent McpServer per session; stopAll closes', async () => {
 		const { server } = buildServer();
-		const mcp = await server.startMcp();
-		expect(mcp).toBeTruthy();
-		expect(await server.startMcp()).toBe(mcp); // idempotent
+		const a = server.createSessionServer();
+		const b = server.createSessionServer();
+		expect(a).toBeTruthy();
+		expect(b).toBeTruthy();
+		// Each session MUST get its own server — a shared singleton would reject the second
+		// transport's connect() with "Already connected to a transport".
+		expect(a).not.toBe(b);
 		expect(server.authProvider.type).toBeTruthy();
-		await server.stopMcp();
+		await server.stopAll();
+	});
+
+	it('releaseSessionServer untracks (and closes) a single session server', async () => {
+		const { server } = buildServer();
+		const tracked = (server as unknown as { _sessionServers: Set<unknown> })._sessionServers;
+		const mcp = server.createSessionServer();
+		expect(tracked.has(mcp)).toBe(true);
+		server.releaseSessionServer(mcp);
+		expect(tracked.has(mcp)).toBe(false);
+		await server.stopAll(); // nothing left to close — must not throw
+	});
+
+	it('ensureCapabilitiesProbed runs the probe once and memoizes a complete verdict', async () => {
+		const { server } = buildServer();
+		const s = server as unknown as {
+			_probeComplete: boolean;
+			_probeInFlight: boolean;
+			_capabilities: Map<string, boolean>;
+		};
+		server.ensureCapabilitiesProbed();
+		expect(s._probeInFlight).toBe(true); // kicked off
+		for (let i = 0; i < 100 && s._probeInFlight; i++) {
+			await new Promise((r) => setTimeout(r, 5));
+		}
+		// Default fake context: every preparer returns a clean (disabled) verdict, so the probe is
+		// complete and memoized — a second call is a no-op and does not re-probe.
+		expect(s._probeComplete).toBe(true);
+		const verdicts = s._capabilities.size;
+		expect(verdicts).toBeGreaterThan(0);
+		server.ensureCapabilitiesProbed();
+		expect(s._probeInFlight).toBe(false);
+		expect(s._capabilities.size).toBe(verdicts);
+	});
+
+	it('late capability registration pushes tools into an already-live session server', async () => {
+		const { server, context, handlers } = buildServer();
+		enableDataForge(context); // the probe will now succeed
+		server.createSessionServer(); // a session is live BEFORE the probe runs
+		await (server as unknown as { _prepareTools: () => Promise<boolean> })._prepareTools();
+		// Registered into the shared maps AND pushed into the live session server (loop exercised).
+		expect(handlers.has('dataforge-status')).toBe(true);
+		await server.stopAll();
 	});
 });
 

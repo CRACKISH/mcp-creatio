@@ -1,0 +1,111 @@
+import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
+
+import { inspectBearer, isExpired } from './bearer-token';
+
+import type { Express, NextFunction, Request, Response } from 'express';
+
+const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
+const BASE_URL_OVERRIDE_HEADER = 'x-creatio-base-url';
+
+/** RFC 9728 Protected Resource Metadata, advertising Creatio Identity as the authorization server. */
+export function buildProtectedResourceMetadata(resource: string, identityBase: string) {
+	return {
+		resource,
+		authorization_servers: [identityBase],
+		scopes_supported: ['offline_access'],
+		bearer_methods_supported: ['header'],
+	};
+}
+
+/**
+ * The HTTP "edge" for the stateless per-request Bearer model — the only place the two modes differ.
+ *
+ * - **gateway**: a trusted Control-Plane injects the Bearer (+ optional `X-Creatio-Base-Url` for
+ *   multi-tenant routing); the MCP trusts it and passes it through.
+ * - **delegated**: the client obtained the token directly from Creatio Identity; the MCP advertises
+ *   that authorization server via RFC 9728, challenges unauthenticated requests, and fails fast on
+ *   an obviously-expired JWT.
+ *
+ * In both modes Creatio remains the ultimate authority — it independently rejects invalid tokens on
+ * the API call — so the runtime is a straight token passthrough; only discovery/trust differ here.
+ */
+export class BearerEdge {
+	private readonly _config: BearerAuthConfig;
+	private readonly _baseUrl: string;
+
+	constructor(config: BearerAuthConfig, baseUrl: string) {
+		this._config = config;
+		this._baseUrl = baseUrl;
+	}
+
+	private get _isDelegated(): boolean {
+		return this._config.mode === BearerAuthMode.Delegated;
+	}
+
+	/** Identity Service base advertised to clients. */
+	private get _identityBase(): string {
+		return this._config.idBaseUrl ?? `${this._baseUrl.replace(/\/$/, '')}/0`;
+	}
+
+	/** Delegated mode publishes RFC 9728 metadata so clients can discover the authorization server. */
+	public registerRoutes(app: Express): void {
+		if (!this._isDelegated) {
+			return;
+		}
+		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
+			const resource = `${req.protocol}://${req.get('host')}/mcp`;
+			res.json(buildProtectedResourceMetadata(resource, this._identityBase));
+		});
+	}
+
+	/** Express middleware guarding `/mcp`. Sets `req.bearerToken` / `req.userKey` / `req.baseUrlOverride`. */
+	public mcpAuth() {
+		return (req: Request, res: Response, next: NextFunction): void => {
+			const header = req.headers.authorization;
+			if (!header || !header.startsWith('Bearer ')) {
+				return this._challenge(req, res, 'missing_token');
+			}
+			const token = header.slice(7);
+
+			if (!this._isDelegated) {
+				// gateway: a per-request instance override is honored only here (from the trusted gateway).
+				const baseOverride = req.headers[BASE_URL_OVERRIDE_HEADER];
+				if (typeof baseOverride === 'string' && baseOverride) {
+					(req as Request & { baseUrlOverride?: string }).baseUrlOverride = baseOverride;
+				}
+				return this._accept(req, token, next);
+			}
+
+			// delegated: fail fast on an obviously-expired JWT; Creatio validates the rest on the call.
+			const decoded = inspectBearer(token);
+			if (decoded.isJwt && isExpired(decoded)) {
+				return this._challenge(req, res, 'token_expired');
+			}
+			return this._accept(req, token, next, decoded.userKey);
+		};
+	}
+
+	private _accept(req: Request, token: string, next: NextFunction, userKey?: string): void {
+		const r = req as Request & { userKey?: string; bearerToken?: string };
+		r.userKey = userKey ?? inspectBearer(token).userKey;
+		r.bearerToken = token;
+		next();
+	}
+
+	private _challenge(req: Request, res: Response, reason: string): void {
+		if (this._isDelegated) {
+			const resourceMetadata = `${req.protocol}://${req.get('host')}${PROTECTED_RESOURCE_METADATA_PATH}`;
+			res.setHeader(
+				'WWW-Authenticate',
+				`Bearer resource_metadata="${resourceMetadata}", error="${reason}"`,
+			);
+		}
+		res.status(401).json({
+			error: 'unauthorized',
+			error_description:
+				reason === 'missing_token'
+					? 'A Creatio access token is required in the Authorization header.'
+					: `Bearer token rejected: ${reason}.`,
+		});
+	}
+}

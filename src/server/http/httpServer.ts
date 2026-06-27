@@ -3,52 +3,57 @@ import { Socket } from 'node:net';
 
 import express from 'express';
 
-import { AuthProviderType } from '../../creatio/';
+import { AuthProviderType, CreatioOAuthClient } from '../../creatio/';
 import log from '../../log';
 import { SessionContext } from '../../sessions';
-import { env } from '../../utils';
+import { BearerEdge } from '../bearer';
 import { OAuthServer } from '../oauth';
 
-import { CreatioOAuthHandlers } from './creatio-oauth-handlers';
+import { BrokerHandlers } from './broker-handlers';
 import { McpHandlers } from './mcp-handlers';
-import { MCPOAuthHandlers } from './mcp-oauth-handlers';
 import { HttpMiddleware } from './middleware';
 
+import type { BearerAuthConfig, BrokerAuthConfig, CreatioClientConfig } from '../../creatio/';
 import type { Server } from '../mcp';
 
 export class HttpServer {
+	private static readonly BODY_LIMIT = '10mb';
 	private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-	// Generous, configurable cap so large CRM payloads/filters are not truncated.
-	// DoS on the OAuth surface is handled by the rate limiter (frequency), not body size.
-	private static readonly BODY_LIMIT = env('MCP_MAX_BODY_SIZE') || '10mb';
-	// Per-route fixed-window limits (per client IP) for the unauthenticated OAuth surface.
+	// Per-route fixed-window limits (per IP) for the unauthenticated broker OAuth surface.
 	private static readonly RATE_LIMIT_AUTH_FLOW = { windowMs: 60_000, max: 60 };
 	private static readonly RATE_LIMIT_TOKEN = { windowMs: 60_000, max: 30 };
 	private static readonly RATE_LIMIT_REGISTER = { windowMs: 60_000, max: 10 };
-	private static readonly RATE_LIMIT_REVOKE = { windowMs: 60_000, max: 20 };
 	private readonly _server: Server;
 	private readonly _app = express();
 	private readonly _connections = new Set<Socket>();
 	private _srv!: http.Server;
 	private _cleanupTimer: NodeJS.Timeout | undefined;
 	private readonly _sessionContext = SessionContext.instance;
-	private readonly _oauthServer: OAuthServer;
-	private readonly _middleware: HttpMiddleware;
+	private readonly _middleware = new HttpMiddleware();
 	private readonly _mcpHandlers: McpHandlers;
-	private readonly _creatioOauthHandlers: CreatioOAuthHandlers;
-	private readonly _mcpOauthHandlers: MCPOAuthHandlers;
+	private readonly _bearerEdge: BearerEdge | undefined;
+	private readonly _broker: BrokerHandlers | undefined;
+	private readonly _brokerOAuth: OAuthServer | undefined;
 
 	public get app(): express.Express {
 		return this._app;
 	}
 
-	constructor(server: Server) {
+	constructor(server: Server, config?: CreatioClientConfig) {
 		this._server = server;
-		this._oauthServer = new OAuthServer();
-		this._middleware = new HttpMiddleware(this._oauthServer);
 		this._mcpHandlers = new McpHandlers(this._server);
-		this._creatioOauthHandlers = new CreatioOAuthHandlers(this._server, this._oauthServer);
-		this._mcpOauthHandlers = new MCPOAuthHandlers(this._oauthServer);
+		const auth = config?.auth;
+		if (auth?.kind === AuthProviderType.OAuth2Bearer) {
+			this._bearerEdge = new BearerEdge(auth as BearerAuthConfig, config!.baseUrl);
+		} else if (auth?.kind === AuthProviderType.Broker) {
+			const brokerAuth = auth as BrokerAuthConfig;
+			this._brokerOAuth = new OAuthServer(brokerAuth.jwtSecret);
+			this._broker = new BrokerHandlers(
+				this._brokerOAuth,
+				new CreatioOAuthClient(config!.baseUrl, brokerAuth),
+				this._sessionContext,
+			);
+		}
 		this._setupMiddleware();
 		this._setupRoutes();
 	}
@@ -58,17 +63,22 @@ export class HttpServer {
 		this._app.use(this._middleware.requestLogging());
 		this._app.use(express.json({ limit: HttpServer.BODY_LIMIT }));
 		this._app.use(express.urlencoded({ extended: true, limit: HttpServer.BODY_LIMIT }));
-		if (this._isNeedMCPOAuth()) {
-			this._app.use('/mcp', this._middleware.bearerAuth());
+		if (this._bearerEdge) {
+			// Stateless per-request auth: every /mcp call must carry a Creatio access token.
+			this._app.use('/mcp', this._bearerEdge.mcpAuth());
+		} else if (this._broker) {
+			// Broker mode: /mcp requires a token THIS server issued.
+			this._app.use('/mcp', this._broker.mcpAuth());
 		}
 		this._app.use(this._middleware.errorHandler());
 	}
 
 	private _setupRoutes(): void {
 		this._setupMCPEndpoints();
-		if (this._isNeedMCPOAuth()) {
-			this._setupCreatioOAuthEndpoints();
-			this._setupMCPOAuthEndpoints();
+		if (this._bearerEdge) {
+			this._bearerEdge.registerRoutes(this._app);
+		} else if (this._broker) {
+			this._setupBrokerEndpoints(this._broker);
 		}
 	}
 
@@ -78,47 +88,25 @@ export class HttpServer {
 		this._app.delete('/mcp', (req, res) => this._mcpHandlers.handleSessionRequest(req, res));
 	}
 
-	private _isNeedMCPOAuth(): boolean {
-		return this._server.authProvider.type === AuthProviderType.OAuth2Code;
-	}
-
-	private _setupCreatioOAuthEndpoints(): void {
-		this._app.get(
-			'/oauth/start',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
-			(req, res) => this._creatioOauthHandlers.handleOAuthStart(req, res),
+	private _setupBrokerEndpoints(broker: BrokerHandlers): void {
+		const rl = (o: { windowMs: number; max: number }) => this._middleware.rateLimit(o);
+		this._app.get('/.well-known/oauth-authorization-server', (q, s) =>
+			broker.handleMetadata(q, s),
 		);
-		this._app.get(
-			'/oauth/callback',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
-			(req, res) => this._creatioOauthHandlers.handleOAuthCallback(req, res),
+		this._app.get('/.well-known/oauth-protected-resource', (q, s) =>
+			broker.handleProtectedResourceMetadata(q, s),
 		);
-		this._app.post(
-			'/oauth/revoke',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_REVOKE),
-			this._middleware.bearerAuth(),
-			(req, res) => this._creatioOauthHandlers.handleOAuthRevoke(req, res),
+		this._app.post('/register', rl(HttpServer.RATE_LIMIT_REGISTER), (q, s) =>
+			broker.handleRegister(q, s),
 		);
-	}
-
-	private _setupMCPOAuthEndpoints(): void {
-		this._app.get('/.well-known/oauth-authorization-server', (req, res) =>
-			this._mcpOauthHandlers.handleMetadata(req, res),
+		this._app.get('/authorize', rl(HttpServer.RATE_LIMIT_AUTH_FLOW), (q, s) =>
+			broker.handleAuthorize(q, s),
 		);
-		this._app.post(
-			'/register',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_REGISTER),
-			(req, res) => this._mcpOauthHandlers.handleClientRegistration(req, res),
+		this._app.get('/oauth/callback', rl(HttpServer.RATE_LIMIT_AUTH_FLOW), (q, s) =>
+			broker.handleCallback(q, s),
 		);
-		this._app.get(
-			'/authorize',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_AUTH_FLOW),
-			(req, res) => this._mcpOauthHandlers.handleAuthorization(req, res),
-		);
-		this._app.post(
-			'/token',
-			this._middleware.rateLimit(HttpServer.RATE_LIMIT_TOKEN),
-			(req, res) => this._mcpOauthHandlers.handleTokenExchange(req, res),
+		this._app.post('/token', rl(HttpServer.RATE_LIMIT_TOKEN), (q, s) =>
+			broker.handleToken(q, s),
 		);
 	}
 
@@ -138,15 +126,15 @@ export class HttpServer {
 				this._connections.add(socket);
 				socket.once('close', () => this._connections.delete(socket));
 			});
-			// Periodically evict expired OAuth codes/states and unreachable user tokens so
-			// these maps stay bounded over a long-running process. Unref'd so it never holds
-			// the event loop open.
-			this._cleanupTimer = setInterval(() => {
-				this._oauthServer.cleanup();
-				this._sessionContext.cleanupExpiredOAuthStates();
-				this._sessionContext.evictStaleTokens();
-			}, HttpServer.CLEANUP_INTERVAL_MS);
-			this._cleanupTimer.unref();
+			// Broker mode keeps transient state (codes, pending auths, user tokens) — evict expired
+			// entries periodically so the maps stay bounded. Unref'd so it never holds the loop open.
+			if (this._brokerOAuth) {
+				this._cleanupTimer = setInterval(() => {
+					this._brokerOAuth!.cleanup();
+					this._sessionContext.evictStaleTokens();
+				}, HttpServer.CLEANUP_INTERVAL_MS);
+				this._cleanupTimer.unref();
+			}
 		});
 	}
 
@@ -162,7 +150,7 @@ export class HttpServer {
 		}
 		if (this._srv) {
 			try {
-				await this._server.stopMcp();
+				await this._server.stopAll();
 				await new Promise<void>((resolve) => {
 					this._srv.close(() => resolve());
 				});

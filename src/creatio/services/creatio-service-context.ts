@@ -1,6 +1,5 @@
 import { CreatioAuthManager, ICreatioAuthProvider } from '../auth';
 import { CreatioClientConfig } from '../client-config';
-import { CreatioProviderContext } from '../provider-context';
 import {
 	AdminOperationProvider,
 	ConfigurationProvider,
@@ -10,6 +9,7 @@ import {
 	SysSettingsProvider,
 	UserProvider,
 } from '../contracts';
+import { CreatioProviderContext } from '../provider-context';
 
 import { AdminOperationServiceProvider } from './admin-operation-service-provider';
 import { ConfigurationServiceProvider } from './configuration-service-provider';

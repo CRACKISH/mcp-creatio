@@ -10,21 +10,43 @@ import { OAuthValidators } from './validators';
 import type {
 	OAuthAccessToken,
 	OAuthAuthorizationRequest,
-	OAuthAuthorizationServerMetadata,
 	OAuthClient,
 	OAuthError,
 	OAuthTokenRequest,
 } from './types';
 
 export class OAuthServer {
-	private readonly _jwtSecret: string = crypto.randomBytes(32).toString('hex');
 	private readonly _storage = new OAuthStorage();
 	private readonly _tokenManager: OAuthTokenManager;
-	private _baseUrl: string;
 
-	constructor(baseUrl: string = 'http://localhost:3000') {
-		this._baseUrl = baseUrl;
-		this._tokenManager = new OAuthTokenManager(this._jwtSecret);
+	/**
+	 * @param jwtSecret stable secret (from `CREATIO_MCP_JWT_SECRET`) signing the tokens issued to
+	 *        MCP clients — stable so issued tokens survive a restart, unlike a random per-process key.
+	 */
+	constructor(jwtSecret: string) {
+		this._tokenManager = new OAuthTokenManager(jwtSecret);
+	}
+
+	/**
+	 * Records a brokered authorization in flight and returns its opaque broker state (used as the
+	 * `state` on the Creatio leg). Server-side storage keeps the client's PKCE and our Creatio-leg
+	 * verifier apart — nothing is embedded in the Creatio `state`.
+	 */
+	public createPendingAuthorization(data: {
+		client_id: string;
+		redirect_uri: string;
+		code_challenge: string;
+		code_challenge_method: string;
+		client_state?: string | undefined;
+		creatio_verifier: string;
+	}): string {
+		const brokerState = crypto.randomBytes(32).toString('base64url');
+		this._storage.storePendingAuthorization(brokerState, data);
+		return brokerState;
+	}
+
+	public takePendingAuthorization(brokerState: string) {
+		return this._storage.takePendingAuthorization(brokerState);
 	}
 
 	private _autoRegisterClientIfNeeded(client_id: string, redirect_uri: string): boolean {
@@ -40,20 +62,6 @@ export class OAuthServer {
 		const client = OAuthClientManager.autoRegisterClient(client_id, redirect_uri);
 		this._storage.addClient(client);
 		return true;
-	}
-
-	public getAuthorizationServerMetadata(): OAuthAuthorizationServerMetadata {
-		return {
-			issuer: this._baseUrl,
-			authorization_endpoint: `${this._baseUrl}/authorize`,
-			token_endpoint: `${this._baseUrl}/token`,
-			registration_endpoint: `${this._baseUrl}/register`,
-			response_types_supported: ['code'],
-			grant_types_supported: ['authorization_code'],
-			token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
-			code_challenge_methods_supported: ['S256'],
-			scopes_supported: ['openid'],
-		};
 	}
 
 	public registerClient(redirect_uris: string[]): OAuthClient {
@@ -74,34 +82,6 @@ export class OAuthServer {
 			}
 		}
 		return OAuthValidators.validateAuthorizationRequest(params, client);
-	}
-
-	public storeState(state: string, client_id: string): void {
-		this._storage.storeState(state, client_id);
-		log.info('oauth.state.stored', { client_id });
-	}
-
-	public validateState(state: string, client_id: string): boolean {
-		const stateData = this._storage.getState(state);
-		if (!stateData) {
-			log.warn('oauth.state.not_found', { client_id });
-			return false;
-		}
-		if (stateData.expires_at < Date.now()) {
-			this._storage.deleteState(state);
-			log.warn('oauth.state.expired', { client_id });
-			return false;
-		}
-		if (stateData.client_id !== client_id) {
-			log.warn('oauth.state.client_mismatch', {
-				expected: stateData.client_id,
-				actual: client_id,
-			});
-			return false;
-		}
-		this._storage.deleteState(state);
-		log.info('oauth.state.validated_successfully', { client_id });
-		return true;
 	}
 
 	public generateAuthorizationCode(

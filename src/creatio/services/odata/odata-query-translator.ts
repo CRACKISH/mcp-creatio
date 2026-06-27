@@ -108,7 +108,9 @@ export class ODataQueryTranslator {
 		if (node.kind === 'in') {
 			return this._inCondition(node);
 		}
-		const rendered = node.items.map((n) => this._node(n)).filter((s): s is string => Boolean(s));
+		const rendered = node.items
+			.map((n) => this._node(n))
+			.filter((s): s is string => Boolean(s));
 		if (!rendered.length) {
 			return undefined;
 		}

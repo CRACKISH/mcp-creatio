@@ -4,8 +4,8 @@ export default defineConfig({
 	test: {
 		environment: 'node',
 		include: ['test/**/*.test.ts'],
-		// Keep the OAuth/session logger quiet during tests.
-		env: { MCP_CREATIO_LOG_LEVEL: 'silent' },
+		// Keep the logger quiet during tests.
+		env: { CREATIO_MCP_LOG_LEVEL: 'silent' },
 		coverage: {
 			provider: 'v8',
 			reporter: ['text', 'html'],

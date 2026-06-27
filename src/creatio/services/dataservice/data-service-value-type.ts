@@ -56,12 +56,24 @@ const BINARY_TYPES = new Set([13, 14, 25]);
 /** Map a (possibly extended) column {@link DataValueType} to the base type usable as a
  *  DataService query/insert Parameter. */
 export function toParameterDataValueType(dataValueType: number): DataValueType {
-	if (TEXT_TYPES.has(dataValueType)) return DataValueType.Text;
-	if (INTEGER_TYPES.has(dataValueType)) return DataValueType.Integer;
-	if (FLOAT_TYPES.has(dataValueType)) return DataValueType.Float;
-	if (MONEY_TYPES.has(dataValueType)) return DataValueType.Money;
-	if (LOOKUP_TYPES.has(dataValueType)) return DataValueType.Lookup;
-	if (BINARY_TYPES.has(dataValueType)) return DataValueType.Binary;
+	if (TEXT_TYPES.has(dataValueType)) {
+		return DataValueType.Text;
+	}
+	if (INTEGER_TYPES.has(dataValueType)) {
+		return DataValueType.Integer;
+	}
+	if (FLOAT_TYPES.has(dataValueType)) {
+		return DataValueType.Float;
+	}
+	if (MONEY_TYPES.has(dataValueType)) {
+		return DataValueType.Money;
+	}
+	if (LOOKUP_TYPES.has(dataValueType)) {
+		return DataValueType.Lookup;
+	}
+	if (BINARY_TYPES.has(dataValueType)) {
+		return DataValueType.Binary;
+	}
 	if (
 		dataValueType === DataValueType.Guid ||
 		dataValueType === DataValueType.DateTime ||
@@ -88,7 +100,11 @@ export function encodeParameterValue(type: DataValueType, value: unknown): unkno
 	if (value === null || value === undefined) {
 		return null;
 	}
-	if (type === DataValueType.DateTime || type === DataValueType.Date || type === DataValueType.Time) {
+	if (
+		type === DataValueType.DateTime ||
+		type === DataValueType.Date ||
+		type === DataValueType.Time
+	) {
 		const iso = value instanceof Date ? value.toISOString() : String(value);
 		const wallClock = iso.replace(/Z$/i, '').replace(/[+-]\d{2}:?\d{2}$/, '');
 		return `"${wallClock}"`;

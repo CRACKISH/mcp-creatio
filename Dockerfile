@@ -13,9 +13,9 @@ RUN npm run build
 FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-# Transport: "http" (default, web service on $PORT) or "stdio" (run with `docker run -i …`).
-ENV MCP_TRANSPORT=http
-ENV PORT=3000
+# Transport: "http" (default, web service) or "stdio" (run with `docker run -i …`).
+ENV CREATIO_MCP_TRANSPORT=http
+ENV CREATIO_MCP_PORT=3000
 
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev && npm cache clean --force

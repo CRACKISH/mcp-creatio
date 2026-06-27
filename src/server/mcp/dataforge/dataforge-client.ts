@@ -1,7 +1,7 @@
 import log from '../../../log';
 import {
-	ConfigurationCaller,
 	ConfigurationCallResult,
+	ConfigurationCaller,
 	SysSettingReader,
 	hasNonEmptySetting,
 } from '../creatio-rest';

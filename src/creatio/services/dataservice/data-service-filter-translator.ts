@@ -12,13 +12,16 @@ import {
 	LogicalOperation,
 } from './data-service-types';
 import {
+	ValueTypeResolver,
 	encodeParameterValue,
 	inferDataValueType,
 	isGuid,
-	ValueTypeResolver,
 } from './data-service-value-type';
 
-const COMPARISON: Record<Exclude<FilterComparison, 'isNull' | 'isNotNull'>, FilterComparisonType> = {
+const COMPARISON: Record<
+	Exclude<FilterComparison, 'isNull' | 'isNotNull'>,
+	FilterComparisonType
+> = {
 	eq: FilterComparisonType.Equal,
 	ne: FilterComparisonType.NotEqual,
 	gt: FilterComparisonType.Greater,
@@ -57,7 +60,10 @@ export class DataServiceFilterTranslator {
 	}
 
 	private _column(field: string, value?: unknown): DataServiceExpression {
-		return { expressionType: ExpressionType.SchemaColumn, columnPath: this._columnPath(field, value) };
+		return {
+			expressionType: ExpressionType.SchemaColumn,
+			columnPath: this._columnPath(field, value),
+		};
 	}
 
 	private _parameter(field: string, value: unknown): DataServiceExpression {
@@ -82,7 +88,9 @@ export class DataServiceFilterTranslator {
 			const isNull = node.op === 'isNull';
 			return {
 				filterType: FilterType.IsNullFilter,
-				comparisonType: isNull ? FilterComparisonType.IsNull : FilterComparisonType.IsNotNull,
+				comparisonType: isNull
+					? FilterComparisonType.IsNull
+					: FilterComparisonType.IsNotNull,
 				// The platform's Filter.IsNull defaults to TRUE, so an IsNullFilter without this
 				// flag is always treated as IS NULL (inverting isNotNull). Set it explicitly.
 				isNull,

@@ -9,16 +9,18 @@ let _httpInstance: HttpServer | undefined;
 
 async function main() {
 	log.appStart({ env: { node: process.version, HTTP_MCP_PORT } });
+	// Auth mode is resolved in config-builder: explicit CREATIO_MCP_AUTH_MODE, else inferred
+	// (legacy/client_credentials from creds, otherwise delegated for this multi-user HTTP server).
 	const cfg = getCreatioClientConfig();
 	const provider = new CreatioServiceContext(cfg);
-	const readonlyMode = envBool('READONLY_MODE', false);
+	const readonlyMode = envBool('CREATIO_MCP_READONLY', false);
 	const engines = new CreatioEngineManager(provider, { readonly: readonlyMode });
 	const server = new Server(engines, {
 		readonlyMode,
-		disableDataForge: envBool('DISABLE_DATAFORGE', false),
-		disableGlobalSearch: envBool('DISABLE_GLOBAL_SEARCH', false),
+		disableDataForge: envBool('CREATIO_MCP_DISABLE_DATAFORGE', false),
+		disableGlobalSearch: envBool('CREATIO_MCP_DISABLE_GLOBAL_SEARCH', false),
 	});
-	const http = new HttpServer(server);
+	const http = new HttpServer(server, cfg);
 	_httpInstance = http;
 	await http.start(HTTP_MCP_PORT);
 }

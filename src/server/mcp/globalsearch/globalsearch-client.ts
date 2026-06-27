@@ -105,7 +105,12 @@ export class GlobalSearchClient {
 			nextFrom?: number;
 			took?: number;
 			errorInfo?: unknown;
-			data?: Array<{ entityName?: string; id?: string; columnValues?: unknown; foundColumns?: unknown }>;
+			data?: Array<{
+				entityName?: string;
+				id?: string;
+				columnValues?: unknown;
+				foundColumns?: unknown;
+			}>;
 		} | null;
 		if (!p || !Array.isArray(p.data)) {
 			return parsed ?? body;

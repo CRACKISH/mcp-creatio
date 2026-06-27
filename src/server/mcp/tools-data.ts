@@ -120,7 +120,9 @@ const baseCondition = z.object({
 });
 
 const compareCondition = baseCondition.extend({
-	op: op.describe('Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.'),
+	op: op.describe(
+		'Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.',
+	),
 	value: value.describe(
 		'Value to compare with. GUIDs are emitted unquoted for Id/lookup paths; other strings are quoted/escaped automatically.',
 	),
@@ -141,7 +143,9 @@ const filtersShape = z
 			.array(condition)
 			.min(1)
 			.optional()
-			.describe('All conditions (AND). Example: [{ field:"Stage/Name", op:"eq", value:"Presentation" }]'),
+			.describe(
+				'All conditions (AND). Example: [{ field:"Stage/Name", op:"eq", value:"Presentation" }]',
+			),
 		any: z
 			.array(condition)
 			.min(1)
@@ -176,7 +180,7 @@ const readInputShape = {
 			'⚠️ OData backend ONLY — ignored when the DataService backend is active (the default). ' +
 				'Prefer the structured `filters` parameter, which works on both backends.\n' +
 				"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
-				'Operators: eq, ne, gt, ge, lt, le, and, or, not. Functions: contains(F,\'v\'), startswith(F,\'v\'), endswith(F,\'v\'), length(F), day(F).\n\n' +
+				"Operators: eq, ne, gt, ge, lt, le, and, or, not. Functions: contains(F,'v'), startswith(F,'v'), endswith(F,'v'), length(F), day(F).\n\n" +
 				CRITICAL_WARNINGS.GUID_NO_QUOTES +
 				'\n\n' +
 				CRITICAL_WARNINGS.LOOKUP_NAVIGATION +
@@ -304,11 +308,7 @@ export interface ReadCapabilities {
 // Split the full read shape into the always-portable fields and the OData-only escape
 // hatches (raw `filter` string, `expand`), so each backend registers only the parameters it
 // actually honors instead of advertising dead options.
-const {
-	filter: odataFilterField,
-	expand: odataExpandField,
-	...neutralReadShape
-} = readInputShape;
+const { filter: odataFilterField, expand: odataExpandField, ...neutralReadShape } = readInputShape;
 
 export function buildReadInputShape(caps: ReadCapabilities) {
 	return {

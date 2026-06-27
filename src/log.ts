@@ -1,6 +1,8 @@
+import { env } from './utils/env';
+
 export type LogLevel = 'info' | 'warn' | 'error';
 export type LogVerbosity = LogLevel | 'silent';
-export type CreatioAuthKind = 'legacy' | 'oauth2' | 'oauth2_code';
+export type CreatioAuthKind = 'legacy' | 'oauth2';
 
 export interface LogConfig {
 	level?: LogLevel;
@@ -10,7 +12,7 @@ let _correlationId: string | undefined;
 let _stderrOnly = false;
 
 function resolveLogVerbosity(): LogVerbosity {
-	const raw = (process.env.MCP_CREATIO_LOG_LEVEL || 'silent').toLowerCase();
+	const raw = (env('CREATIO_MCP_LOG_LEVEL') || 'silent').toLowerCase();
 	if (raw === 'info') {
 		return 'info';
 	}

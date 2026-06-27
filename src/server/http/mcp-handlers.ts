@@ -51,13 +51,17 @@ export class McpHandlers {
 					}
 				},
 			});
+			// Each session gets its own McpServer (a single McpServer connects to one transport
+			// only). Release it when the transport closes so we don't leak servers or register
+			// late-probed tools into dead sessions.
+			const mcp = this._server.createSessionServer();
 			transport.onclose = () => {
+				this._server.releaseSessionServer(mcp);
 				if (transport?.sessionId) {
 					log.sessionDisconnect(transport.sessionId, String(remoteIp));
 					this._sessionContext.deleteSession(transport.sessionId);
 				}
 			};
-			const mcp = await this._server.startMcp();
 			await mcp.connect(transport as any);
 		} else {
 			res.status(400).json({
@@ -69,9 +73,14 @@ export class McpHandlers {
 		}
 		const session = this._sessionContext.getSession(sessionId);
 		const userKey = bearerUserKey || session?.userKey;
-		await runWithContext({ userKey, sessionId }, async () =>
-			transport!.handleRequest(req, res, req.body),
-		);
+		const bearerToken = (req as any).bearerToken as string | undefined;
+		const baseUrlOverride = (req as any).baseUrlOverride as string | undefined;
+		await runWithContext({ userKey, sessionId, bearerToken, baseUrlOverride }, async () => {
+			// Kick the one-time capability probe from inside the request context so its Creatio
+			// calls carry this caller's identity (broker mode has no user otherwise). Non-blocking.
+			this._server.ensureCapabilitiesProbed();
+			return transport!.handleRequest(req, res, req.body);
+		});
 	}
 
 	public async handleSessionRequest(req: Request, res: Response): Promise<void> {
@@ -91,6 +100,10 @@ export class McpHandlers {
 		// identity (CWE-639).
 		const userKey =
 			(req as any).userKey || session?.userKey || getUserKeyFromRequest(req as any);
-		await runWithContext({ userKey, sessionId }, async () => transport.handleRequest(req, res));
+		const bearerToken = (req as any).bearerToken as string | undefined;
+		const baseUrlOverride = (req as any).baseUrlOverride as string | undefined;
+		await runWithContext({ userKey, sessionId, bearerToken, baseUrlOverride }, async () =>
+			transport.handleRequest(req, res),
+		);
 	}
 }

@@ -1,5 +1,4 @@
 import { OrderSpec, ReadQuery } from '../../contracts';
-
 import { lookupIdPath } from '../lookup-path';
 
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
@@ -29,7 +28,9 @@ export class DataServiceQueryBuilder {
 		this._filters = filters;
 	}
 
-	private _orderMap(order: OrderSpec[] | undefined): Map<string, { dir: OrderDirection; pos: number }> {
+	private _orderMap(
+		order: OrderSpec[] | undefined,
+	): Map<string, { dir: OrderDirection; pos: number }> {
 		const map = new Map<string, { dir: OrderDirection; pos: number }>();
 		(order ?? []).forEach((o, i) => {
 			map.set(o.field, {

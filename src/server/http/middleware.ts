@@ -6,16 +6,9 @@ import { getClientIp } from '../../utils';
 import { RateLimiter } from './rate-limiter';
 
 import type { RateLimitOptions } from './rate-limiter';
-import type { OAuthServer } from '../oauth';
 import type { NextFunction, Request, Response } from 'express';
 
 export class HttpMiddleware {
-	private readonly _oauthServer: OAuthServer;
-
-	constructor(oauthServer: OAuthServer) {
-		this._oauthServer = oauthServer;
-	}
-
 	/**
 	 * Per-route fixed-window rate limit, keyed by the real connection IP (req.ip /
 	 * socket address) rather than the spoofable X-Forwarded-For header, so an
@@ -36,25 +29,6 @@ export class HttpMiddleware {
 				return;
 			}
 			next();
-		};
-	}
-
-	public bearerAuth() {
-		return (req: Request, res: Response, next: NextFunction) => {
-			const authHeader = req.headers.authorization;
-			if (authHeader && authHeader.startsWith('Bearer ')) {
-				const token = authHeader.slice(7);
-				const userKey = this._oauthServer.validateAccessToken(token);
-				if (userKey) {
-					(req as any).userKey = userKey;
-					return next();
-				}
-			}
-			res.status(401).json({
-				error: 'unauthorized',
-				error_description:
-					'Valid Bearer token required. Use OAuth 2.1 flow to obtain access token.',
-			});
 		};
 	}
 

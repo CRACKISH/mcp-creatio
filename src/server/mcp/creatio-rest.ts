@@ -43,9 +43,7 @@ export function getSettingValue(
 	code: string,
 ): unknown {
 	const entry = response?.values?.[code];
-	return entry && typeof entry === 'object'
-		? (entry as { value?: unknown }).value
-		: entry;
+	return entry && typeof entry === 'object' ? (entry as { value?: unknown }).value : entry;
 }
 
 /** True when the named setting holds a non-empty string value. */

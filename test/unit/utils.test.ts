@@ -1,15 +1,10 @@
-import crypto from 'crypto';
-
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { SessionContext } from '../../src/sessions/session-context';
 import {
-	challengeS256,
 	env,
 	envBool,
-	generateCodeVerifier,
-	generatePkcePair,
 	getClientIp,
 	getEffectiveUserKey,
 	getSessionIdFromRequest,
@@ -99,25 +94,6 @@ describe('runWithContext / getEffectiveUserKey', () => {
 	});
 });
 
-describe('PKCE helpers', () => {
-	it('generates a base64url verifier of the requested length', () => {
-		const v = generateCodeVerifier(32);
-		expect(v).toMatch(/^[A-Za-z0-9_-]+$/);
-		expect(v.length).toBeGreaterThanOrEqual(43);
-	});
-
-	it('produces an S256 challenge that matches Node crypto', async () => {
-		const verifier = 'fixed-verifier-value';
-		const expected = crypto.createHash('sha256').update(verifier).digest('base64url');
-		expect(await challengeS256(verifier)).toBe(expected);
-	});
-
-	it('generatePkcePair returns a matching verifier/challenge', async () => {
-		const { verifier, challenge } = await generatePkcePair();
-		expect(challenge).toBe(await challengeS256(verifier));
-	});
-});
-
 describe('env / envBool', () => {
 	afterEach(() => vi.unstubAllEnvs());
 
@@ -136,23 +112,6 @@ describe('env / envBool', () => {
 		expect(envBool('B2', false)).toBe(true);
 		expect(envBool('B3', true)).toBe(false);
 		expect(envBool('B_MISSING', true)).toBe(true);
-	});
-});
-
-describe('PKCE node fallbacks (no Web Crypto)', () => {
-	afterEach(() => vi.unstubAllGlobals());
-
-	it('generateCodeVerifier falls back to node randomBytes', () => {
-		vi.stubGlobal('crypto', {}); // no getRandomValues
-		const v = generateCodeVerifier(16);
-		expect(v).toMatch(/^[A-Za-z0-9_-]+$/);
-		expect(v.length).toBeGreaterThan(0);
-	});
-
-	it('challengeS256 falls back to node createHash', async () => {
-		const expected = crypto.createHash('sha256').update('verifier').digest('base64url');
-		vi.stubGlobal('crypto', {}); // no subtle.digest
-		expect(await challengeS256('verifier')).toBe(expected);
 	});
 });
 

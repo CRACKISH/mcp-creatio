@@ -52,7 +52,12 @@ export class DataServiceTransport {
 				if (opts.checkSuccess) {
 					this._assertSuccess(operation, body);
 				}
-				this._client.logSuccess(`dataservice.${operation}`, response.status, duration, logContext);
+				this._client.logSuccess(
+					`dataservice.${operation}`,
+					response.status,
+					duration,
+					logContext,
+				);
 				return body;
 			},
 			{ errorPrefix: `creatio_dataservice_${operation}_failed`, logContext },

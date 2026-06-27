@@ -14,12 +14,14 @@ import { CrtMcpPublishingClient } from './crtmcp/crt-mcp-client';
 import { CrtMcpPublishingToolPreparer } from './crtmcp/crt-mcp-tool-preparer';
 import { DataForgeClient } from './dataforge/dataforge-client';
 import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
+import { buildFilterNode, parseOrderBy } from './filters';
 import { GlobalSearchClient } from './globalsearch/globalsearch-client';
 import { GlobalSearchToolPreparer } from './globalsearch/globalsearch-tool-preparer';
-import { buildFilterNode, parseOrderBy } from './filters';
 import { ALL_PROMPTS } from './prompts-data';
 import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
 import {
+	buildReadDescriptor,
+	buildReadInput,
 	callConfigurationServiceDescriptor,
 	callConfigurationServiceInput,
 	createDescriptor,
@@ -42,8 +44,6 @@ import {
 	listEntitiesInput,
 	querySysSettingsDescriptor,
 	querySysSettingsInput,
-	buildReadDescriptor,
-	buildReadInput,
 	refreshFeatureCacheDescriptor,
 	refreshFeatureCacheInput,
 	setAdminOperationGranteeDescriptor,
@@ -85,7 +85,18 @@ export class Server {
 	private readonly _engines: CreatioEngineManager;
 	private readonly _descriptors = new Map<string, any>();
 	private readonly _handlers = new Map<string, ToolHandler>();
-	private _mcp?: McpServer;
+	// One McpServer per live transport/session. A single McpServer can be connected to only one
+	// transport, so a shared singleton would reject the second concurrent session's connect()
+	// ("Already connected to a transport"). The handler/descriptor maps below are user-agnostic
+	// (they read identity from the per-request context at call time) and so are shared across all.
+	private readonly _sessionServers = new Set<McpServer>();
+	// The optional-capability probe runs until every preparer yields a DEFINITIVE verdict
+	// (enabled/disabled). Capabilities are instance-level, so one good round serves all sessions.
+	// A round where a Creatio-backed probe only errored (e.g. the first caller's identity wasn't
+	// usable yet) is NOT memoized — a later authenticated connect retries. `_probeInFlight` guards
+	// against concurrent connects each kicking a probe.
+	private _probeComplete = false;
+	private _probeInFlight = false;
 	private _readonly = false;
 	private _serverName = NAME;
 	private _serverVersion = VERSION;
@@ -113,7 +124,7 @@ export class Server {
 		);
 		this._publishedToolsPreparer = new CrtMcpPublishingToolPreparer(
 			new CrtMcpPublishingClient(engines.configuration, engines.crud),
-			envBool('ENABLE_PUBLISHED_TOOLS', false),
+			envBool('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS', false),
 		);
 		// A disabled capability is simply never added to the preparer list, so it is neither
 		// probed (no network / no token spend) nor registered as a tool.
@@ -125,18 +136,21 @@ export class Server {
 		this._registerClientTools();
 	}
 
-	private _registerData() {
+	private _registerAllInto(mcp: McpServer) {
 		for (const [name, handler] of this._handlers.entries()) {
-			this._registerAsTool(name, handler);
+			this._registerAsTool(mcp, name, handler);
 		}
-		this._registerPrompts();
+		this._registerPrompts(mcp);
 	}
 
 	private _registerHandlerWithDescriptor(name: string, descriptor: any, handler: ToolHandler) {
 		this._handlers.set(name, handler);
 		this._descriptors.set(name, descriptor);
-		if (this._mcp) {
-			this._registerAsTool(name, handler);
+		// Late registration (the capability probe runs after sessions may already be connected):
+		// push the tool into every live session server so already-connected clients see it — the
+		// SDK emits notifications/tools/list_changed. New sessions pick it up from the maps above.
+		for (const mcp of this._sessionServers) {
+			this._registerAsTool(mcp, name, handler);
 		}
 	}
 
@@ -165,10 +179,7 @@ export class Server {
 		};
 	}
 
-	private _registerAsTool(name: string, handler: ToolHandler) {
-		if (!this._mcp) {
-			return;
-		}
+	private _registerAsTool(mcp: McpServer, name: string, handler: ToolHandler) {
 		try {
 			const descriptor =
 				this._descriptors.get(name) ||
@@ -177,7 +188,7 @@ export class Server {
 					description: `Tool ${name}`,
 					inputSchema: {},
 				} as any);
-			this._mcp.registerTool(name, descriptor, async (args: any) => {
+			mcp.registerTool(name, descriptor, async (args: any) => {
 				return this._normalizeToToolHandler(handler)(args);
 			});
 			log.info('mcp.tool.register', { tool: name });
@@ -186,13 +197,10 @@ export class Server {
 		}
 	}
 
-	private _registerPrompts() {
-		if (!this._mcp) {
-			return;
-		}
+	private _registerPrompts(mcp: McpServer) {
 		try {
 			for (const prompt of ALL_PROMPTS) {
-				this._mcp.registerPrompt(
+				mcp.registerPrompt(
 					prompt.name,
 					{
 						title: prompt.title,
@@ -217,23 +225,30 @@ export class Server {
 	}
 
 	/**
-	 * Run every optional-capability preparer once: probe the environment and let
-	 * each register its tools only when available. A failing preparer is isolated
-	 * and recorded as disabled. Invoked from {@link startMcp} after the core tools
-	 * are in place.
+	 * Probe each optional-capability preparer that has no verdict yet and let it register its tools
+	 * when available. A preparer that returns cleanly (true/false) gets a recorded verdict and is
+	 * never re-probed; one that THROWS (e.g. the caller's identity isn't usable yet) records nothing
+	 * so a later authenticated connect can retry it — which also makes registration idempotent (an
+	 * already-enabled preparer is skipped, so its tools are never registered twice). Invoked from
+	 * {@link ensureCapabilitiesProbed} within a request context so probe calls carry the caller's
+	 * identity. Returns whether EVERY preparer now has a verdict (the probe is complete).
 	 */
-	private async _prepareTools(): Promise<void> {
+	private async _prepareTools(): Promise<boolean> {
 		const registrar = this._toolRegistrar();
 		for (const preparer of this._preparers) {
-			let enabled = false;
+			if (this._capabilities.has(preparer.name)) {
+				continue; // definitive verdict already recorded — don't re-probe or re-register
+			}
 			try {
-				enabled = await preparer.prepare(registrar);
+				const enabled = await preparer.prepare(registrar);
+				this._capabilities.set(preparer.name, enabled);
+				log.info('mcp.prepare', { preparer: preparer.name, enabled });
 			} catch (err) {
+				// No verdict — leave unrecorded so a later authenticated connect retries.
 				log.warn('mcp.prepare.failed', { preparer: preparer.name, error: String(err) });
 			}
-			this._capabilities.set(preparer.name, enabled);
-			log.info('mcp.prepare', { preparer: preparer.name, enabled });
 		}
+		return this._preparers.every((p) => this._capabilities.has(p.name));
 	}
 
 	/** Whether DataForge was probed as enabled at startup. */
@@ -445,36 +460,68 @@ export class Server {
 		}
 	}
 
-	public async startMcp() {
-		if (this._mcp) {
-			return this._mcp;
-		}
-		this._mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
-		this._registerData();
-		// Probe optional capabilities WITHOUT blocking the MCP handshake. These do
-		// network I/O (DataForge/Global Search probes, and the publishing app's
-		// tools/list, which can be slow) — awaiting here would delay connect past the
-		// client's init timeout. They register into the live _mcp as they resolve and
-		// the SDK emits notifications/tools/list_changed so clients pick them up.
-		void this._prepareTools().catch((err) =>
-			log.warn('mcp.prepare.error', { error: String(err) }),
-		);
+	/**
+	 * Build a fresh {@link McpServer} for one transport/session, with the full known tool +
+	 * prompt surface registered, and track it so the capability probe can later push
+	 * late-discovered tools into it. Each session MUST get its own server (a single McpServer
+	 * connects to only one transport).
+	 */
+	public createSessionServer(): McpServer {
+		const mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
+		this._registerAllInto(mcp);
+		this._sessionServers.add(mcp);
 		log.serverStart(this._serverName, this._serverVersion, {
 			tools: Array.from(this._handlers.keys()),
 			prompts: ALL_PROMPTS.length,
 		});
-		return this._mcp;
+		return mcp;
 	}
 
-	public async stopMcp() {
-		if (!this._mcp) {
+	/**
+	 * Probe optional capabilities once per process, WITHOUT blocking the MCP handshake. These do
+	 * network I/O (DataForge/Global Search probes, and the publishing app's tools/list, which can
+	 * be slow) — awaiting would delay connect past the client's init timeout. Discovered tools
+	 * register into every live session server as they resolve (the SDK emits
+	 * notifications/tools/list_changed) and into the maps for future sessions.
+	 *
+	 * MUST be called from within the per-request context ({@link runWithContext}) so the probe's
+	 * Creatio calls carry the caller's identity/token — otherwise broker mode resolves no user.
+	 */
+	public ensureCapabilitiesProbed(): void {
+		if (this._probeComplete || this._probeInFlight) {
 			return;
 		}
+		this._probeInFlight = true;
+		void this._prepareTools()
+			.then((complete) => {
+				this._probeComplete = complete;
+			})
+			.catch((err) => log.warn('mcp.prepare.error', { error: String(err) }))
+			.finally(() => {
+				this._probeInFlight = false;
+			});
+	}
+
+	/** Untrack and close one session's server (call when its transport closes). */
+	public releaseSessionServer(mcp: McpServer): void {
+		this._sessionServers.delete(mcp);
 		try {
-			this._mcp.close();
-			log.serverStop(this._serverName, this._serverVersion);
+			mcp.close();
 		} catch (err) {
 			log.warn('mcp.stop.failed', { error: String(err) });
 		}
+	}
+
+	/** Close every live session server (process shutdown). */
+	public async stopAll(): Promise<void> {
+		for (const mcp of this._sessionServers) {
+			try {
+				mcp.close();
+			} catch (err) {
+				log.warn('mcp.stop.failed', { error: String(err) });
+			}
+		}
+		this._sessionServers.clear();
+		log.serverStop(this._serverName, this._serverVersion);
 	}
 }
