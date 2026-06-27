@@ -5,7 +5,7 @@ import express from 'express';
 
 import { AuthProviderType } from '../../creatio/';
 import log from '../../log';
-import { SessionContext } from '../../services';
+import { SessionContext } from '../../sessions';
 import { env } from '../../utils';
 import { OAuthServer } from '../oauth';
 

@@ -5,7 +5,7 @@ import {
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
-} from '../providers';
+} from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
 

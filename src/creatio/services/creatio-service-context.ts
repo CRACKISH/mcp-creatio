@@ -9,7 +9,7 @@ import {
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
-} from '../providers';
+} from '../contracts';
 
 import { AdminOperationServiceProvider } from './admin-operation-service-provider';
 import { ConfigurationServiceProvider } from './configuration-service-provider';

@@ -1,5 +1,5 @@
 import { CrudBackend } from '../client-config';
-import { CrudProvider } from '../providers';
+import { CrudProvider } from '../contracts';
 
 import { DataServiceCrudProvider } from './dataservice/data-service-crud-provider';
 import { CreatioHttpClient } from './http-client';

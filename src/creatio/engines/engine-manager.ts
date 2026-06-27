@@ -8,7 +8,7 @@ import {
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
-} from '../providers';
+} from '../contracts';
 
 import { AdminOperationEngine } from './admin-operation-engine';
 import { ConfigurationEngine } from './configuration-engine';

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SessionContext } from '../../src/services/session-context';
-import { TokenRefreshScheduler } from '../../src/services/token-refresh-scheduler';
+import { SessionContext } from '../../src/sessions/session-context';
+import { TokenRefreshScheduler } from '../../src/sessions/token-refresh-scheduler';
 import { resetSessionContext } from '../support/test-server';
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;

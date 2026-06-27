@@ -1,4 +1,4 @@
-import { ClearFeatureCacheResult, FeatureProvider } from '../providers';
+import { ClearFeatureCacheResult, FeatureProvider } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

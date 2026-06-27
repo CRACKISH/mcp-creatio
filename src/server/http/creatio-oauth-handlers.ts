@@ -1,6 +1,6 @@
 import { supportsInteractiveAuth, supportsRevoke } from '../../creatio';
 import log from '../../log';
-import { SessionContext } from '../../services';
+import { SessionContext } from '../../sessions';
 import { getSessionIdFromRequest, runWithContext } from '../../utils';
 import { OAuthValidators } from '../oauth';
 

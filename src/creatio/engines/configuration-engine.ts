@@ -2,7 +2,7 @@ import {
 	CallConfigurationServiceRequest,
 	CallConfigurationServiceResult,
 	ConfigurationProvider,
-} from '../providers';
+} from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
 

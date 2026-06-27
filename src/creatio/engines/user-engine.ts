@@ -1,4 +1,4 @@
-import { CurrentUserInfo, UserProvider } from '../providers';
+import { CurrentUserInfo, UserProvider } from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
 

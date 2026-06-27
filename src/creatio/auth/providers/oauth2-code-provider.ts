@@ -1,6 +1,6 @@
 import { HTTP_MCP_PORT } from '../../../consts';
 import log from '../../../log';
-import { SessionContext, TokenRefreshScheduler, type UserTokens } from '../../../services';
+import { SessionContext, TokenRefreshScheduler, type UserTokens } from '../../../sessions';
 import { getEffectiveUserKey, getUserKey } from '../../../utils';
 import { CreatioClientConfig, OAuth2CodeAuthConfig } from '../../client-config';
 import { AUTHORIZE_ENDPOINT, REVOCATION_ENDPOINT, TOKEN_ENDPOINT } from '../auth';

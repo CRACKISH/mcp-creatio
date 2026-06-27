@@ -4,7 +4,7 @@ import {
 	ConfigurationProvider,
 	ConfigurationServiceHttpMethod,
 	ConfigurationServiceQueryValue,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

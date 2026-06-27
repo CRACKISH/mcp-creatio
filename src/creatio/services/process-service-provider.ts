@@ -1,4 +1,4 @@
-import { ExecuteProcessParams, ExecuteProcessResult, ProcessProvider } from '../providers';
+import { ExecuteProcessParams, ExecuteProcessResult, ProcessProvider } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

@@ -17,6 +17,10 @@ Primary goals:
 ```
 src/
   creatio/            ← Low-level Creatio API client & auth providers
+    contracts/        ← provider interfaces (CrudProvider, ProcessProvider, … — the "ports")
+    services/         ← provider implementations (OData CRUD, process, sys-settings, …)
+    engines/          ← domain layer over the contracts (readonly guard + audit; see below)
+    auth/             ← auth providers (legacy / OAuth2 / OAuth2 code) + capability interfaces
   server/             ← MCP server + HTTP layer (OAuth server, handlers)
     mcp/              ← MCP tool descriptors, prompts, filters builder
       tool-preparer.ts  ← ToolPreparer/ToolRegistrar contracts (env-gated tools)
@@ -24,10 +28,14 @@ src/
       dataforge/        ← DataForge capability: client + tool preparer
       globalsearch/     ← Global Search capability: client + tool preparer
     oauth/            ← Local OAuth 2.1 authorization server for clients
-  services/           ← Session/token refresh orchestration
+  sessions/           ← Session/token store + refresh orchestration (was src/services/)
   utils/              ← Reusable helpers (env, network, pkce, context)
   types/              ← Shared TypeScript interfaces & DTO shapes
 ```
+
+> Naming: `creatio/contracts/` holds the interfaces ("ports"), `creatio/services/` the
+> implementations. The per-process session store lives in top-level `sessions/` (distinct
+> from `creatio/services/`).
 
 Key flows:
 

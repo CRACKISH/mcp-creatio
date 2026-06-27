@@ -9,7 +9,7 @@ import {
 	SysSettingInsertResponse,
 	SysSettingUpdateResponse,
 	SysSettingsProvider,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

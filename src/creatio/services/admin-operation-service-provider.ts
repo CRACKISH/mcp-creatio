@@ -6,7 +6,7 @@ import {
 	SetAdminOperationGranteeRequest,
 	UpsertAdminOperationRequest,
 	UpsertAdminOperationResult,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

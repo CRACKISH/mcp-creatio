@@ -1,4 +1,4 @@
-import { ClearFeatureCacheResult, FeatureProvider } from '../providers';
+import { ClearFeatureCacheResult, FeatureProvider } from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
 

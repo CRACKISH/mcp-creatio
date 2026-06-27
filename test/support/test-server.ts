@@ -1,6 +1,6 @@
 import { AuthProviderType } from '../../src/creatio';
 import { HttpServer } from '../../src/server/http/httpServer';
-import { SessionContext } from '../../src/services/session-context';
+import { SessionContext } from '../../src/sessions/session-context';
 import { getUserKey } from '../../src/utils';
 
 import type { Server } from '../../src/server/mcp';

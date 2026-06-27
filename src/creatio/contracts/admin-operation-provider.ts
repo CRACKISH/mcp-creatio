@@ -23,9 +23,7 @@ export interface SetAdminOperationGranteeRequest {
 
 export interface AdminOperationProvider {
 	readonly kind: string;
-	upsertAdminOperation(
-		request: UpsertAdminOperationRequest,
-	): Promise<UpsertAdminOperationResult>;
+	upsertAdminOperation(request: UpsertAdminOperationRequest): Promise<UpsertAdminOperationResult>;
 	deleteAdminOperation(recordIds: string[]): Promise<AdminOperationServiceResult>;
 	setAdminOperationGrantee(
 		request: SetAdminOperationGranteeRequest,

@@ -5,7 +5,7 @@ import {
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
-} from '../../providers';
+} from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
 
 import { DataServiceQueryBuilder } from './data-service-query-builder';

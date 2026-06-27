@@ -6,7 +6,7 @@ import {
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';

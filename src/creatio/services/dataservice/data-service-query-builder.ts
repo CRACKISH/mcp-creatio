@@ -1,4 +1,4 @@
-import { CrudReadParams } from '../../providers';
+import { CrudReadParams } from '../../contracts';
 
 import {
 	DataServiceSelectColumn,

@@ -5,7 +5,7 @@ import {
 	SysSettingDefinitionUpdate,
 	SysSettingUpdateResponse,
 	SysSettingsProvider,
-} from '../providers';
+} from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
 
