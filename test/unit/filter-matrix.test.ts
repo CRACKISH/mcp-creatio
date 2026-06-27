@@ -73,6 +73,20 @@ describe('OData filter matrix', () => {
 		it('guid on the primary key Id is bare (unquoted)', () => {
 			expect(odata(one('Id', 'eq', G))).toBe(`Id eq ${G}`);
 		});
+
+		// Regression: OData v4 datetime/date literals MUST be unquoted, else 400
+		// "incompatible types Edm.DateTimeOffset and Edm.String" (found in live regression).
+		it.each([
+			['datetime with Z', '2026-06-01T00:00:00Z', 'CreatedOn ge 2026-06-01T00:00:00Z'],
+			['date only', '2026-06-01', 'CreatedOn ge 2026-06-01'],
+			['datetime with offset', '2026-06-01T10:00:00+03:00', 'CreatedOn ge 2026-06-01T10:00:00+03:00'],
+		])('ISO %s is emitted UNQUOTED', (_name, value, expected) => {
+			expect(odata(one('CreatedOn', 'ge', value))).toBe(expected);
+		});
+
+		it('a date-shaped value inside a string function stays quoted', () => {
+			expect(odata(one('Name', 'contains', '2026-06-01'))).toBe("contains(Name,'2026-06-01')");
+		});
 	});
 
 	describe('lookup navigation', () => {

@@ -25,11 +25,19 @@ export class ODataQueryTranslator {
 		return /(^|\/)Id$/.test(field) || /Id$/i.test(field);
 	}
 
+	// ISO-8601 date / date-time. OData v4 expresses Edm.Date and Edm.DateTimeOffset literals
+	// UNQUOTED (e.g. `2026-06-01`, `2026-06-01T00:00:00Z`); quoting them 400s with
+	// "incompatible types Edm.DateTimeOffset and Edm.String".
+	private static readonly ISO_DATETIME =
+		/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
 	private _escapeStr(value: string): string {
 		return value.replace(/'/g, "''");
 	}
 
-	private _literalFor(field: string, value: unknown): string {
+	/** Render a literal. `temporal` allows ISO date/datetime strings to be emitted unquoted
+	 *  (comparison operators); the string functions (contains/…) always quote. */
+	private _literalFor(field: string, value: unknown, temporal = true): string {
 		if (value == null) {
 			return 'null';
 		}
@@ -45,6 +53,9 @@ export class ODataQueryTranslator {
 			// Bare (unquoted) GUID for any Id-typed path — the scalar key `Id`, a lookup FK
 			// `XxxId`, or a navigation `Xxx/Id`. Other strings (incl. `Xxx/Name`) are quoted.
 			if (this._isGuid(v) && this._isIdish(field)) {
+				return v;
+			}
+			if (temporal && ODataQueryTranslator.ISO_DATETIME.test(v)) {
 				return v;
 			}
 			return `'${this._escapeStr(v)}'`;
@@ -68,7 +79,8 @@ export class ODataQueryTranslator {
 			return `${field} ne null`;
 		}
 		if (op === 'contains' || op === 'startswith' || op === 'endswith') {
-			return `${op}(${field},${this._literalFor(field, node.value)})`;
+			// String functions always take a quoted string argument.
+			return `${op}(${field},${this._literalFor(field, node.value, false)})`;
 		}
 		if (node.value == null && (op === 'eq' || op === 'ne')) {
 			return `${field} ${op} null`;

@@ -90,10 +90,13 @@ describe('OData backend — read filter translation (full stack)', () => {
 		);
 	});
 
-	it('by date (quoted string literal)', async () => {
+	it('by date — ISO literal emitted UNQUOTED (OData v4 requires it; live 400 otherwise)', async () => {
 		expect(await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }] })).toBe(
-			"CreatedOn ge '2026-01-01'",
+			'CreatedOn ge 2026-01-01',
 		);
+		expect(
+			await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }] }),
+		).toBe('CreatedOn ge 2026-06-01T00:00:00Z');
 	});
 
 	it('by direct relation — navigation by name', async () => {
