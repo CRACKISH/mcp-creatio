@@ -1,0 +1,47 @@
+name: GitHub Release
+
+# Creates a GitHub Release (what populates the repo's right-side "Releases") from a tag,
+# with notes extracted from the matching CHANGELOG.md section.
+#   - push of a v*.*.* tag  → automatic (future releases)
+#   - workflow_dispatch     → backfill an existing tag (run from the Actions tab)
+on:
+    push:
+        tags: ['v*.*.*']
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'Existing tag to (re)release, e.g. v0.6.2'
+                required: true
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+
+            - name: Extract CHANGELOG section for the tag
+              id: notes
+              shell: bash
+              run: |
+                  TAG="${{ github.event.inputs.tag || github.ref_name }}"
+                  VER="${TAG#v}"
+                  echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+                  awk -v ver="$VER" '
+                    $0 ~ "^## \\[" ver "\\]" { f = 1; next }
+                    f && /^## \[/ { exit }
+                    f { print }
+                  ' CHANGELOG.md > RELEASE_NOTES.md
+                  echo "----- release notes -----"; cat RELEASE_NOTES.md
+
+            - name: Create / update GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: ${{ steps.notes.outputs.tag }}
+                  name: ${{ steps.notes.outputs.tag }}
+                  body_path: RELEASE_NOTES.md
