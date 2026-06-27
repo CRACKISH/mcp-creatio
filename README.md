@@ -131,13 +131,12 @@ Then connect using URL:
 CRUD tools (`read`, `create`, `update`, `delete`, `list-entities`, `describe-entity`) run on a
 selectable data API, chosen once per deployment via `CREATIO_CRUD_BACKEND`:
 
-- **`dataservice`** (default) — Creatio's native DataService (`/0/DataService/json/SyncReply/*`),
-  the same API the Freedom UI uses. Schema/types come from `RuntimeEntitySchemaRequest`.
-- **`odata`** — Creatio OData v4. Enables the OData-only `read` extras (`filter` raw `$filter`
-  string, `expand`).
+- **`dataservice`** (default) — Creatio's native DataService.
+- **`odata`** — Creatio OData v4. Also enables the OData-only `read` extras (`filter` raw
+  `$filter` string, `expand`).
 
 Either way you query through the same tool surface: prefer the structured `filters` parameter —
-it is translated to the active backend's dialect, so it works unchanged on both.
+it works unchanged on both backends.
 
 ## Authentication Modes
 
