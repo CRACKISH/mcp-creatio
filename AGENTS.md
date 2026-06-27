@@ -106,9 +106,9 @@ The engines under `src/creatio/engines/` are the domain seam ABOVE the provider 
 1. Define input shape in `tools-data.ts` using `zod`.
 2. Provide rich description (include examples, edge cases, warnings).
 3. Export descriptor & input schema.
-4. Register in `server.ts` via `_registerHandlerWithDescriptor` (respect readonly mode if mutating).
-5. Implement the handler by calling the appropriate provider on the `CreatioServiceContext` (via `CreatioEngineManager`); if functionality is missing, extend or add a provider under `src/creatio/services` rather than issuing raw fetch calls.
-6. Ensure responses are formatted as `{ content: [{ type: 'text', text: JSON.stringify(result) }] }` when not already MCP native.
+4. Add a row to the declarative tool table in `server.ts` (`_clientToolDefs()` → `core` for reads, `mutating` for writes — only `mutating` tools are gated out in readonly mode). Each row is `{ name, descriptor, input, run }`.
+5. Implement `run` by calling the appropriate engine on the `CreatioEngineManager` (`crud`, `process`, …); if functionality is missing, extend or add a provider under `src/creatio/services` (+ its `contracts/` interface) rather than issuing raw fetch calls. New mutating engine methods must route through `BaseEngine._mutate`.
+6. Return **raw domain data** from `run` — the single `_normalizeToToolHandler` wraps it into `{ content: [{ type: 'text', text }] }` (objects/arrays are `JSON.stringify`-ed, strings passed through, a genuine `{ content: [...] }` envelope passed through as-is). Do not hand-wrap.
 7. Add edge-case validation (empty arrays, invalid GUID, missing required filter fields).
 8. **Write tests** (see §10): a `server.test.ts` case asserting the handler delegates + readonly gating, plus provider-level tests via `makeHttpClientHarness` for any new `src/creatio/services` code. Run `npm run test:coverage` and stay ≥90%.
 9. Update documentation (README if public feature; otherwise just AGENTS.md).
@@ -253,7 +253,7 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 
 If adding new auth provider:
 
-1. Create provider under `src/creatio/auth/providers/` implementing shared interface.
+1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the core capability: `getHeaders` + `refresh`). Implement `IRevocableAuthProvider` and/or `IInteractiveAuthProvider` ONLY if the provider actually supports revocation / the interactive authorization-code flow — do not stub unsupported methods (consumers use the `supportsRevoke` / `supportsInteractiveAuth` guards).
 2. Add selection logic in `auth-manager.ts` maintaining precedence ordering.
 3. Document environment variables clearly in README + AGENTS.md.
 
