@@ -91,7 +91,35 @@ export class DataServiceCrudProvider implements CrudProvider {
 
 	private async _columnValues(entity: string, data: Record<string, unknown>) {
 		const types = await this._schema.columnTypes(entity);
-		return buildColumnValues(data, makeTypeResolver(types));
+		// A scalar lookup FK key (`TypeId`/`OwnerId`) maps to the logical lookup column
+		// (`Type`/`Owner`) when the schema exposes it; DataService writes the lookup by that
+		// column, not by the `*Id` alias.
+		const remapped: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(data ?? {})) {
+			const column =
+				!types.has(key) && key.endsWith('Id') && types.has(key.slice(0, -2))
+					? key.slice(0, -2)
+					: key;
+			remapped[column] = value;
+		}
+		return buildColumnValues(remapped, makeTypeResolver(types));
+	}
+
+	/** Keep only the requested columns (DataService auto-adds primary display/image columns
+	 *  like `Photo`); in all-columns mode return rows untouched. */
+	private _project(rows: any[], columns: string[] | undefined): any[] {
+		if (!columns || columns.length === 0) {
+			return rows;
+		}
+		return rows.map((row) => {
+			const out: Record<string, unknown> = {};
+			for (const col of columns) {
+				if (row && Object.prototype.hasOwnProperty.call(row, col)) {
+					out[col] = row[col];
+				}
+			}
+			return out;
+		});
 	}
 
 	public listEntitySets(): Promise<string[]> {
@@ -104,16 +132,21 @@ export class DataServiceCrudProvider implements CrudProvider {
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		assertEntityName(query.entity);
-		const select = this._queryBuilder.buildSelectQuery(query);
-		const body = await this._transport.post('SelectQuery', select, {
-			logContext: { entity: query.entity, top: query.top, skip: query.skip },
-		});
-		const items = this._rows(body);
-		if (body?.notFoundColumns?.length) {
-			log.warn('creatio.dataservice.read.not_found_columns', {
-				entity: query.entity,
-				notFoundColumns: body.notFoundColumns,
+		// top:0 means "no rows" (typically a count-only request). DataService cannot FETCH 0
+		// rows, so skip the row query entirely and return an empty set.
+		let items: unknown[] = [];
+		if (query.top !== 0) {
+			const select = this._queryBuilder.buildSelectQuery(query);
+			const body = await this._transport.post('SelectQuery', select, {
+				logContext: { entity: query.entity, top: query.top, skip: query.skip },
 			});
+			if (body?.notFoundColumns?.length) {
+				log.warn('creatio.dataservice.read.not_found_columns', {
+					entity: query.entity,
+					notFoundColumns: body.notFoundColumns,
+				});
+			}
+			items = this._project(this._rows(body), query.columns);
 		}
 		if (!query.count) {
 			return { items };

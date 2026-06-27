@@ -3,6 +3,7 @@ import {
 	encodeParameterValue,
 	inferDataValueType,
 	isGuid,
+	toParameterDataValueType,
 	ValueTypeResolver,
 } from './data-service-value-type';
 
@@ -18,10 +19,12 @@ export function makeTypeResolver(types: Map<string, DataValueType>): ValueTypeRe
 		if (known === undefined) {
 			return inferDataValueType(field, value);
 		}
-		if (known === DataValueType.Lookup && isGuid(value)) {
+		// Map the (possibly extended) column type down to a base Parameter type.
+		const base = toParameterDataValueType(known);
+		if (base === DataValueType.Lookup && isGuid(value)) {
 			return DataValueType.Guid;
 		}
-		return known;
+		return base;
 	};
 }
 

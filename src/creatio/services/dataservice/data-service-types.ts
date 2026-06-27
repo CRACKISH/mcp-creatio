@@ -24,19 +24,24 @@ export enum DataValueType {
 	Binary = 13,
 }
 
-/** `Terrasoft.FilterComparisonType` — the subset our neutral ops map onto. */
+/**
+ * `Terrasoft.Core.Entities.FilterComparisonType` — verified against core
+ * `EntitySchemaQueryFilter.cs` (live regression caught the previously-wrong values: Greater/Less
+ * were swapped and Contain/EndWith/IsNull were off, so gt/ge/lt/le/contains/endswith filters
+ * silently mis-applied). Do NOT reorder to "look tidy" — these are the platform's wire values.
+ */
 export enum FilterComparisonType {
+	IsNull = 1,
+	IsNotNull = 2,
 	Equal = 3,
 	NotEqual = 4,
-	Greater = 5,
-	GreaterOrEqual = 6,
-	Less = 7,
-	LessOrEqual = 8,
+	Less = 5,
+	LessOrEqual = 6,
+	Greater = 7,
+	GreaterOrEqual = 8,
 	StartWith = 9,
-	Contain = 10,
-	EndWith = 11,
-	IsNull = 12,
-	IsNotNull = 13,
+	Contain = 11,
+	EndWith = 13,
 }
 
 /** `Terrasoft.FilterType`. */

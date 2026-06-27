@@ -1,5 +1,7 @@
 import { OrderSpec, ReadQuery } from '../../contracts';
 
+import { lookupIdPath } from '../lookup-path';
+
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import {
 	AggregationEvalType,
@@ -42,16 +44,21 @@ export class DataServiceQueryBuilder {
 		const orderByPath = this._orderMap(query.order);
 		const items: Record<string, DataServiceSelectColumn> = {};
 		const selected = query.columns && query.columns.length > 0 ? query.columns : [];
-		for (const path of selected) {
+		for (const requested of selected) {
+			// The response is keyed by the item KEY, so keep the caller's requested name as the
+			// alias and normalize only the columnPath: OData-style `/` -> DataService `.`, and a
+			// scalar lookup FK (`TypeId`) -> its primary-key path (`Type.Id`). A bare lookup
+			// (`Type`) is left as-is so DataService returns its display value.
+			const columnPath = lookupIdPath(requested.replace(/\//g, '.'), '.');
 			const column: DataServiceSelectColumn = {
-				expression: { expressionType: ExpressionType.SchemaColumn, columnPath: path },
+				expression: { expressionType: ExpressionType.SchemaColumn, columnPath },
 			};
-			const hint = orderByPath.get(path);
+			const hint = orderByPath.get(requested);
 			if (hint) {
 				column.orderDirection = hint.dir;
 				column.orderPosition = hint.pos;
 			}
-			items[path] = column;
+			items[requested] = column;
 		}
 
 		const select: DataServiceSelectQuery = {
@@ -64,7 +71,9 @@ export class DataServiceQueryBuilder {
 		if (filters) {
 			select.filters = filters;
 		}
-		if (typeof query.top === 'number') {
+		// DataService rejects a FETCH of 0 rows (top:0); the provider returns no rows for top:0
+		// without sending this query, so only set paging for a positive page size.
+		if (typeof query.top === 'number' && query.top > 0) {
 			select.rowCount = query.top;
 			select.isPageable = true;
 		}

@@ -42,6 +42,38 @@ export function inferDataValueType(field: string, value: unknown): DataValueType
 	return DataValueType.Text;
 }
 
+// Extended `DataValueType` codes (column storage types) grouped by the BASE type a
+// DataService query Parameter accepts. RuntimeEntitySchemaRequest returns the extended codes
+// (e.g. MediumText=28), but a Parameter typed with an extended code 500s
+// ("NotSupportedException: MediumText"), so writes must map column types down to the base.
+const TEXT_TYPES = new Set([1, 23, 24, 27, 28, 29, 30, 36, 42, 43, 44, 45]);
+const INTEGER_TYPES = new Set([4, 11, 17]);
+const FLOAT_TYPES = new Set([5, 31, 32, 33, 34, 40, 47]);
+const MONEY_TYPES = new Set([6, 48, 49, 50]);
+const LOOKUP_TYPES = new Set([10, 16]);
+const BINARY_TYPES = new Set([13, 14, 25]);
+
+/** Map a (possibly extended) column {@link DataValueType} to the base type usable as a
+ *  DataService query/insert Parameter. */
+export function toParameterDataValueType(dataValueType: number): DataValueType {
+	if (TEXT_TYPES.has(dataValueType)) return DataValueType.Text;
+	if (INTEGER_TYPES.has(dataValueType)) return DataValueType.Integer;
+	if (FLOAT_TYPES.has(dataValueType)) return DataValueType.Float;
+	if (MONEY_TYPES.has(dataValueType)) return DataValueType.Money;
+	if (LOOKUP_TYPES.has(dataValueType)) return DataValueType.Lookup;
+	if (BINARY_TYPES.has(dataValueType)) return DataValueType.Binary;
+	if (
+		dataValueType === DataValueType.Guid ||
+		dataValueType === DataValueType.DateTime ||
+		dataValueType === DataValueType.Date ||
+		dataValueType === DataValueType.Time ||
+		dataValueType === DataValueType.Boolean
+	) {
+		return dataValueType;
+	}
+	return DataValueType.Text;
+}
+
 /** Encode a JS value for a DataService `Parameter.value` given its resolved type. */
 export function encodeParameterValue(type: DataValueType, value: unknown): unknown {
 	if (value === null || value === undefined) {
