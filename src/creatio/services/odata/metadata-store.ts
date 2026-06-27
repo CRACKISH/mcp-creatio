@@ -1,9 +1,9 @@
 import { XMLParser } from 'fast-xml-parser';
 
-import log from '../../log';
-import { EntitySchemaDescription } from '../contracts';
+import log from '../../../log';
+import { EntitySchemaDescription } from '../../contracts';
 
-import { CreatioHttpClient } from './http-client';
+import { CreatioHttpClient } from '../http-client';
 
 export class ODataMetadataStore {
 	private static readonly METADATA_TTL_MS = 30 * 60 * 1000;

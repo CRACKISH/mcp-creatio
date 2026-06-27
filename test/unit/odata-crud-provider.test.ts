@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ODataCrudProvider } from '../../src/creatio/services/odata-crud-provider';
+import { ODataCrudProvider } from '../../src/creatio/services/odata/odata-crud-provider';
 
 function makeProvider(body: unknown = { value: [] }) {
 	const calls: { url?: string } = {};

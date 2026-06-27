@@ -154,6 +154,14 @@ describe('DataServiceFilterTranslator', () => {
 		expect(t.translate('X', { kind: 'group', logic: 'and', items: [] })).toBeUndefined();
 	});
 
+	it('normalizes OData-style field paths to DataService column paths', () => {
+		const nav = t.translate('X', { kind: 'condition', field: 'Contact/Name', op: 'eq', value: 'Bob' })!;
+		expect(nav.leftExpression).toMatchObject({ columnPath: 'Contact.Name' });
+		// scalar lookup FK compared to a GUID -> navigate to the lookup primary key
+		const fk = t.translate('X', { kind: 'condition', field: 'ContactId', op: 'eq', value: GUID })!;
+		expect(fk.leftExpression).toMatchObject({ columnPath: 'Contact.Id' });
+	});
+
 	it('uses an injected schema-aware resolver for parameter typing', () => {
 		const resolver = () => DataValueType.Lookup;
 		const lt = new DataServiceFilterTranslator(resolver);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ODataMetadataStore } from '../../src/creatio/services/metadata-store';
+import { ODataMetadataStore } from '../../src/creatio/services/odata/metadata-store';
 
 const META_XML = `<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">

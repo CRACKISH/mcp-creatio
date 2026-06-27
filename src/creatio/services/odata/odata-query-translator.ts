@@ -1,4 +1,4 @@
-import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../contracts';
+import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../../contracts';
 
 /**
  * Projects a neutral {@link ReadQuery} onto OData query-string parameters. This is the

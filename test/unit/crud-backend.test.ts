@@ -13,17 +13,19 @@ import {
 const deps = { client: {} as never, metadataStore: {} as never };
 
 describe('createCrudProvider (backend selection seam)', () => {
-	it('defaults to the OData provider when backend is undefined', () => {
+	it('defaults to the DataService provider when backend is undefined', () => {
 		const provider = createCrudProvider(undefined, deps);
+		expect(provider).toBeInstanceOf(DataServiceCrudProvider);
+		expect(provider.kind).toBe('creatio-dataservice');
+	});
+
+	it('returns the OData provider for "odata"', () => {
+		const provider = createCrudProvider('odata', deps);
 		expect(provider).toBeInstanceOf(ODataCrudProvider);
 		expect(provider.kind).toBe('creatio-odata');
 	});
 
-	it('returns the OData provider for "odata"', () => {
-		expect(createCrudProvider('odata', deps)).toBeInstanceOf(ODataCrudProvider);
-	});
-
-	it('returns the DataService skeleton for "dataservice"', () => {
+	it('returns the DataService provider for "dataservice"', () => {
 		const provider = createCrudProvider('dataservice', deps);
 		expect(provider).toBeInstanceOf(DataServiceCrudProvider);
 		expect(provider.kind).toBe('creatio-dataservice');

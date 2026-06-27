@@ -1,4 +1,4 @@
-import log from '../../log';
+import log from '../../../log';
 import {
 	CrudDeleteParams,
 	CrudProvider,
@@ -7,9 +7,10 @@ import {
 	EntitySchemaDescription,
 	ReadQuery,
 	ReadResult,
-} from '../contracts';
+} from '../../contracts';
+import { assertEntityName } from '../entity-name';
+import { CreatioHttpClient } from '../http-client';
 
-import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';
 import { ODataQueryTranslator } from './odata-query-translator';
 
@@ -38,19 +39,9 @@ export class ODataCrudProvider implements CrudProvider {
 		return body && typeof body === 'object' && 'value' in body ? body.value : body;
 	}
 
-	private static readonly ENTITY_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
-
-	private _validateEntityName(entity: string): string {
-		// OData entity-set names are simple identifiers. Reject anything else to prevent
-		// path/segment injection into the request URL (CWE-20 / CWE-943).
-		if (!entity || !ODataCrudProvider.ENTITY_NAME_PATTERN.test(entity)) {
-			throw new Error(`invalid_entity_name:${entity}`);
-		}
-		return entity;
-	}
-
 	private _buildEntityUrl(entity: string): string {
-		return `${this._client.odataRoot}/${this._validateEntityName(entity)}`;
+		// Validate to prevent path/segment injection into the request URL (CWE-20 / CWE-943).
+		return `${this._client.odataRoot}/${assertEntityName(entity)}`;
 	}
 
 	private _formatEntityKey(id: string): string {

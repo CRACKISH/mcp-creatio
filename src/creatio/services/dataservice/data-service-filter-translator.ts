@@ -13,6 +13,7 @@ import {
 import {
 	encodeParameterValue,
 	inferDataValueType,
+	isGuid,
 	ValueTypeResolver,
 } from './data-service-value-type';
 
@@ -42,8 +43,23 @@ export class DataServiceFilterTranslator {
 		this._resolveType = resolveType;
 	}
 
-	private _column(field: string): DataServiceExpression {
-		return { expressionType: ExpressionType.SchemaColumn, columnPath: field };
+	/**
+	 * Normalize a tool-supplied field to a DataService column path. The tool surface uses
+	 * OData conventions (taught by the read-tool docs): navigation with `/` and scalar lookup
+	 * FKs like `ContactId`. DataService addresses nested data by dotted path and resolves a
+	 * lookup through its primary key, so we map `Contact/Name` -> `Contact.Name` and a scalar
+	 * `XxxId` compared to a GUID -> `Xxx.Id`. The plain key `Id` is left untouched.
+	 */
+	private _columnPath(field: string, value?: unknown): string {
+		let path = field.replace(/\//g, '.');
+		if (isGuid(value) && path !== 'Id' && !path.includes('.') && /Id$/.test(path)) {
+			path = `${path.slice(0, -2)}.Id`;
+		}
+		return path;
+	}
+
+	private _column(field: string, value?: unknown): DataServiceExpression {
+		return { expressionType: ExpressionType.SchemaColumn, columnPath: this._columnPath(field, value) };
 	}
 
 	private _parameter(field: string, value: unknown): DataServiceExpression {
@@ -58,7 +74,7 @@ export class DataServiceFilterTranslator {
 		return {
 			filterType: FilterType.CompareFilter,
 			comparisonType: COMPARISON[op as Exclude<FilterComparison, 'isNull' | 'isNotNull'>],
-			leftExpression: this._column(field),
+			leftExpression: this._column(field, value),
 			rightExpression: this._parameter(field, value),
 		};
 	}

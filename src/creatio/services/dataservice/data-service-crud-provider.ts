@@ -10,6 +10,8 @@ import {
 } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
 
+import { assertEntityName } from '../entity-name';
+
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
@@ -17,7 +19,6 @@ import { DataServiceSchemaProvider } from './data-service-schema';
 import { DataServiceFilters, DataServiceSelectQuery, QueryOperationType } from './data-service-types';
 import { DataServiceTransport } from './data-service-transport';
 
-const ENTITY_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 const PRIMARY_KEY = 'Id';
 
 /**
@@ -59,15 +60,6 @@ export class DataServiceCrudProvider implements CrudProvider {
 		return this._queryBuilder.buildSelectQuery(query);
 	}
 
-	private _validateEntityName(entity: string): string {
-		// DataService schema names are simple identifiers; reject anything else so a name can
-		// never alter the request envelope or be used for injection.
-		if (!entity || !ENTITY_NAME_PATTERN.test(entity)) {
-			throw new Error(`invalid_entity_name:${entity}`);
-		}
-		return entity;
-	}
-
 	private _rows(body: any): any[] {
 		return Array.isArray(body?.rows) ? body.rows : [];
 	}
@@ -103,11 +95,11 @@ export class DataServiceCrudProvider implements CrudProvider {
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {
-		return this._schema.describeEntity(this._validateEntityName(entitySet));
+		return this._schema.describeEntity(assertEntityName(entitySet));
 	}
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
-		this._validateEntityName(query.entity);
+		assertEntityName(query.entity);
 		const select = this._queryBuilder.buildSelectQuery(query);
 		const body = await this._transport.post('SelectQuery', select, {
 			logContext: { entity: query.entity, top: query.top, skip: query.skip },
@@ -132,7 +124,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 	}
 
 	public async create({ entity, data }: CrudWriteParams): Promise<any> {
-		this._validateEntityName(entity);
+		assertEntityName(entity);
 		const columnValues = await this._columnValues(entity, data ?? {});
 		const body = await this._transport.post(
 			'InsertQuery',
@@ -143,7 +135,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 	}
 
 	public async update({ entity, id, data }: CrudUpdateParams): Promise<any> {
-		this._validateEntityName(entity);
+		assertEntityName(entity);
 		const columnValues = await this._columnValues(entity, data ?? {});
 		const body = await this._transport.post(
 			'UpdateQuery',
@@ -159,7 +151,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams): Promise<any> {
-		this._validateEntityName(entity);
+		assertEntityName(entity);
 		const body = await this._transport.post(
 			'DeleteQuery',
 			{
