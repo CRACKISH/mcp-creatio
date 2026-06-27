@@ -368,3 +368,40 @@ describe('write path — full stack', () => {
 		expect(update.filters.rightExpression.parameter.value).toBe(GUID);
 	});
 });
+
+// --------- DataService full-stack: null-checks & dates (live-regression-found) ---------
+
+describe('DataService backend — null-checks & date encoding (full stack)', () => {
+	async function filtersFor(filters: unknown): Promise<any> {
+		const { read, captured } = dataServiceHarness();
+		await read({ entity: 'Contact', filters });
+		return captured.body.filters;
+	}
+
+	it('eq null -> IsNullFilter with isNull:true', async () => {
+		const f = await filtersFor({ all: [{ field: 'MiddleName', op: 'eq', value: null }] });
+		expect(f.filterType).toBe(FilterType.IsNullFilter);
+		expect(f.comparisonType).toBe(FilterComparisonType.IsNull);
+		expect(f.isNull).toBe(true);
+	});
+
+	it('ne null -> IsNullFilter with isNull:false (was inverted before the fix)', async () => {
+		const f = await filtersFor({ all: [{ field: 'Name', op: 'ne', value: null }] });
+		expect(f.filterType).toBe(FilterType.IsNullFilter);
+		expect(f.comparisonType).toBe(FilterComparisonType.IsNotNull);
+		expect(f.isNull).toBe(false);
+	});
+
+	it('date filter -> GreaterOrEqual with a quoted, Z-less DateTime parameter', async () => {
+		const f = await filtersFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }] });
+		expect(f.comparisonType).toBe(FilterComparisonType.GreaterOrEqual);
+		expect(f.rightExpression.parameter.dataValueType).toBe(DataValueType.DateTime);
+		expect(f.rightExpression.parameter.value).toBe('"2026-06-01T00:00:00"');
+	});
+
+	it('numeric comparison uses the corrected Greater wire value', async () => {
+		const f = await filtersFor({ all: [{ field: 'Completeness', op: 'gt', value: 50 }] });
+		expect(f.comparisonType).toBe(FilterComparisonType.Greater); // 7, not the old 5
+		expect(f.rightExpression.parameter).toEqual({ dataValueType: DataValueType.Integer, value: 50 });
+	});
+});
