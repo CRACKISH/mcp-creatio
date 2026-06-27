@@ -143,3 +143,21 @@ describe('DataServiceCrudProvider.create coercion + FK column mapping', () => {
 		expect(insert.columnValues.items.Type.parameter.dataValueType).toBe(DataValueType.Guid);
 	});
 });
+
+describe('encodeParameterValue date/time encoding (devkit ɵencodeDate parity)', () => {
+	it('quotes and strips Z/offset for date-time values', async () => {
+		const { encodeParameterValue } = await import('../../src/creatio');
+		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T00:00:00Z')).toBe(
+			'"2026-06-01T00:00:00"',
+		);
+		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T10:00:00+03:00')).toBe(
+			'"2026-06-01T10:00:00"',
+		);
+		expect(encodeParameterValue(DataValueType.Date, '2026-06-01')).toBe('"2026-06-01"');
+	});
+	it('leaves non-temporal values untouched', async () => {
+		const { encodeParameterValue } = await import('../../src/creatio');
+		expect(encodeParameterValue(DataValueType.Text, 'Bob')).toBe('Bob');
+		expect(encodeParameterValue(DataValueType.Integer, 5)).toBe(5);
+	});
+});

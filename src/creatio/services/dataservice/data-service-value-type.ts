@@ -74,13 +74,24 @@ export function toParameterDataValueType(dataValueType: number): DataValueType {
 	return DataValueType.Text;
 }
 
-/** Encode a JS value for a DataService `Parameter.value` given its resolved type. */
+/**
+ * Encode a JS value for a DataService `Parameter.value`. Date/time values are special: the
+ * platform expects the JSON-quoted local wall-clock WITHOUT a `Z`/offset (mirrors the devkit's
+ * `ɵencodeDate`, which returns `"<iso-no-Z>"`), and interprets it in the user-profile timezone
+ * on the server. A raw ISO string with `Z` is NOT parsed (500 "value cannot be null").
+ *
+ * We treat the incoming wall-clock as-is (the env user is UTC, and the tool convention is to
+ * pass UTC) and strip the trailing `Z`/offset. NOTE: for a non-UTC user profile, a UTC input
+ * would need converting to the profile offset first — tracked as a follow-up.
+ */
 export function encodeParameterValue(type: DataValueType, value: unknown): unknown {
 	if (value === null || value === undefined) {
 		return null;
 	}
 	if (type === DataValueType.DateTime || type === DataValueType.Date || type === DataValueType.Time) {
-		return value instanceof Date ? value.toISOString() : value;
+		const iso = value instanceof Date ? value.toISOString() : String(value);
+		const wallClock = iso.replace(/Z$/i, '').replace(/[+-]\d{2}:?\d{2}$/, '');
+		return `"${wallClock}"`;
 	}
 	return value;
 }
