@@ -295,22 +295,52 @@ const readInputShape = {
 				'Filter the same way as a normal read (e.g. lookups via ContactId \u2192 auto Contact/Id).',
 		),
 } as const;
-export const readInput = z.object(readInputShape);
+/** Which optional read params the active CRUD backend supports (mirrors CrudCapabilities). */
+export interface ReadCapabilities {
+	rawFilter: boolean;
+	expand: boolean;
+}
 
-export const readDescriptor = makeToolDescriptor({
-	title: 'Read records in Creatio',
-	description:
-		'Query Creatio records. Workflow: 1) list-entities 2) describe-entity 3) read with select, optional expand, filters/orderBy/top. ' +
-		'Key params: select (fields to return), filters or filter (conditions), expand (related entities), orderBy (sorting), top (limit), skip (pagination offset), count (return total). ' +
-		'Always include fields used in filters in select when select is provided. Use structured filters over raw $filter when possible. ' +
-		'Filter related records via NAVIGATION (Contact/Name, Contact/Id) — a scalar lookup `XxxId` is auto-rewritten to `Xxx/Id`; never filter `XxxId` in raw $filter. ' +
-		"Use expand to load related entities in one request (e.g. expand:['Account']). " +
-		'Paginate with skip+top (+ a stable orderBy). To COUNT, set count:true (response becomes { total, value }); for count-only use count:true + top:0. ' +
-		'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
-		"Examples: list → entity:'Order', select:['Id','Number','Amount'], filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, orderBy:'Amount desc', top:25, skip:0. " +
-		"count-only → entity:'Opportunity', filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, count:true, top:0 → { total: 1, value: [] }",
-	inputShape: readInputShape,
-});
+// Split the full read shape into the always-portable fields and the OData-only escape
+// hatches (raw `filter` string, `expand`), so each backend registers only the parameters it
+// actually honors instead of advertising dead options.
+const {
+	filter: odataFilterField,
+	expand: odataExpandField,
+	...neutralReadShape
+} = readInputShape;
+
+export function buildReadInputShape(caps: ReadCapabilities) {
+	return {
+		...neutralReadShape,
+		...(caps.rawFilter ? { filter: odataFilterField } : {}),
+		...(caps.expand ? { expand: odataExpandField } : {}),
+	};
+}
+
+export function buildReadInput(caps: ReadCapabilities) {
+	return z.object(buildReadInputShape(caps));
+}
+
+export function buildReadDescriptor(caps: ReadCapabilities) {
+	const advanced = caps.rawFilter
+		? 'Advanced (OData backend): a raw `filter` string and `expand` are also available. '
+		: '';
+	return makeToolDescriptor({
+		title: 'Read records in Creatio',
+		description:
+			'Query Creatio records. Workflow: 1) list-entities 2) describe-entity 3) read with select, filters, orderBy, top. ' +
+			'Key params: select (fields to return), filters (conditions — recommended), orderBy (sorting), top (limit), skip (pagination offset), count (return total). ' +
+			'Always include fields used in filters in select when select is provided. ' +
+			'Filter related records via navigation (Contact/Name, Contact/Id) — a scalar lookup `XxxId` with a GUID is handled for you. ' +
+			advanced +
+			'Paginate with skip+top (+ a stable orderBy). To COUNT, set count:true (response becomes { total, value }); for count-only use count:true + top:0. ' +
+			'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
+			"Examples: entity:'Order', select:['Id','Number','Amount'], filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, orderBy:'Amount desc', top:25, skip:0. " +
+			"count-only: entity:'Opportunity', filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, count:true, top:0.",
+		inputShape: buildReadInputShape(caps),
+	});
+}
 
 const createInputShape = {
 	entity: z

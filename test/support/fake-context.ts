@@ -36,6 +36,7 @@ export function makeFakeContext(authType: AuthProviderType = AuthProviderType.Le
 		authProvider: makeFakeAuthProvider(authType),
 		crud: {
 			kind: 'crud',
+			capabilities: { rawFilter: true, expand: true },
 			listEntitySets: vi.fn().mockResolvedValue(['Contact', 'Account']),
 			describeEntity: vi
 				.fn()

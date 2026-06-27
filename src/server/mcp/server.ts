@@ -42,8 +42,8 @@ import {
 	listEntitiesInput,
 	querySysSettingsDescriptor,
 	querySysSettingsInput,
-	readDescriptor,
-	readInput,
+	buildReadDescriptor,
+	buildReadInput,
 	refreshFeatureCacheDescriptor,
 	refreshFeatureCacheInput,
 	setAdminOperationGranteeDescriptor,
@@ -263,9 +263,9 @@ export class Server {
 		return count ? { total: result.totalCount, value: result.items } : result.items;
 	}
 
-	/** When DataForge is enabled, prefer its richer column details and fall back to exact
-	 *  OData `$metadata` on a per-call miss; otherwise go straight to OData. The `source`
-	 *  discriminator is part of the public tool contract — preserve it. */
+	/** When DataForge is enabled, prefer its richer column details and fall back to the active
+	 *  CRUD backend's schema on a per-call miss. The `source` discriminator is part of the
+	 *  public tool contract and reflects where the schema actually came from. */
 	private async _describeEntity(entitySet: string): Promise<unknown> {
 		if (this._isDataForgeReady()) {
 			const dataForge = await this._dataForge.getColumnsOrNull(entitySet);
@@ -274,7 +274,8 @@ export class Server {
 			}
 		}
 		const metadata = await this._engines.crud.describeEntity(entitySet);
-		return { source: 'odata', entitySet, metadata };
+		const source = this._engines.crud.kind === 'creatio-dataservice' ? 'dataservice' : 'odata';
+		return { source, entitySet, metadata };
 	}
 
 	/**
@@ -307,8 +308,8 @@ export class Server {
 			},
 			{
 				name: 'read',
-				descriptor: readDescriptor,
-				input: readInput,
+				descriptor: buildReadDescriptor(crud.capabilities),
+				input: buildReadInput(crud.capabilities),
 				run: (args) => this._read(args),
 			},
 			{

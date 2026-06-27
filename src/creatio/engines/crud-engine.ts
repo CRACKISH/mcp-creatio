@@ -1,4 +1,5 @@
 import {
+	CrudCapabilities,
 	CrudDeleteParams,
 	CrudProvider,
 	CrudUpdateParams,
@@ -22,6 +23,11 @@ export class CrudEngine extends BaseEngine {
 
 	public get kind(): string {
 		return this._provider.kind;
+	}
+
+	/** Read features the active backend honors — drives which read params the tool registers. */
+	public get capabilities(): CrudCapabilities {
+		return this._provider.capabilities;
 	}
 
 	public listEntitySets(): Promise<string[]> {

@@ -5,6 +5,8 @@ import { EntitySchemaDescription } from '../../contracts';
 
 import { CreatioHttpClient } from '../http-client';
 
+import { odataRoot } from './odata-routes';
+
 export class ODataMetadataStore {
 	private static readonly METADATA_TTL_MS = 30 * 60 * 1000;
 	private readonly _client: CreatioHttpClient;
@@ -34,7 +36,7 @@ export class ODataMetadataStore {
 			return this._metadataXml;
 		}
 		const headers = await this._client.getXmlHeaders();
-		const metadataUrl = `${this._client.odataRoot}/$metadata`;
+		const metadataUrl = `${odataRoot(this._client.normalizedBaseUrl)}/$metadata`;
 		const xmlContent = await this._client.fetchText(metadataUrl, async () => ({ headers }));
 		this._metadataXml = xmlContent;
 		this._metadataParsed = undefined; // force re-parse against the refreshed document
@@ -62,7 +64,7 @@ export class ODataMetadataStore {
 
 	private async _tryGetEntitySetsFromService(): Promise<string[] | null> {
 		try {
-			const serviceUrl = `${this._client.odataRoot}/`;
+			const serviceUrl = `${odataRoot(this._client.normalizedBaseUrl)}/`;
 			const headers = await this._client.getJsonHeaders();
 			const response = await this._client.fetchWithAuth(serviceUrl, async () => ({
 				headers,
@@ -81,7 +83,7 @@ export class ODataMetadataStore {
 			}
 		} catch (error: any) {
 			log.error('creatio.metadata.list_entity_sets.error', {
-				url: `${this._client.odataRoot}/`,
+				url: `${odataRoot(this._client.normalizedBaseUrl)}/`,
 				error: String(error?.message ?? error),
 			});
 		}

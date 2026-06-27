@@ -1,5 +1,6 @@
 import log from '../../../log';
 import {
+	CrudCapabilities,
 	CrudDeleteParams,
 	CrudProvider,
 	CrudUpdateParams,
@@ -39,6 +40,9 @@ export class DataServiceCrudProvider implements CrudProvider {
 	private readonly _schema: DataServiceSchemaProvider;
 
 	public readonly kind = 'creatio-dataservice';
+	// DataService has no raw-string filter and no $expand; related data is read by column
+	// path and filters are always structured. So neither OData-only extra is offered.
+	public readonly capabilities: CrudCapabilities = { rawFilter: false, expand: false };
 
 	constructor(
 		client: CreatioHttpClient,

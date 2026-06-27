@@ -171,6 +171,28 @@ describe('Server tool handlers (read path)', () => {
 		);
 	});
 
+	it('omits OData-only read params (filter/expand) when the backend lacks the capability', async () => {
+		const context = makeFakeContext();
+		// A DataService-like backend: no raw $filter, no $expand.
+		(context.crud as { capabilities: unknown }).capabilities = { rawFilter: false, expand: false };
+		const engines = new CreatioEngineManager(context as never);
+		const server = new Server(engines, { readonlyMode: false });
+		const handlers = (server as unknown as { _handlers: Map<string, ToolHandler> })._handlers;
+		await callTool(handlers, 'read', {
+			entity: 'Contact',
+			filter: 'IsActive eq true', // unsupported -> stripped by the schema
+			expand: ['Account'], // unsupported -> stripped by the schema
+			filters: { all: [{ field: 'Name', op: 'eq', value: 'Bob' }] },
+		});
+		const arg = (context.crud.read as unknown as { mock: { calls: any[][] } }).mock.calls[0][0];
+		expect(arg.odata).toBeUndefined();
+		expect(arg.filter).toEqual({
+			kind: 'group',
+			logic: 'and',
+			items: [{ kind: 'condition', field: 'Name', op: 'eq', value: 'Bob' }],
+		});
+	});
+
 	it('query-sys-settings delegates with codes', async () => {
 		const { handlers, context } = buildServer();
 		await callTool(handlers, 'query-sys-settings', { sysSettingCodes: ['A', 'B'] });

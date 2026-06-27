@@ -5,7 +5,7 @@ import { ODataCrudProvider } from '../../src/creatio/services/odata/odata-crud-p
 function makeProvider(body: unknown = { value: [] }) {
 	const calls: { url?: string } = {};
 	const fakeClient = {
-		odataRoot: 'https://tenant/0/odata',
+		normalizedBaseUrl: 'https://tenant',
 		async getJsonHeaders() {
 			return {};
 		},

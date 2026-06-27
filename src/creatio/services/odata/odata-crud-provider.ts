@@ -1,5 +1,6 @@
 import log from '../../../log';
 import {
+	CrudCapabilities,
 	CrudDeleteParams,
 	CrudProvider,
 	CrudUpdateParams,
@@ -13,6 +14,7 @@ import { CreatioHttpClient } from '../http-client';
 
 import { ODataMetadataStore } from './metadata-store';
 import { ODataQueryTranslator } from './odata-query-translator';
+import { odataRoot } from './odata-routes';
 
 export class ODataCrudProvider implements CrudProvider {
 	private readonly _client: CreatioHttpClient;
@@ -20,6 +22,8 @@ export class ODataCrudProvider implements CrudProvider {
 	private readonly _translator: ODataQueryTranslator;
 
 	public readonly kind = 'creatio-odata';
+	// OData honors both read escape hatches: a raw `$filter` string and `$expand`.
+	public readonly capabilities: CrudCapabilities = { rawFilter: true, expand: true };
 
 	constructor(
 		client: CreatioHttpClient,
@@ -41,7 +45,7 @@ export class ODataCrudProvider implements CrudProvider {
 
 	private _buildEntityUrl(entity: string): string {
 		// Validate to prevent path/segment injection into the request URL (CWE-20 / CWE-943).
-		return `${this._client.odataRoot}/${assertEntityName(entity)}`;
+		return `${odataRoot(this._client.normalizedBaseUrl)}/${assertEntityName(entity)}`;
 	}
 
 	private _formatEntityKey(id: string): string {

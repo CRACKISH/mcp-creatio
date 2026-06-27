@@ -20,10 +20,9 @@ function makeClient(refresh = vi.fn(async () => {})) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('CreatioHttpClient', () => {
-	it('normalizes the base URL and derives the OData root', () => {
+	it('normalizes the base URL (trailing slash stripped)', () => {
 		const { client } = makeClient();
 		expect(client.normalizedBaseUrl).toBe('https://tenant.creatio.local');
-		expect(client.odataRoot).toBe('https://tenant.creatio.local/0/odata');
 	});
 
 	it('refreshes once on a 401 and retries the request', async () => {
