@@ -3,6 +3,7 @@ export * from './configuration-service-provider';
 export * from './creatio-service-context';
 export * from './crud-provider-factory';
 export * from './entity-name';
+export * from './lookup-path';
 export * from './dataservice/data-service-types';
 export * from './dataservice/data-service-value-type';
 export * from './dataservice/data-service-column-values';

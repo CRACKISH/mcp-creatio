@@ -1,4 +1,5 @@
 import { FilterComparison, FilterCondition, FilterInCondition, FilterNode } from '../../contracts';
+import { lookupIdPath } from '../lookup-path';
 
 import {
 	DataServiceExpression,
@@ -45,17 +46,14 @@ export class DataServiceFilterTranslator {
 
 	/**
 	 * Normalize a tool-supplied field to a DataService column path. The tool surface uses
-	 * OData conventions (taught by the read-tool docs): navigation with `/` and scalar lookup
-	 * FKs like `ContactId`. DataService addresses nested data by dotted path and resolves a
-	 * lookup through its primary key, so we map `Contact/Name` -> `Contact.Name` and a scalar
-	 * `XxxId` compared to a GUID -> `Xxx.Id`. The plain key `Id` is left untouched.
+	 * OData conventions (navigation with `/`, scalar FKs like `ContactId`); DataService
+	 * addresses nested data by dotted path. So we map `/` -> `.`, and when a lookup is compared
+	 * to a GUID we navigate it to its primary key (`Owner` -> `Owner.Id`,
+	 * `Contact/Type` -> `Contact.Type.Id`). Non-GUID values keep the plain (dotted) path.
 	 */
 	private _columnPath(field: string, value?: unknown): string {
-		let path = field.replace(/\//g, '.');
-		if (isGuid(value) && path !== 'Id' && !path.includes('.') && /Id$/.test(path)) {
-			path = `${path.slice(0, -2)}.Id`;
-		}
-		return path;
+		const path = field.replace(/\//g, '.');
+		return isGuid(value) ? lookupIdPath(path, '.') : path;
 	}
 
 	private _column(field: string, value?: unknown): DataServiceExpression {

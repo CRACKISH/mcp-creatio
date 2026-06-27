@@ -1,4 +1,5 @@
 import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../../contracts';
+import { lookupIdPath } from '../lookup-path';
 
 /**
  * Projects a neutral {@link ReadQuery} onto OData query-string parameters. This is the
@@ -51,13 +52,10 @@ export class ODataQueryTranslator {
 		return `'${this._escapeStr(JSON.stringify(value))}'`;
 	}
 
-	/** Rewrite `<Lookup>Id` -> `<Lookup>/Id` for equality against a GUID. The primary key
-	 *  `Id` and already-navigated paths are left untouched. */
+	/** Navigate a lookup compared to a GUID to its `Id` path (`ContactId`/`Owner`/`Contact/Type`
+	 *  -> `…/Id`); non-GUID values and already-`Id` paths are left untouched. */
 	private _lookupNavField(field: string, value: unknown): string {
-		if (this._isGuid(value) && field !== 'Id' && !field.includes('/') && /Id$/.test(field)) {
-			return `${field.slice(0, -2)}/Id`;
-		}
-		return field;
+		return this._isGuid(value) ? lookupIdPath(field, '/') : field;
 	}
 
 	private _condition(node: FilterCondition): string | undefined {
