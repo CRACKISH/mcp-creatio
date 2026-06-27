@@ -124,7 +124,15 @@ Then connect using URL:
 | `CREATIO_CODE_SCOPE`         | OAuth2 scope (e.g. `offline_access ApplicationAccess_yourappguid`)   |
 | `CREATIO_CRUD_BACKEND`       | CRUD data API: `dataservice` (default) or `odata`                    |
 | `READONLY_MODE`              | Set `true` to disable create/update/delete operations                |
+| `DISABLE_DATAFORGE`          | Set `true` to never probe/register DataForge tools (even if available) |
+| `DISABLE_GLOBAL_SEARCH`      | Set `true` to never probe/register the Global Search tool            |
 | `MCP_CREATIO_LOG_LEVEL`      | Log verbosity: `silent` (default), `error`, `warn`, `info`           |
+
+> **Disabling optional capabilities.** DataForge and Global Search are auto-detected at
+> startup and their tools registered only when the environment supports them. Set
+> `DISABLE_DATAFORGE=true` / `DISABLE_GLOBAL_SEARCH=true` to skip the probe **and** the tools
+> entirely — useful when a capability exists on the instance but you don't want to expose it
+> (e.g. to keep the tool surface small / avoid spending tokens on it).
 
 ### CRUD backend
 

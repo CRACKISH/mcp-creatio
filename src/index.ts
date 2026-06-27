@@ -13,7 +13,11 @@ async function main() {
 	const provider = new CreatioServiceContext(cfg);
 	const readonlyMode = envBool('READONLY_MODE', false);
 	const engines = new CreatioEngineManager(provider, { readonly: readonlyMode });
-	const server = new Server(engines, { readonlyMode });
+	const server = new Server(engines, {
+		readonlyMode,
+		disableDataForge: envBool('DISABLE_DATAFORGE', false),
+		disableGlobalSearch: envBool('DISABLE_GLOBAL_SEARCH', false),
+	});
 	const http = new HttpServer(server);
 	_httpInstance = http;
 	await http.start(HTTP_MCP_PORT);

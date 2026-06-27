@@ -515,3 +515,56 @@ describe('Server MCP lifecycle', () => {
 		await server.stopMcp();
 	});
 });
+
+describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)', () => {
+	function buildServerWith(config: Record<string, unknown>) {
+		const context = makeFakeContext();
+		const engines = new CreatioEngineManager(context as never);
+		const server = new Server(engines, config);
+		const handlers = (server as unknown as { _handlers: Map<string, ToolHandler> })._handlers;
+		return { server, context, handlers };
+	}
+
+	it('disableDataForge: does NOT probe or register DataForge tools (even if it would succeed)', async () => {
+		const { server, context, handlers } = buildServerWith({ disableDataForge: true });
+		enableDataForge(context); // probe WOULD succeed if it ran
+		await prepare(server);
+		for (const name of DATAFORGE_TOOLS) {
+			expect(handlers.has(name)).toBe(false);
+		}
+		// describe-entity must not route through DataForge, and no probe traffic is sent.
+		expect((server as unknown as { _isDataForgeReady(): boolean })._isDataForgeReady()).toBe(false);
+		expect(context.sysSettings.queryValues).not.toHaveBeenCalledWith(['DataForgeServiceUrl']);
+	});
+
+	it('disableGlobalSearch: does NOT probe or register the global-search tool', async () => {
+		const { server, context, handlers } = buildServerWith({ disableGlobalSearch: true });
+		enableGlobalSearch(context);
+		await prepare(server);
+		expect(handlers.has('global-search')).toBe(false);
+		expect(context.sysSettings.queryValues).not.toHaveBeenCalledWith(['GlobalSearchUrl']);
+	});
+
+	it('control: both register normally when not disabled', async () => {
+		const dfx = buildServerWith({});
+		enableDataForge(dfx.context);
+		await prepare(dfx.server);
+		expect(dfx.handlers.has('dataforge-status')).toBe(true);
+
+		const gsx = buildServerWith({});
+		enableGlobalSearch(gsx.context);
+		await prepare(gsx.server);
+		expect(gsx.handlers.has('global-search')).toBe(true);
+	});
+
+	it('describe-entity routes to the CRUD backend (never DataForge) when DataForge is disabled', async () => {
+		const { server, context, handlers } = buildServerWith({ disableDataForge: true });
+		enableDataForge(context); // DataForge WOULD be ready if it were probed
+		await prepare(server);
+		const res = (await callTool(handlers, 'describe-entity', { entitySet: 'Contact' })) as {
+			source: string;
+		};
+		expect(res.source).not.toBe('dataforge'); // came from the backend, not DataForge
+		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
+	});
+});

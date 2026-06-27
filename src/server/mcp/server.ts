@@ -65,6 +65,11 @@ const DEFAULT_READ_TOP = 50;
 
 export interface ServerConfig {
 	readonlyMode?: boolean;
+	/** Skip the DataForge capability probe AND its tools entirely — even where DataForge is
+	 *  available — so no probe/describe traffic is sent and no tokens are spent on it. */
+	disableDataForge?: boolean;
+	/** Skip the Global Search capability probe AND its tool entirely (same rationale). */
+	disableGlobalSearch?: boolean;
 }
 
 /** A client tool as data: its name, MCP descriptor, zod input schema, and a handler that
@@ -110,9 +115,11 @@ export class Server {
 			new CrtMcpPublishingClient(engines.configuration, engines.crud),
 			envBool('ENABLE_PUBLISHED_TOOLS', false),
 		);
+		// A disabled capability is simply never added to the preparer list, so it is neither
+		// probed (no network / no token spend) nor registered as a tool.
 		this._preparers = [
-			this._dataForgePreparer,
-			this._globalSearchPreparer,
+			...(config.disableDataForge ? [] : [this._dataForgePreparer]),
+			...(config.disableGlobalSearch ? [] : [this._globalSearchPreparer]),
 			this._publishedToolsPreparer,
 		];
 		this._registerClientTools();

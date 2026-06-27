@@ -130,7 +130,7 @@ Contracts live in `src/server/mcp/tool-preparer.ts`:
 
 How it wires up:
 
-1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers`.
+1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers` — UNLESS the capability is force-disabled via `ServerConfig` (`disableDataForge` / `disableGlobalSearch`, fed from env `DISABLE_DATAFORGE` / `DISABLE_GLOBAL_SEARCH`). A disabled capability is never added to `_preparers`, so it is neither probed (no network / no token spend) nor registered — even on an environment where it IS available. `_isDataForgeReady()` then stays false, so `describe-entity` falls back to the active CRUD backend.
 2. `startMcp()` calls `_prepareTools()` **after** core tools are registered. Each preparer is probed once; failures are isolated and recorded as disabled in `_capabilities`.
 3. Core tools can branch on a capability via `_capabilities` (e.g. `describe-entity` routes through DataForge when ready, otherwise falls back to OData — see below).
 
@@ -239,11 +239,21 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 - Cover the unhappy paths explicitly (4xx/5xx, parse failure, expired, missing token/identity) — that is where the bugs are.
 - Process entry points (`cli.ts`, `index.ts`) are excluded from coverage; unit-test their pure helpers instead.
 
-## 11. Versioning & Release
+## 11. Versioning & Release (MANDATORY checklist)
 
-- Increment `package.json` version; code reads dynamically via `src/version.ts`.
-- Use semantic prefixes in commits: `feat:`, `fix:`, `docs:`, `chore:`.
-- Tag releases: `git tag vX.Y.Z && git push --tags` (manual unless automated later).
+`src/version.ts` reads the version dynamically from `package.json`. Use semantic commit
+prefixes (`feat:`, `fix:`, `docs:`, `chore:`). **Whenever you bump the version, you MUST do
+the full release — never bump without tagging AND publishing:**
+
+1. `npm version <x.y.z> --no-git-tag-version` (updates `package.json` + lockfile, no auto-tag).
+2. Update `CHANGELOG.md` (new version section; what changed, grouped Added/Fixed/Changed).
+3. `npm run build` + `npm test` — must be green (the build also runs on `prepack`).
+4. Commit: `chore(release): vX.Y.Z`.
+5. **Tag**: `git tag vX.Y.Z` (use the `v` prefix).
+6. **Push** commit + tag: `git push origin main && git push origin vX.Y.Z`.
+7. **Publish to npm**: `npm publish` (public; `prepack` rebuilds `dist`; verify `npm view mcp-creatio version`).
+
+Skipping the tag or the npm publish leaves the release half-done — always finish all 7 steps.
 
 ## 12. Common Edge Cases
 
@@ -269,16 +279,40 @@ If adding new auth provider:
 - Keep names unique and descriptive.
 - Avoid external network calls inside prompt callbacks.
 
-## 15. Code Style
+## 15. Code Style & Engineering Principles
 
-Baseline rules live in `docs/coding-style.md`. Highlights:
+Write every change to the **highest engineering bar** — this codebase is held to SOLID, GRASP,
+Clean Code and proven design patterns, not "make it work". Before adding code, prefer the
+design that an experienced reviewer would: clear responsibilities, small seams, no leaks.
+
+**Principles (apply, don't just cite):**
+
+- **SOLID** — SRP (one reason to change per class: see the provider/translator/engine split);
+  OCP (extend via a new Strategy + factory branch, e.g. CRUD backends, not `if/else` edits);
+  LSP (every `CrudProvider`/auth provider is fully substitutable — no throwing stubs); ISP
+  (split fat interfaces by capability, e.g. `IRevocable/IInteractiveAuthProvider`,
+  `CrudCapabilities`); DIP (handlers depend on contract interfaces, never concrete transports).
+- **GRASP** — Information Expert (the dialect lives in its translator; the backend owns its
+  capabilities), Pure Fabrication (translators/transport/query-builder), Low Coupling / High
+  Cohesion, Protected Variations (the neutral `ReadQuery`/`FilterNode` seam shields callers
+  from backend differences).
+- **Clean Code** — intention-revealing names, small single-responsibility functions, no
+  duplication (extract shared helpers like `assertEntityName`/`lookupIdPath`), comments explain
+  *why* (platform quirks, wire-value provenance), guard clauses over deep nesting.
+- **Patterns** — Strategy (CRUD backends, auth, tool preparers), Factory (`createCrudProvider`),
+  Adapter (translators OData/DataService), Template Method (`BaseEngine._mutate`), Facade
+  (`CreatioServiceContext`). Reach for the pattern that removes the smell — don't over-engineer.
+
+**Baseline rules** (full list in `docs/coding-style.md`):
 
 - Keep TypeScript strict (avoid `any`, prefer explicit interfaces).
-- Follow the class-member ordering guide (readonly fields → fields → getters → setters → constructor → methods, each ordered `private → protected → public`).
-- Prefix private fields/methods with `_`.
-- Use existing utility wrappers (e.g., `withValidation`).
-- Keep functions small; single responsibility.
-- Reuse logging tags already established.
+- Class-member ordering: readonly fields → fields → getters → setters → constructor → methods, each `private → protected → public`.
+- Prefix private fields/methods with `_`; reuse utility wrappers (`withValidation`, `client.request`); reuse established logging tags.
+- Keep functions small and single-responsibility; isolate dialect/transport specifics behind a seam.
+
+**Tests are part of "done" (see §10): every code change ships with tests in the same change** —
+unit for pure logic (translators, value-type, filters) and full-stack/API for wiring
+(Server→engine→provider). New behavior or a fixed bug without a covering test is incomplete.
 
 ## 16. What NOT To Do
 
