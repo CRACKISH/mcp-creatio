@@ -126,6 +126,8 @@ Then connect using URL:
 | `READONLY_MODE`              | Set `true` to disable create/update/delete operations                |
 | `DISABLE_DATAFORGE`          | Set `true` to never probe/register DataForge tools (even if available) |
 | `DISABLE_GLOBAL_SEARCH`      | Set `true` to never probe/register the Global Search tool            |
+| `MCP_TRANSPORT`              | Docker only: `http` (default) or `stdio` — selects the run mode      |
+| `PORT`                       | HTTP mode listen port (default `3000`)                               |
 | `MCP_CREATIO_LOG_LEVEL`      | Log verbosity: `silent` (default), `error`, `warn`, `info`           |
 
 > **Disabling optional capabilities.** DataForge and Global Search are auto-detected at
@@ -198,10 +200,26 @@ export CREATIO_PASSWORD="YourPassword"
 npm start
 ```
 
-### Docker (Legacy Auth)
+### Docker
+
+The image supports both transports, selected by `MCP_TRANSPORT` (default `http`).
+
+**HTTP web service** (default — for remote/hosted/multi-client; required for the OAuth2
+authorization-code flow):
 
 ```bash
 docker run --rm -p 3000:3000 \
+  -e CREATIO_BASE_URL="https://your-creatio.com" \
+  -e CREATIO_LOGIN="YourLogin" \
+  -e CREATIO_PASSWORD="YourPassword" \
+  crackish/mcp-creatio
+```
+
+**stdio** (for a local client like Claude Desktop that spawns the process — note `-i`):
+
+```bash
+docker run -i --rm \
+  -e MCP_TRANSPORT=stdio \
   -e CREATIO_BASE_URL="https://your-creatio.com" \
   -e CREATIO_LOGIN="YourLogin" \
   -e CREATIO_PASSWORD="YourPassword" \

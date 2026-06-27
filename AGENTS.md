@@ -18,7 +18,7 @@ Primary goals:
 src/
   creatio/            ← Low-level Creatio API client & auth providers
     contracts/        ← provider interfaces (CrudProvider, ProcessProvider, … — the "ports")
-    services/         ← provider implementations (OData CRUD, process, sys-settings, …)
+    services/         ← provider impls; CRUD backends in odata/ + dataservice/, plus process, sys-settings, …
     engines/          ← domain layer over the contracts (readonly guard + audit; see below)
     auth/             ← auth providers (legacy / OAuth2 / OAuth2 code) + capability interfaces
   server/             ← MCP server + HTTP layer (OAuth server, handlers)
@@ -36,6 +36,22 @@ src/
 > Naming: `creatio/contracts/` holds the interfaces ("ports"), `creatio/services/` the
 > implementations. The per-process session store lives in top-level `sessions/` (distinct
 > from `creatio/services/`).
+
+### Run modes & deployment
+
+Two entry points, one `Server` core:
+
+- **HTTP web service** — `src/index.ts` (`npm start`) → `HttpServer` on `PORT` (default 3000),
+  MCP over Streamable HTTP at `/mcp`. For remote/hosted/multi-client; **required for the OAuth2
+  authorization-code flow**. Config from env (`getCreatioClientConfig`).
+- **stdio** — `src/cli.ts` (the npm `bin` `mcp-creatio`; `npm run start:stdio`) → `StdioServerTransport`.
+  For a local client (Claude Desktop) that spawns the process. CLI args map onto the same env vars.
+
+The **Docker** image (multi-stage, `node:24-alpine`, runs the built `dist/` — not `ts-node`)
+serves **HTTP by default**; set `MCP_TRANSPORT=stdio` (run with `docker run -i`) to switch. The
+`docker-entrypoint.sh` selects `dist/index.js` vs `dist/cli.js`. Both transports read the same
+env. The `.github/workflows/docker-publish.yml` builds multi-arch on `main`/`v*` tags and syncs
+the README to the Docker Hub overview.
 
 Key flows:
 
@@ -81,6 +97,31 @@ The engines under `src/creatio/engines/` are the domain seam ABOVE the provider 
 `createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_CRUD_BACKEND` (**`dataservice` default** | `odata`), mirroring `CreatioAuthManager`. Both backends are fully implemented; each lives in its own folder (`services/dataservice/*`, `services/odata/*`). To add a backend: implement `CrudProvider`, add a branch in the factory — nothing above the interface changes.
 
 The seam is a **backend-agnostic query contract** (`src/creatio/contracts/query.ts`): `ReadQuery` carries a structured `FilterNode` AST (NOT a dialect string), neutral `columns`/`order`/paging, and an `odata` bag for OData-only escape hatches (`rawFilter`, `expand`). `read` returns a normalized `ReadResult { items, totalCount? }`. Each backend owns a **translator** (Information Expert): `ODataQueryTranslator` (AST → `$filter`/`$select`/`$orderby`, incl. the lookup-nav `XxxId→Xxx/Id` + bare-GUID quirks) and `DataServiceFilterTranslator`/`DataServiceQueryBuilder` (AST → `Filters` tree + `Columns`, paths normalized `Contact/Id → Contact.Id`). DataService writes type `ColumnValues` from `RuntimeEntitySchemaRequest` metadata (authoritative `dataValueType`) with a heuristic fallback — the platform never infers the type from the JSON value. `mcp/filters.ts` only compiles the tool's `{all,any}` arg into a `FilterNode` (`buildFilterNode`) + parses `orderBy`; it knows nothing about either dialect.
+
+#### DataService wire-value gotchas (verified live vs real Creatio — do NOT regress)
+
+These are exact platform contracts confirmed against `core` / the devkit ESQ. Each was a real
+bug found in live regression; the values are load-bearing, not stylistic:
+
+- **`FilterComparisonType`** numbers (core `EntitySchemaQueryFilter.cs`): `IsNull=1, IsNotNull=2,
+  Equal=3, NotEqual=4, Less=5, LessOrEqual=6, Greater=7, GreaterOrEqual=8, StartWith=9,
+  Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
+- **`IsNullFilter` needs an explicit `isNull` boolean** (`true` for is-null, `false` for
+  is-not-null). The platform `Filter.IsNull` defaults to TRUE, so omitting it makes every
+  null-check an IS NULL (inverts `isNotNull`).
+- **DateTime parameter value** = JSON-quoted local-ISO WITHOUT `Z`/offset (`"2026-06-01T00:00:00"`,
+  mirrors devkit `ɵencodeDate`); the server interprets it in the user-profile timezone. A raw
+  `…Z` string 500s. (OData is the opposite: bare `Edm.DateTimeOffset` WITH `Z`.)
+- **Write coercion**: `RuntimeEntitySchemaRequest` returns EXTENDED column `dataValueType`
+  codes (e.g. MediumText=28); a Parameter must use the BASE type — map via
+  `toParameterDataValueType` (extended→base), else 500 "NotSupportedException".
+- **Lookup columns**: a scalar FK `XxxId` is not a DataService column. For filters/select,
+  `lookupIdPath` normalizes `XxxId → Xxx.Id` (and `/`→`.`); for writes, the FK key remaps to the
+  logical lookup column (`Type`). A bare lookup (`Type`) returns its display value.
+- **`top:0`** → DataService rejects `FETCH 0`; the builder omits paging and the provider returns
+  `[]` without the row query (still runs the COUNT query). `count` uses a separate aggregation
+  SelectQuery; `list-entities` is `VwSysSchemaInWorkspace` deduped by Name; reads project to the
+  requested columns (DataService auto-adds primary `Photo`/display columns).
 
 ## 3. Core Modules You Will Touch
 

@@ -6,3 +6,5 @@
 *.jsx text eol=crlf
 *.json text eol=crlf
 *.md text eol=crlf
+# Shell scripts MUST stay LF — CRLF breaks the shebang under Alpine/sh.
+*.sh text eol=lf

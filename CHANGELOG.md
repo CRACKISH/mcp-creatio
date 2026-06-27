@@ -4,6 +4,30 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.2]
+
+### Added
+
+- **Docker stdio transport** — `MCP_TRANSPORT` env (`http` default | `stdio`) selects the run
+  mode in the container (stdio via `docker run -i`); both transports read the same env.
+
+### Fixed
+
+- Declare **`express`** and **`zod`** as direct `dependencies` (previously resolved only
+  transitively through the MCP SDK) — required for a correct `--omit=dev` runtime image.
+
+### Changed
+
+- **Docker image** rebuilt as a multi-stage build on **`node:24-alpine`**, running the compiled
+  `dist/` (no `ts-node`/devDeps at runtime) via `docker-entrypoint.sh`.
+- CI: GitHub Actions bumped to their Node24 majors (clears the Node20 deprecation); the
+  publish workflow syncs the README to the Docker Hub repository overview.
+
+### Docs
+
+- AGENTS.md: run modes & deployment, DataService wire-value gotchas (verified vs core/devkit),
+  engineering-principles section. README: Docker HTTP/stdio examples + `MCP_TRANSPORT`/`PORT`.
+
 ## [0.6.1]
 
 ### Added
@@ -82,6 +106,7 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.6.2]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.2
 [0.6.1]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.1
 [0.6.0]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.0
 [0.5.1]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.5.1

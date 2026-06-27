@@ -1,6 +1,6 @@
 {
   "name": "mcp-creatio",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "main": "dist/index.js",
   "bin": {
     "mcp-creatio": "dist/cli.js"
@@ -70,7 +70,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "express": "^5.2.1",
     "fast-xml-parser": "^5.9.3",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^4.4.3"
   }
 }
