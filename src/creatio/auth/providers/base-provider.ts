@@ -20,25 +20,12 @@ export abstract class BaseProvider<
 		this.config = config;
 	}
 
-	public getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>> {
-		throw new Error('Method not implemented.');
-	}
+	// Core capability — every concrete provider must implement these. Optional capabilities
+	// (revoke, interactive authorize/finish) live on the IRevocable/IInteractive interfaces and
+	// are added only by the providers that support them, instead of throwing stubs here (ISP/LSP).
+	public abstract getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>>;
 
-	public refresh(): Promise<void> {
-		throw new Error('Method not implemented.');
-	}
-
-	public revoke(): Promise<void> {
-		throw new Error('Method not implemented.');
-	}
-
-	public getAuthorizeUrl(state: string): Promise<string> {
-		throw new Error('Method not implemented.');
-	}
-
-	public finishAuthorization(code: string): Promise<void> {
-		throw new Error('Method not implemented.');
-	}
+	public abstract refresh(): Promise<void>;
 
 	public cancelAllRefresh(): void {
 		// No background refresh timers by default; OAuth2CodeProvider overrides this.
