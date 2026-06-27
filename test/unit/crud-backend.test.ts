@@ -30,20 +30,16 @@ describe('createCrudProvider (backend selection seam)', () => {
 	});
 });
 
-describe('DataServiceCrudProvider not-yet-implemented surface', () => {
-	it('fails fast with a clear, greppable error on write/schema ops', async () => {
+describe('DataServiceCrudProvider entity-name validation', () => {
+	it('rejects path-injection / non-identifier entity names before any request', async () => {
 		const provider = new DataServiceCrudProvider({} as never);
-		for (const call of [
-			() => provider.listEntitySets(),
-			() => provider.describeEntity('Contact'),
-			() => provider.create({ entity: 'Contact', data: {} }),
-			() => provider.update({ entity: 'Contact', id: '1', data: {} }),
-			() => provider.delete({ entity: 'Contact', id: '1' }),
-		]) {
-			await expect(Promise.resolve().then(call)).rejects.toThrow(
-				/dataservice_not_implemented/,
-			);
-		}
+		await expect(provider.describeEntity('../Hack')).rejects.toThrow(/invalid_entity_name/);
+		await expect(provider.create({ entity: 'a/b', data: {} })).rejects.toThrow(
+			/invalid_entity_name/,
+		);
+		await expect(provider.update({ entity: '', id: '1', data: {} })).rejects.toThrow(
+			/invalid_entity_name/,
+		);
 	});
 });
 

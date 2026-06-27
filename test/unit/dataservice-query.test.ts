@@ -209,3 +209,126 @@ describe('DataServiceCrudProvider.read (transport)', () => {
 		expect(calls).toHaveLength(0);
 	});
 });
+
+describe('DataServiceCrudProvider schema (RuntimeEntitySchemaRequest / VwSysSchemaInWorkspace)', () => {
+	const schemaResponse = {
+		success: true,
+		schema: {
+			name: 'Contact',
+			primaryColumnUId: 'pk',
+			columns: {
+				Items: {
+					Id: { uId: 'pk', name: 'Id', dataValueType: DataValueType.Guid, isRequired: true },
+					Name: { name: 'Name', dataValueType: DataValueType.Text, isRequired: false },
+					Account: {
+						name: 'Account',
+						dataValueType: DataValueType.Lookup,
+						referenceSchemaName: 'Account',
+					},
+				},
+			},
+		},
+	};
+
+	it('lists entity sets via a DISTINCT VwSysSchemaInWorkspace SelectQuery', async () => {
+		const { client, calls } = makeClient([
+			{ rows: [{ Name: 'Account', Caption: 'Accounts' }, { Name: 'Contact', Caption: 'Contacts' }] },
+		]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const names = await provider.listEntitySets();
+		expect(names).toEqual(['Account', 'Contact']);
+		expect(calls[0].body.rootSchemaName).toBe('VwSysSchemaInWorkspace');
+		expect(calls[0].body.isDistinct).toBe(true);
+		expect(calls[0].body.filters.leftExpression.columnPath).toBe('ManagerName');
+		expect(calls[0].body.filters.rightExpression.parameter.value).toBe('EntitySchemaManager');
+	});
+
+	it('describes an entity from the runtime schema (key + typed properties)', async () => {
+		const { client, calls } = makeClient([schemaResponse]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const desc = await provider.describeEntity('Contact');
+		expect(calls[0].url).toContain('/RuntimeEntitySchemaRequest');
+		expect(calls[0].body).toEqual({ name: 'Contact' });
+		expect(desc.entityType).toBe('Contact');
+		expect(desc.key).toEqual(['Id']);
+		expect(desc.properties).toContainEqual({ name: 'Name', type: 'Text', nullable: true });
+	});
+});
+
+describe('DataServiceCrudProvider write (Insert/Update/Delete + coercion)', () => {
+	const GUID3 = '22222222-2222-3333-4444-555555555555';
+	const schemaResponse = {
+		success: true,
+		schema: {
+			name: 'Contact',
+			columns: {
+				Items: {
+					Name: { name: 'Name', dataValueType: DataValueType.Text },
+					Account: { name: 'Account', dataValueType: DataValueType.Lookup },
+				},
+			},
+		},
+	};
+
+	it('insert types ColumnValues from metadata (Lookup written by id -> Guid)', async () => {
+		const { client, calls } = makeClient([schemaResponse, { success: true, id: 'new-id', rowsAffected: 1 }]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const res = await provider.create({ entity: 'Contact', data: { Name: 'Bob', Account: GUID3 } });
+		expect(res).toEqual({ id: 'new-id', success: true, rowsAffected: 1 });
+		const insert = calls[1].body;
+		expect(insert.rootSchemaName).toBe('Contact');
+		expect(insert.columnValues.items.Name.parameter).toEqual({
+			dataValueType: DataValueType.Text,
+			value: 'Bob',
+		});
+		// Lookup column written with a bare GUID coerces to Guid (sets the FK by id).
+		expect(insert.columnValues.items.Account.parameter.dataValueType).toBe(DataValueType.Guid);
+	});
+
+	it('insert falls back to the heuristic when metadata has no such column', async () => {
+		const { client, calls } = makeClient([
+			{ success: true, schema: { name: 'X', columns: { Items: {} } } },
+			{ success: true, id: '1' },
+		]);
+		const provider = new DataServiceCrudProvider(client as never);
+		await provider.create({ entity: 'X', data: { IsActive: true } });
+		expect(calls[1].body.columnValues.items.IsActive.parameter.dataValueType).toBe(
+			DataValueType.Boolean,
+		);
+	});
+
+	it('update sends ColumnValues + an id Filters and reports success', async () => {
+		const { client, calls } = makeClient([schemaResponse, { success: true, rowsAffected: 1 }]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const res = await provider.update({ entity: 'Contact', id: GUID3, data: { Name: 'Y' } });
+		expect(res).toEqual({ success: true, rowsAffected: 1 });
+		const update = calls[1].body;
+		expect(update.filters.leftExpression.columnPath).toBe('Id');
+		expect(update.filters.rightExpression.parameter).toEqual({
+			dataValueType: DataValueType.Guid,
+			value: GUID3,
+		});
+		expect(update.columnValues.items.Name.parameter.value).toBe('Y');
+	});
+
+	it('delete sends only an id Filters (no schema fetch)', async () => {
+		const { client, calls } = makeClient([{ success: true, rowsAffected: 1 }]);
+		const provider = new DataServiceCrudProvider(client as never);
+		const res = await provider.delete({ entity: 'Contact', id: GUID3 });
+		expect(res).toEqual({ success: true, rowsAffected: 1 });
+		expect(calls).toHaveLength(1);
+		expect(calls[0].url).toContain('/DeleteQuery');
+		expect(calls[0].body.filters.rightExpression.parameter.value).toBe(GUID3);
+	});
+
+	it('surfaces a logical failure (success:false) as an error on writes', async () => {
+		const { client } = makeClient([
+			schemaResponse,
+			{ success: false, responseStatus: { Message: 'boom' } },
+		]);
+		const provider = new DataServiceCrudProvider(client as never);
+		await expect(provider.create({ entity: 'Contact', data: { Name: 'Z' } })).rejects.toThrow(
+			/creatio_dataservice_InsertQuery_error:boom/,
+		);
+	});
+});

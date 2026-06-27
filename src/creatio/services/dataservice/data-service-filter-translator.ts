@@ -10,11 +10,11 @@ import {
 	FilterType,
 	LogicalOperation,
 } from './data-service-types';
-import { encodeParameterValue, inferDataValueType } from './data-service-value-type';
-
-/** Resolves the {@link DataValueType} for a column value. Defaults to a heuristic; Phase-6
- *  write paths inject a schema-aware resolver so filter parameters are typed authoritatively. */
-export type ValueTypeResolver = (field: string, value: unknown) => DataValueType;
+import {
+	encodeParameterValue,
+	inferDataValueType,
+	ValueTypeResolver,
+} from './data-service-value-type';
 
 const COMPARISON: Record<Exclude<FilterComparison, 'isNull' | 'isNotNull'>, FilterComparisonType> = {
 	eq: FilterComparisonType.Equal,

@@ -1,5 +1,8 @@
 import { DataValueType } from './data-service-types';
 
+/** Resolves the {@link DataValueType} for a column value (schema-aware or heuristic). */
+export type ValueTypeResolver = (field: string, value: unknown) => DataValueType;
+
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 // Strict ISO-8601 date / datetime (so arbitrary text is never misread as a date).
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
