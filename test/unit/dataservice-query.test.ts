@@ -92,9 +92,12 @@ describe('DataServiceFilterTranslator', () => {
 		const isNull = t.translate('X', { kind: 'condition', field: 'Y', op: 'isNull' })!;
 		expect(isNull.filterType).toBe(FilterType.IsNullFilter);
 		expect(isNull.comparisonType).toBe(FilterComparisonType.IsNull);
+		expect(isNull.isNull).toBe(true);
 		expect(isNull.rightExpression).toBeUndefined();
 		const notNull = t.translate('X', { kind: 'condition', field: 'Y', op: 'isNotNull' })!;
 		expect(notNull.comparisonType).toBe(FilterComparisonType.IsNotNull);
+		// The IsNull flag must be explicit (server default is true → would invert isNotNull).
+		expect(notNull.isNull).toBe(false);
 	});
 
 	it('expands an in-list into an OR group of equalities', () => {

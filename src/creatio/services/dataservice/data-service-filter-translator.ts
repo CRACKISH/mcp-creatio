@@ -79,12 +79,13 @@ export class DataServiceFilterTranslator {
 
 	private _condition(node: FilterCondition): DataServiceFilter {
 		if (node.op === 'isNull' || node.op === 'isNotNull') {
+			const isNull = node.op === 'isNull';
 			return {
 				filterType: FilterType.IsNullFilter,
-				comparisonType:
-					node.op === 'isNull'
-						? FilterComparisonType.IsNull
-						: FilterComparisonType.IsNotNull,
+				comparisonType: isNull ? FilterComparisonType.IsNull : FilterComparisonType.IsNotNull,
+				// The platform's Filter.IsNull defaults to TRUE, so an IsNullFilter without this
+				// flag is always treated as IS NULL (inverting isNotNull). Set it explicitly.
+				isNull,
 				leftExpression: this._column(node.field),
 			};
 		}
