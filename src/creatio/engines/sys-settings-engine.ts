@@ -5,15 +5,17 @@ import {
 	SysSettingDefinitionUpdate,
 	SysSettingUpdateResponse,
 	SysSettingsProvider,
-} from '../../providers';
-import { CreatioEngine } from '../engine';
+} from '../contracts';
 
-export class SysSettingsEngine implements CreatioEngine {
+import { BaseEngine, EngineEnv } from './engine';
+
+export class SysSettingsEngine extends BaseEngine {
 	private readonly _provider: SysSettingsProvider;
 
 	public readonly name = 'sys-settings';
 
-	constructor(provider: SysSettingsProvider) {
+	constructor(provider: SysSettingsProvider, env?: EngineEnv) {
+		super(env);
 		this._provider = provider;
 	}
 
@@ -22,7 +24,9 @@ export class SysSettingsEngine implements CreatioEngine {
 	}
 
 	public setValues(values: Record<string, any>): Promise<any> {
-		return this._provider.setValues(values);
+		return this._mutate('sys-settings.set-values', { codes: Object.keys(values ?? {}) }, () =>
+			this._provider.setValues(values),
+		);
 	}
 
 	public queryValues(codes: string[]): Promise<QuerySysSettingsResponse> {
@@ -30,12 +34,20 @@ export class SysSettingsEngine implements CreatioEngine {
 	}
 
 	public createSetting(request: CreateSysSettingRequest): Promise<CreateSysSettingResult> {
-		return this._provider.createSetting(request);
+		return this._mutate(
+			'sys-settings.create',
+			{ code: (request?.definition as any)?.code ?? null },
+			() => this._provider.createSetting(request),
+		);
 	}
 
 	public updateDefinition(
 		definition: SysSettingDefinitionUpdate,
 	): Promise<SysSettingUpdateResponse> {
-		return this._provider.updateDefinition(definition);
+		return this._mutate(
+			'sys-settings.update-definition',
+			{ id: (definition as any)?.id ?? null },
+			() => this._provider.updateDefinition(definition),
+		);
 	}
 }

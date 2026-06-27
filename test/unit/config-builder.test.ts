@@ -67,4 +67,29 @@ describe('getCreatioClientConfig', () => {
 		vi.stubEnv('CREATIO_PASSWORD', 'p');
 		expect(getCreatioClientConfig().auth.kind).toBe(AuthProviderType.Legacy);
 	});
+
+	function legacyEnv() {
+		vi.stubEnv('CREATIO_BASE_URL', 'https://t.creatio.local');
+		clearAuthVars();
+		vi.stubEnv('CREATIO_LOGIN', 'l');
+		vi.stubEnv('CREATIO_PASSWORD', 'p');
+	}
+
+	it('defaults the CRUD backend to odata', () => {
+		legacyEnv();
+		vi.stubEnv('CREATIO_CRUD_BACKEND', '');
+		expect(getCreatioClientConfig().crudBackend).toBe('odata');
+	});
+
+	it('selects the dataservice backend when CREATIO_CRUD_BACKEND=dataservice', () => {
+		legacyEnv();
+		vi.stubEnv('CREATIO_CRUD_BACKEND', 'dataservice');
+		expect(getCreatioClientConfig().crudBackend).toBe('dataservice');
+	});
+
+	it('rejects an unknown CRUD backend', () => {
+		legacyEnv();
+		vi.stubEnv('CREATIO_CRUD_BACKEND', 'graphql');
+		expect(() => getCreatioClientConfig()).toThrow(/unsupported_crud_backend/);
+	});
 });

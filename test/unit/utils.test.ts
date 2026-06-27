@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import { SessionContext } from '../../src/services/session-context';
+import { SessionContext } from '../../src/sessions/session-context';
 import {
 	challengeS256,
 	env,

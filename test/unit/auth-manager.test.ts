@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { AuthProviderType, CreatioAuthManager } from '../../src/creatio';
+import {
+	AuthProviderType,
+	CreatioAuthManager,
+	supportsInteractiveAuth,
+	supportsRevoke,
+} from '../../src/creatio';
 import { BaseProvider } from '../../src/creatio/auth/providers/base-provider';
 import { NAME, VERSION } from '../../src/version';
 
@@ -41,10 +46,19 @@ describe('CreatioAuthManager', () => {
 	});
 });
 
-describe('BaseProvider default stubs (ISP gap)', () => {
-	class BareProvider extends BaseProvider {}
+describe('BaseProvider core capability (ISP)', () => {
+	// A provider only has to implement the core capability (getHeaders/refresh); optional
+	// capabilities (revoke, interactive authorize) are added by interface, not stubbed.
+	class CoreOnlyProvider extends BaseProvider {
+		public async getHeaders() {
+			return {};
+		}
+		public async refresh() {
+			/* noop */
+		}
+	}
 
-	const provider = new BareProvider({
+	const provider = new CoreOnlyProvider({
 		baseUrl: 'https://x',
 		auth: { kind: AuthProviderType.Legacy, login: 'l', password: 'p' },
 	} as never);
@@ -53,17 +67,36 @@ describe('BaseProvider default stubs (ISP gap)', () => {
 		expect(provider.type).toBe(AuthProviderType.Legacy);
 	});
 
-	it('throws "not implemented" for the unimplemented operations', () => {
-		// These stubs throw synchronously despite the Promise return type.
-		expect(() => provider.getHeaders('application/json')).toThrow(/not implemented/i);
-		expect(() => provider.refresh()).toThrow(/not implemented/i);
-		expect(() => provider.revoke()).toThrow(/not implemented/i);
-		expect(() => provider.getAuthorizeUrl('s')).toThrow(/not implemented/i);
-		expect(() => provider.finishAuthorization('c')).toThrow(/not implemented/i);
-	});
-
 	it('cancelAllRefresh is a safe no-op', () => {
 		expect(() => provider.cancelAllRefresh()).not.toThrow();
+	});
+
+	it('does not advertise optional capabilities it has not implemented', () => {
+		expect(supportsRevoke(provider)).toBe(false);
+		expect(supportsInteractiveAuth(provider)).toBe(false);
+	});
+});
+
+describe('auth provider capabilities (ISP guards)', () => {
+	function build(auth: Record<string, unknown>) {
+		return new CreatioAuthManager({ baseUrl: 'https://x', auth } as never).getProvider();
+	}
+
+	it('legacy supports neither revoke nor interactive auth', () => {
+		const p = build({ kind: AuthProviderType.Legacy, login: 'l', password: 'p' });
+		expect(supportsRevoke(p)).toBe(false);
+		expect(supportsInteractiveAuth(p)).toBe(false);
+	});
+
+	it('authorization-code provider supports revoke + interactive auth', () => {
+		const p = build({
+			kind: AuthProviderType.OAuth2Code,
+			clientId: 'c',
+			clientSecret: 's',
+			redirectUri: 'http://localhost/cb',
+		});
+		expect(supportsRevoke(p)).toBe(true);
+		expect(supportsInteractiveAuth(p)).toBe(true);
 	});
 });
 

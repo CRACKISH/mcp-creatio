@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SessionContext } from '../../src/services/session-context';
+import { SessionContext } from '../../src/sessions/session-context';
 
 describe('SessionContext OAuth state (C1 / C2)', () => {
 	let ctx: SessionContext;

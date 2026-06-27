@@ -1,5 +1,6 @@
+import { supportsInteractiveAuth, supportsRevoke } from '../../creatio';
 import log from '../../log';
-import { SessionContext } from '../../services';
+import { SessionContext } from '../../sessions';
 import { getSessionIdFromRequest, runWithContext } from '../../utils';
 import { OAuthValidators } from '../oauth';
 
@@ -28,6 +29,13 @@ export class CreatioOAuthHandlers {
 				);
 				return;
 			}
+			const provider = this._server.authProvider;
+			if (!supportsInteractiveAuth(provider)) {
+				res.status(400).send(
+					'Authorization-code flow is not enabled for this deployment (configure CREATIO_CODE_* auth)',
+				);
+				return;
+			}
 			// Bind the OAuth state to the session that initiated the flow (if any),
 			// so the callback maps only that session — never every active session (CWE-639).
 			const initiatingSessionId = getSessionIdFromRequest(req) ?? undefined;
@@ -35,7 +43,7 @@ export class CreatioOAuthHandlers {
 				effectiveUserKey,
 				initiatingSessionId,
 			);
-			const url = await this._server.authProvider.getAuthorizeUrl(state);
+			const url = await provider.getAuthorizeUrl(state);
 			const mcpParams = req.query as any;
 			if (mcpParams.client_id && mcpParams.redirect_uri) {
 				const urlObj = new URL(url);
@@ -79,9 +87,12 @@ export class CreatioOAuthHandlers {
 				return;
 			}
 			const { userKey, sessionId: boundSessionId } = stateResult;
-			await runWithContext({ userKey }, async () =>
-				this._server.authProvider.finishAuthorization(code),
-			);
+			const provider = this._server.authProvider;
+			if (!supportsInteractiveAuth(provider)) {
+				res.status(400).send('Authorization-code flow is not enabled for this deployment');
+				return;
+			}
+			await runWithContext({ userKey }, async () => provider.finishAuthorization(code));
 			// Map ONLY the session that initiated this flow, if it still exists.
 			// Bearer-token MCP clients carry their identity in the issued JWT and need
 			// no session mapping at all.
@@ -145,7 +156,12 @@ export class CreatioOAuthHandlers {
 				res.status(401).send('Valid Bearer token required');
 				return;
 			}
-			await runWithContext({ userKey }, async () => this._server.authProvider.revoke());
+			const provider = this._server.authProvider;
+			if (!supportsRevoke(provider)) {
+				res.status(400).send('Token revocation is not supported for this deployment');
+				return;
+			}
+			await runWithContext({ userKey }, async () => provider.revoke());
 			res.status(200).send('Revoked');
 		} catch (err: any) {
 			log.error('oauth.revoke.error', { error: String(err?.message ?? err) });

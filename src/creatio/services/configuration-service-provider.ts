@@ -4,7 +4,7 @@ import {
 	ConfigurationProvider,
 	ConfigurationServiceHttpMethod,
 	ConfigurationServiceQueryValue,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 
@@ -98,7 +98,7 @@ export class ConfigurationServiceProvider implements ConfigurationProvider {
 		const operation = request.rawPath
 			? `call-configuration-service:${request.rawPath}`
 			: `call-configuration-service:${request.service}.${request.method}`;
-		return this._client.executeWithTiming(
+		return this._client.request<CallConfigurationServiceResult>(
 			operation,
 			url,
 			async () => {
@@ -121,15 +121,10 @@ export class ConfigurationServiceProvider implements ConfigurationProvider {
 				}
 				return result;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					operation,
-					response,
-					duration,
-					'creatio_configuration_service_failed',
-					{ url, httpMethod },
-				),
-			{ httpMethod, service: request.service, method: request.method },
+			{
+				errorPrefix: 'creatio_configuration_service_failed',
+				logContext: { httpMethod, service: request.service, method: request.method },
+			},
 		);
 	}
 }

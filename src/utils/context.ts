@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { SessionContext } from '../services';
+import { SessionContext } from '../sessions';
 
 export type RequestContext = {
 	userKey?: string | undefined;

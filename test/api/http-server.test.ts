@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProviderType, CreatioEngineManager } from '../../src/creatio';
 import { HttpServer } from '../../src/server/http/httpServer';
 import { Server } from '../../src/server/mcp';
-import { SessionContext } from '../../src/services/session-context';
+import { SessionContext } from '../../src/sessions/session-context';
 import { makeFakeContext } from '../support/fake-context';
 import { createTestServer, resetSessionContext } from '../support/test-server';
 

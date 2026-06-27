@@ -24,11 +24,6 @@ async function callTool(handlers: Map<string, ToolHandler>, name: string, payloa
 	return handler(payload);
 }
 
-function expectTextResult(result: { content: { type: string; text: string }[] }) {
-	expect(result.content[0]?.type).toBe('text');
-	return result.content[0]!.text;
-}
-
 describe('Server tool registration', () => {
 	it('registers read + write tools when not readonly', () => {
 		const { handlers } = buildServer(false);
@@ -110,7 +105,8 @@ describe('Server tool handlers (read path)', () => {
 		const { handlers, context } = buildServer();
 		const res = await callTool(handlers, 'list-entities', {});
 		expect(context.crud.listEntitySets).toHaveBeenCalled();
-		expect(JSON.parse(expectTextResult(res))).toEqual({ results: ['Contact', 'Account'] });
+		// Raw handler returns domain data; MCP content wrapping is applied at registration.
+		expect(res).toEqual({ results: ['Contact', 'Account'] });
 	});
 
 	it('describe-entity passes the entity set through', async () => {
@@ -423,7 +419,7 @@ describe('describe-entity DataForge routing', () => {
 		enableDataForge(context);
 		await prepare(server);
 		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
-		expect(JSON.parse(expectTextResult(res)).source).toBe('dataforge');
+		expect((res as any).source).toBe('dataforge');
 		expect(context.crud.describeEntity).not.toHaveBeenCalled();
 	});
 
@@ -436,14 +432,14 @@ describe('describe-entity DataForge routing', () => {
 			body: { Success: false, ErrorInfo: { ErrorCode: 'AccessDenied' } },
 		});
 		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
-		expect(JSON.parse(expectTextResult(res)).source).toBe('odata');
+		expect((res as any).source).toBe('odata');
 		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
 	});
 
 	it('uses OData directly when DataForge is disabled', async () => {
 		const { handlers, context } = buildServer(); // no preparation → disabled
 		const res = await callTool(handlers, 'describe-entity', { entitySet: 'Contact' });
-		expect(JSON.parse(expectTextResult(res)).source).toBe('odata');
+		expect((res as any).source).toBe('odata');
 		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
 		expect(context.configuration.call).not.toHaveBeenCalled();
 	});

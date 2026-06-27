@@ -1,3 +1,4 @@
+import log from '../../log';
 import { CreatioProviderContext } from '../provider-context';
 import {
 	AdminOperationProvider,
@@ -7,17 +8,17 @@ import {
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
-} from '../providers';
+} from '../contracts';
 
-import { AdminOperationEngine } from './admin-operation/admin-operation-engine';
-import { ConfigurationEngine } from './configuration/configuration-engine';
-import { CrudEngine } from './crud/crud-engine';
-import { CreatioEngine } from './engine';
+import { AdminOperationEngine } from './admin-operation-engine';
+import { ConfigurationEngine } from './configuration-engine';
+import { CrudEngine } from './crud-engine';
+import { CreatioEngine, EngineEnv } from './engine';
 import { EngineRegistry, EngineType } from './engine-registry';
-import { FeatureEngine } from './feature/feature-engine';
-import { ProcessEngine } from './process/process-engine';
-import { SysSettingsEngine } from './sys-settings/sys-settings-engine';
-import { UserEngine } from './user/user-engine';
+import { FeatureEngine } from './feature-engine';
+import { ProcessEngine } from './process-engine';
+import { SysSettingsEngine } from './sys-settings-engine';
+import { UserEngine } from './user-engine';
 
 export interface EngineManagerOptions {
 	adminOperationProvider?: AdminOperationProvider;
@@ -34,6 +35,10 @@ export interface EngineManagerOptions {
 	enableProcess?: boolean;
 	enableSysSettings?: boolean;
 	enableUser?: boolean;
+	/** When true, every mutating engine operation throws {@link ReadonlyModeError}. */
+	readonly?: boolean;
+	/** Override the audit sink (defaults to `log.audit`). */
+	audit?: EngineEnv['audit'];
 }
 
 export class CreatioEngineManager {
@@ -41,9 +46,14 @@ export class CreatioEngineManager {
 	private readonly _options: EngineManagerOptions | undefined;
 	private readonly _registry = new EngineRegistry();
 	private readonly _engines = new Map<string, CreatioEngine>();
+	private readonly _env: EngineEnv;
 
 	public get authProvider() {
 		return this._context.authProvider;
+	}
+
+	public get readonly(): boolean {
+		return this._env.readonly;
 	}
 
 	public get registry(): EngineRegistry {
@@ -81,6 +91,10 @@ export class CreatioEngineManager {
 	constructor(context: CreatioProviderContext, options?: EngineManagerOptions) {
 		this._context = context;
 		this._options = options;
+		this._env = {
+			readonly: options?.readonly ?? false,
+			audit: options?.audit ?? ((action, details) => log.audit(action, details)),
+		};
 		this._initialize();
 	}
 
@@ -91,6 +105,7 @@ export class CreatioEngineManager {
 				new AdminOperationEngine(
 					this._options?.adminOperationProvider ??
 						(this._context.adminOperation as AdminOperationProvider),
+					this._env,
 				),
 			this._options?.enableAdminOperation ?? true,
 		);
@@ -100,13 +115,17 @@ export class CreatioEngineManager {
 				new ConfigurationEngine(
 					this._options?.configurationProvider ??
 						(this._context.configuration as ConfigurationProvider),
+					this._env,
 				),
 			this._options?.enableConfiguration ?? true,
 		);
 		this._registerEngine(
 			EngineType.Crud,
 			() =>
-				new CrudEngine(this._options?.crudProvider ?? (this._context.crud as CrudProvider)),
+				new CrudEngine(
+					this._options?.crudProvider ?? (this._context.crud as CrudProvider),
+					this._env,
+				),
 			this._options?.enableCrud ?? true,
 		);
 		this._registerEngine(
@@ -114,6 +133,7 @@ export class CreatioEngineManager {
 			() =>
 				new FeatureEngine(
 					this._options?.featureProvider ?? (this._context.feature as FeatureProvider),
+					this._env,
 				),
 			this._options?.enableFeature ?? true,
 		);
@@ -122,6 +142,7 @@ export class CreatioEngineManager {
 			() =>
 				new ProcessEngine(
 					this._options?.processProvider ?? (this._context.process as ProcessProvider),
+					this._env,
 				),
 			this._options?.enableProcess ?? true,
 		);
@@ -131,13 +152,17 @@ export class CreatioEngineManager {
 				new SysSettingsEngine(
 					this._options?.sysSettingsProvider ??
 						(this._context.sysSettings as SysSettingsProvider),
+					this._env,
 				),
 			this._options?.enableSysSettings ?? true,
 		);
 		this._registerEngine(
 			EngineType.User,
 			() =>
-				new UserEngine(this._options?.userProvider ?? (this._context.user as UserProvider)),
+				new UserEngine(
+					this._options?.userProvider ?? (this._context.user as UserProvider),
+					this._env,
+				),
 			this._options?.enableUser ?? true,
 		);
 	}

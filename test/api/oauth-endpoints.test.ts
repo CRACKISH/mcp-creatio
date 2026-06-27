@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestServer, resetSessionContext } from '../support/test-server';
 
 import type { AuthProviderMock } from '../support/test-server';
-import type { SessionContext } from '../../src/services/session-context';
+import type { SessionContext } from '../../src/sessions/session-context';
 import type { Express } from 'express';
 
 describe('OAuth endpoints — security regressions (Batch B)', () => {

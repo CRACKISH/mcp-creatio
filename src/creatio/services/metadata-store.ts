@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 
 import log from '../../log';
-import { EntitySchemaDescription } from '../providers';
+import { EntitySchemaDescription } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 

@@ -7,7 +7,7 @@ import {
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
-} from './providers';
+} from './contracts';
 
 export interface CreatioProviderContext {
 	authProvider: ICreatioAuthProvider;

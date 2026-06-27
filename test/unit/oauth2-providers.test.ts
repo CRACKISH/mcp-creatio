@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthProviderType } from '../../src/creatio';
 import { OAuth2CodeProvider } from '../../src/creatio/auth/providers/oauth2-code-provider';
 import { OAuth2Provider } from '../../src/creatio/auth/providers/oauth2-provider';
-import { SessionContext } from '../../src/services/session-context';
+import { SessionContext } from '../../src/sessions/session-context';
 import { runWithContext } from '../../src/utils';
 import { resetSessionContext } from '../support/test-server';
 

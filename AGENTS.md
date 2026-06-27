@@ -17,6 +17,10 @@ Primary goals:
 ```
 src/
   creatio/            ← Low-level Creatio API client & auth providers
+    contracts/        ← provider interfaces (CrudProvider, ProcessProvider, … — the "ports")
+    services/         ← provider implementations (OData CRUD, process, sys-settings, …)
+    engines/          ← domain layer over the contracts (readonly guard + audit; see below)
+    auth/             ← auth providers (legacy / OAuth2 / OAuth2 code) + capability interfaces
   server/             ← MCP server + HTTP layer (OAuth server, handlers)
     mcp/              ← MCP tool descriptors, prompts, filters builder
       tool-preparer.ts  ← ToolPreparer/ToolRegistrar contracts (env-gated tools)
@@ -24,10 +28,14 @@ src/
       dataforge/        ← DataForge capability: client + tool preparer
       globalsearch/     ← Global Search capability: client + tool preparer
     oauth/            ← Local OAuth 2.1 authorization server for clients
-  services/           ← Session/token refresh orchestration
+  sessions/           ← Session/token store + refresh orchestration (was src/services/)
   utils/              ← Reusable helpers (env, network, pkce, context)
   types/              ← Shared TypeScript interfaces & DTO shapes
 ```
+
+> Naming: `creatio/contracts/` holds the interfaces ("ports"), `creatio/services/` the
+> implementations. The per-process session store lives in top-level `sessions/` (distinct
+> from `creatio/services/`).
 
 Key flows:
 
@@ -42,8 +50,12 @@ Key flows:
 CreatioServiceContext
   ├─ CreatioAuthManager → selects concrete auth provider (legacy / OAuth2 / OAuth2 code)
   ├─ CreatioHttpClient → transport + logging + retry + header helpers
+  │     └─ request(op, url, build, onSuccess, {errorPrefix, logContext}) → the standard
+  │        timed call (wraps executeWithTiming + handleErrorResponse); prefer it in providers
   ├─ ODataMetadataStore → caches entity schemas per environment
-  ├─ ODataCrudProvider → implements CrudProvider using http + metadata
+  ├─ createCrudProvider(config.crudBackend, …) → selects the CRUD backend per-deployment
+  │     ├─ ODataCrudProvider (default) → implements CrudProvider using http + metadata
+  │     └─ DataServiceCrudProvider (CREATIO_CRUD_BACKEND=dataservice) → SKELETON, see below
   ├─ ProcessServiceProvider → POSTs to ProcessEngineService
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
   ├─ FeatureServiceProvider → /rest/FeatureService/ClearFeaturesCacheForAllUsers
@@ -56,7 +68,15 @@ Usage pattern:
 
 - Handlers never craft raw fetch calls. They work through provider interfaces exposed by the context (`provider.crud`, `provider.process`, etc.).
 - If you need a new Creatio capability, add a dedicated provider (or extend an existing one) and wire it up inside `CreatioServiceContext`.
-- `CreatioHttpClient` should stay transport-focused (auth headers, retries, timing). Keep endpoint-specific logic inside providers or a dedicated endpoint helper.
+- `CreatioHttpClient` should stay transport-focused (auth headers, retries, timing). Keep endpoint-specific logic inside providers or a dedicated endpoint helper. Use `client.request(...)` for the standard timed call instead of repeating the `executeWithTiming` + `handleErrorResponse` boilerplate.
+
+### Engine layer (domain cross-cutting — NOT a pass-through)
+
+The engines under `src/creatio/engines/` are the domain seam ABOVE the provider interface, so cross-cutting policy is written once for every CRUD backend. `BaseEngine._mutate(action, details, run)` enforces `readonly` (throws `ReadonlyModeError`) and records an audit entry (`log.audit`) before delegating. **Every new mutating engine method MUST route through `_mutate`; read methods stay direct pass-throughs.** `CreatioEngineManager` owns the shared `EngineEnv` ({readonly, audit}); readonly is threaded from `READONLY_MODE`.
+
+### CRUD backend selection (add a backend here)
+
+`createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_CRUD_BACKEND` (`odata` default | `dataservice`), mirroring `CreatioAuthManager`. To add a CRUD backend: implement `CrudProvider`, add a branch in the factory — nothing above the provider interface changes. `DataServiceCrudProvider` is currently a **skeleton** (fails fast with `dataservice_not_implemented:<op>`); its pure groundwork (`DataServiceQueryBuilder`, `data-service-types.ts`) is real and tested. Completing it requires the neutral query-contract rework (see §18) since the read contract still carries a raw OData `$filter` string.
 
 ## 3. Core Modules You Will Touch
 
@@ -79,16 +99,16 @@ Usage pattern:
 5. Keep tool names stable: lowercase kebab-case (e.g. `execute-process`).
 6. Keep authentication precedence: Authorization Code > Client Credentials > Legacy.
 7. Do not leak secrets or access tokens in tool responses.
-8. `READONLY_MODE=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered.
+8. `READONLY_MODE=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered. This is now enforced at two layers: the MCP layer does not register these tools, AND the engine layer's `_mutate` throws `ReadonlyModeError` (defense-in-depth) — both read `READONLY_MODE`.
 
 ## 5. Adding a New Tool (Checklist)
 
 1. Define input shape in `tools-data.ts` using `zod`.
 2. Provide rich description (include examples, edge cases, warnings).
 3. Export descriptor & input schema.
-4. Register in `server.ts` via `_registerHandlerWithDescriptor` (respect readonly mode if mutating).
-5. Implement the handler by calling the appropriate provider on the `CreatioServiceContext` (via `CreatioEngineManager`); if functionality is missing, extend or add a provider under `src/creatio/services` rather than issuing raw fetch calls.
-6. Ensure responses are formatted as `{ content: [{ type: 'text', text: JSON.stringify(result) }] }` when not already MCP native.
+4. Add a row to the declarative tool table in `server.ts` (`_clientToolDefs()` → `core` for reads, `mutating` for writes — only `mutating` tools are gated out in readonly mode). Each row is `{ name, descriptor, input, run }`.
+5. Implement `run` by calling the appropriate engine on the `CreatioEngineManager` (`crud`, `process`, …); if functionality is missing, extend or add a provider under `src/creatio/services` (+ its `contracts/` interface) rather than issuing raw fetch calls. New mutating engine methods must route through `BaseEngine._mutate`.
+6. Return **raw domain data** from `run` — the single `_normalizeToToolHandler` wraps it into `{ content: [{ type: 'text', text }] }` (objects/arrays are `JSON.stringify`-ed, strings passed through, a genuine `{ content: [...] }` envelope passed through as-is). Do not hand-wrap.
 7. Add edge-case validation (empty arrays, invalid GUID, missing required filter fields).
 8. **Write tests** (see §10): a `server.test.ts` case asserting the handler delegates + readonly gating, plus provider-level tests via `makeHttpClientHarness` for any new `src/creatio/services` code. Run `npm run test:coverage` and stay ≥90%.
 9. Update documentation (README if public feature; otherwise just AGENTS.md).
@@ -233,7 +253,7 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 
 If adding new auth provider:
 
-1. Create provider under `src/creatio/auth/providers/` implementing shared interface.
+1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the core capability: `getHeaders` + `refresh`). Implement `IRevocableAuthProvider` and/or `IInteractiveAuthProvider` ONLY if the provider actually supports revocation / the interactive authorization-code flow — do not stub unsupported methods (consumers use the `supportsRevoke` / `supportsInteractiveAuth` guards).
 2. Add selection logic in `auth-manager.ts` maintaining precedence ordering.
 3. Document environment variables clearly in README + AGENTS.md.
 

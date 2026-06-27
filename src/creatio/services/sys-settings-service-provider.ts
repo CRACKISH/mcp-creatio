@@ -9,7 +9,7 @@ import {
 	SysSettingInsertResponse,
 	SysSettingUpdateResponse,
 	SysSettingsProvider,
-} from '../providers';
+} from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 
@@ -76,7 +76,7 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 		parser: (response: Response) => Promise<T>,
 		errorPrefix: string,
 	): Promise<T> {
-		return this._client.executeWithTiming(
+		return this._client.request<T>(
 			operation,
 			url,
 			async () => {
@@ -91,19 +91,13 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 				});
 				return body;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(operation, response, duration, errorPrefix, {
-					code: payload.code,
-					id: payload.id,
-					url,
-				}),
-			{ code: payload.code, id: payload.id },
+			{ errorPrefix, logContext: { code: payload.code, id: payload.id } },
 		);
 	}
 
 	public async setValues(sysSettingsValues: Record<string, any>): Promise<any> {
 		const url = this._getSetValuesUrl();
-		return this._client.executeWithTiming(
+		return this._client.request(
 			'set-sys-settings-value',
 			url,
 			async () => {
@@ -120,18 +114,10 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 				});
 				return response.text();
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'set-sys-settings-value',
-					response,
-					duration,
-					'creatio_set_sys_settings_value_failed',
-					{
-						settingsCount: Object.keys(sysSettingsValues).length,
-						url,
-					},
-				),
-			{ settingsCount: Object.keys(sysSettingsValues).length },
+			{
+				errorPrefix: 'creatio_set_sys_settings_value_failed',
+				logContext: { settingsCount: Object.keys(sysSettingsValues).length },
+			},
 		);
 	}
 
@@ -140,7 +126,7 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 			return { success: true, values: {} };
 		}
 		const url = this._getQueryUrl();
-		return this._client.executeWithTiming(
+		return this._client.request<QuerySysSettingsResponse>(
 			'query-sys-settings',
 			url,
 			async () => {
@@ -157,18 +143,10 @@ export class SysSettingsServiceProvider implements SysSettingsProvider {
 				});
 				return payload;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'query-sys-settings',
-					response,
-					duration,
-					'creatio_query_sys_settings_failed',
-					{
-						settingsCount: sysSettingCodes.length,
-						url,
-					},
-				),
-			{ settingsCount: sysSettingCodes.length },
+			{
+				errorPrefix: 'creatio_query_sys_settings_failed',
+				logContext: { settingsCount: sysSettingCodes.length },
+			},
 		);
 	}
 

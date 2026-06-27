@@ -1,4 +1,4 @@
-import { ExecuteProcessParams, ExecuteProcessResult, ProcessProvider } from '../providers';
+import { ExecuteProcessParams, ExecuteProcessResult, ProcessProvider } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
 
@@ -41,7 +41,7 @@ export class ProcessServiceProvider implements ProcessProvider {
 
 	public async executeProcess({ processName, parameters }: ExecuteProcessParams) {
 		const url = this._getServiceUrl();
-		return this._client.executeWithTiming(
+		return this._client.request<ExecuteProcessResult>(
 			'execute-process',
 			url,
 			async () => {
@@ -59,18 +59,7 @@ export class ProcessServiceProvider implements ProcessProvider {
 				});
 				return (await response.json()) as ExecuteProcessResult;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'execute-process',
-					response,
-					duration,
-					'creatio_execute_process_failed',
-					{
-						processName,
-						url,
-					},
-				),
-			{ processName },
+			{ errorPrefix: 'creatio_execute_process_failed', logContext: { processName } },
 		);
 	}
 }

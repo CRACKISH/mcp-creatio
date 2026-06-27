@@ -4,7 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 
 import log from '../../log';
-import { SessionContext } from '../../services';
+import { SessionContext } from '../../sessions';
 import {
 	getClientIp,
 	getSessionIdFromRequest,

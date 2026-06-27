@@ -1,0 +1,392 @@
+<title>Архітектура mcp-creatio — гнучкі провайдери + нейтральні фільтри</title>
+<meta name="description" content="Цільова архітектура MCP-сервера Creatio: легке додавання CRUD-провайдерів (OData / DataService) і тулів, власний контракт фільтрів, що білдиться під кожен бекенд.">
+<style>
+  :root {
+    --ground: #EEF0F3;
+    --surface: #FFFFFF;
+    --surface-2: #F7F8FA;
+    --ink: #1B2330;
+    --muted: #5C6675;
+    --faint: #8A93A2;
+    --line: #D7DCE3;
+    --line-soft: #E6E9EE;
+    --accent: #34507A;
+    --accent-soft: #E8EDF4;
+    --crit: #C2392E;
+    --warn: #B7791F;
+    --good: #2F8559;
+    --crit-bg: #FBEAE8;
+    --warn-bg: #FBF1DD;
+    --good-bg: #E6F2EA;
+    --minor-bg: #ECEEF2;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-6: 24px; --sp-8: 32px; --sp-12: 48px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans);
+    font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1140px; margin: 0 auto; padding: clamp(24px, 5vw, 56px) clamp(16px, 4vw, 40px) 80px; }
+
+  .masthead { border-bottom: 1px solid var(--line); padding-bottom: var(--sp-6); margin-bottom: var(--sp-8); }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin: 0 0 var(--sp-3); }
+  h1 { font-size: clamp(27px, 5vw, 40px); line-height: 1.08; letter-spacing: -0.02em; font-weight: 800; margin: 0 0 var(--sp-3); text-wrap: balance; max-width: 20ch; }
+  .lede { font-size: 17px; color: var(--muted); margin: 0; max-width: 64ch; }
+  .verdict { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-6); align-items: center; }
+  .score { display: inline-flex; align-items: baseline; gap: 8px; background: var(--ink); color: #fff; border-radius: 8px; padding: 8px 14px; font-weight: 700; }
+  .score b { font-size: 18px; } .score span { font-size: 12px; color: #B8C0CC; font-weight: 600; }
+  .verdict-note { font-size: 14px; color: var(--muted); max-width: 48ch; }
+
+  section { margin-top: var(--sp-12); }
+  .sec-head { display: flex; align-items: baseline; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+  .sec-num { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; flex: none; }
+  h2 { font-size: clamp(20px, 3vw, 26px); letter-spacing: -0.01em; font-weight: 750; margin: 0; text-wrap: balance; }
+  .sec-sub { color: var(--muted); font-size: 15px; margin: 6px 0 var(--sp-6); max-width: 72ch; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin: var(--sp-4) 0 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .dot.crit { background: var(--crit); } .dot.warn { background: var(--warn); } .dot.good { background: var(--good); } .dot.minor { background: var(--faint); }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(20px, 3vw, 36px); align-items: start; }
+  @media (max-width: 780px) { .compare { grid-template-columns: 1fr; } }
+  .col__head { display: flex; align-items: center; gap: 10px; margin-bottom: var(--sp-4); flex-wrap: wrap; }
+  .tag { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 4px 11px; border-radius: 999px; }
+  .tag.now { background: var(--crit-bg); color: #9B2B22; } .tag.next { background: var(--good-bg); color: #246A47; }
+  .col__meta { font-size: 13px; color: var(--faint); }
+
+  .stack { display: flex; flex-direction: column; }
+  .node { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 11px 14px; box-shadow: 0 1px 2px rgba(27,35,48,.04); }
+  .node--endpoint { background: var(--surface-2); border-style: dashed; }
+  .node--crit { border-left: 3px solid var(--crit); } .node--warn { border-left: 3px solid var(--warn); } .node--good { border-left: 3px solid var(--good); }
+  .node__role { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+  .node__name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); margin-top: 2px; word-break: break-word; }
+  .node__note { font-size: 12px; color: var(--muted); margin-top: 5px; line-height: 1.4; }
+  .node__flag { font-weight: 600; } .flag-crit { color: var(--crit); } .flag-warn { color: var(--warn); } .flag-good { color: var(--good); }
+  .arrow { align-self: center; color: var(--accent); font-size: 15px; line-height: 1; padding: 5px 0; opacity: .6; }
+
+  /* provider branch */
+  .branch { background: var(--surface); border: 1px solid var(--good); border-left: 3px solid var(--good); border-radius: 9px; padding: 11px 14px; }
+  .branch__title { font-family: var(--mono); font-size: 13.5px; font-weight: 700; color: var(--ink); }
+  .branch__sub { font-size: 12px; color: var(--muted); margin: 4px 0 10px; }
+  .branch__kids { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 480px) { .branch__kids { grid-template-columns: 1fr; } }
+  .kid { background: var(--accent-soft); border-radius: 7px; padding: 8px 10px; }
+  .kid b { font-family: var(--mono); font-size: 12.5px; display: block; color: var(--accent); }
+  .kid span { font-size: 11px; color: var(--muted); }
+  .kid.dim { background: var(--surface-2); } .kid.dim b { color: var(--faint); }
+
+  .thread { margin-top: var(--sp-6); background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 9px; padding: var(--sp-4); }
+  .thread h3 { margin: 0 0 6px; font-size: 14px; letter-spacing: .02em; }
+  .thread p { margin: 0; font-size: 14px; color: var(--muted); } .thread b { color: var(--ink); }
+
+  /* filter flow */
+  .filterflow { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: clamp(16px,3vw,26px); }
+  .ff-top { background: var(--accent-soft); border: 1px solid #CBD6E6; border-radius: 9px; padding: 13px 16px; text-align: center; }
+  .ff-top .lbl { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  .ff-top .nm { font-family: var(--mono); font-size: 14px; font-weight: 700; color: var(--ink); margin-top: 3px; }
+  .ff-top .ex { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .ff-mid { text-align: center; color: var(--accent); font-size: 13px; padding: 10px 0; }
+  .ff-mid b { font-family: var(--mono); }
+  .ff-kids { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+  @media (max-width: 560px) { .ff-kids { grid-template-columns: 1fr; } }
+  .ff-kid { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+  .ff-kid h4 { margin: 0; padding: 10px 13px; font-family: var(--mono); font-size: 13px; background: var(--surface-2); border-bottom: 1px solid var(--line); color: var(--ink); }
+  .ff-kid .out { padding: 12px 13px; }
+  .ff-kid .out .cap { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .07em; }
+  .ff-kid .out pre { margin: 6px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--good); white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+  .ff-was { margin-top: var(--sp-4); font-size: 13px; color: var(--muted); background: var(--crit-bg); border-radius: 8px; padding: 10px 13px; }
+  .ff-was b { color: #9B2B22; }
+  .qmap-wrap { overflow-x: auto; margin-top: var(--sp-4); border: 1px solid var(--line); border-radius: 9px; }
+  .qmap { width: 100%; min-width: 460px; border-collapse: collapse; font-size: 13px; }
+  .qmap th, .qmap td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line-soft); }
+  .qmap tbody tr:last-child td { border-bottom: none; }
+  .qmap thead th { font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); background: var(--surface-2); }
+  .qmap td:first-child { font-weight: 600; color: var(--ink); }
+  .qmap code { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+  .qmap tr.gotcha td:first-child { color: #9B2B22; }
+
+  /* seams */
+  .seams { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); }
+  @media (max-width: 820px) { .seams { grid-template-columns: 1fr; } }
+  .seam { background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--good); border-radius: 10px; padding: var(--sp-4) var(--sp-4) var(--sp-6); }
+  .seam h3 { margin: 0 0 4px; font-size: 16px; letter-spacing: -0.01em; }
+  .seam .pat { font-family: var(--mono); font-size: 11.5px; color: var(--accent); margin-bottom: 12px; }
+  .seam .lbl { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 700; margin: 10px 0 5px; }
+  .seam ul { margin: 0; padding-left: 16px; }
+  .seam li { font-size: 13px; color: var(--muted); margin: 3px 0; }
+  .seam li code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; color: var(--ink); }
+  .seam .touch li::marker { color: var(--good); }
+  .seam .keep li::marker { color: var(--faint); }
+
+  .tree-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+  .tree { margin: 0; padding: var(--sp-4); font-family: var(--mono); font-size: 12.5px; line-height: 1.7; color: var(--ink); white-space: pre; min-width: min-content; }
+  .tree .anno { font-family: var(--sans); font-size: 11.5px; padding: 1px 6px; border-radius: 5px; margin-left: 6px; white-space: nowrap; }
+  .anno.crit { background: var(--crit-bg); color: #9B2B22; } .anno.warn { background: var(--warn-bg); color: #8A5B12; }
+  .anno.good { background: var(--good-bg); color: #246A47; } .anno.minor { background: var(--minor-bg); color: #4A5263; }
+  .tree .dim { color: var(--faint); } .tree .key { color: var(--accent); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 700px; font-size: 14px; }
+  thead th { text-align: left; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 700; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+  tbody td { padding: 13px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  .f-num { font-family: var(--mono); font-weight: 700; color: var(--accent); }
+  .f-find { font-weight: 600; color: var(--ink); }
+  .f-find code, .f-fix code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  .f-fix { color: var(--muted); } .f-princ { font-family: var(--mono); font-size: 12px; color: var(--accent); white-space: nowrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; white-space: nowrap; line-height: 1; }
+  .chip.crit { background: var(--crit-bg); color: #9B2B22; } .chip.warn { background: var(--warn-bg); color: #8A5B12; }
+  .chip.good { background: var(--good-bg); color: #246A47; } .chip.minor { background: var(--minor-bg); color: #4A5263; }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  /* roadmap */
+  .road { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  @media (max-width: 900px) { .road { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .road { grid-template-columns: 1fr; } }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 13px; position: relative; }
+  .step .n { font-family: var(--mono); font-weight: 700; color: #fff; background: var(--accent); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; margin-bottom: 8px; }
+  .step h4 { margin: 0 0 4px; font-size: 13.5px; letter-spacing: -0.01em; }
+  .step p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .step.pre .n { background: var(--good); }
+
+  .footer { margin-top: var(--sp-12); padding-top: var(--sp-6); border-top: 1px solid var(--line); font-size: 13px; color: var(--faint); }
+  .footer code { font-family: var(--mono); }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Цільова архітектура · гнучкість як вимога</p>
+    <h1>Гнучкі провайдери Creatio + нейтральні фільтри</h1>
+    <p class="lede">Архітектура, де додати CRUD-бекенд (OData / DataService) чи новий тул — це кілька файлів без зачіпання решти, а тули говорять <b>власним контрактом запиту</b> (фільтри, сортування, select, expand, paging, count), який кожен провайдер білдить у свою мову.</p>
+    <div class="verdict">
+      <span class="score"><b>B+</b><span>міцний фундамент · готуємо до двох бекендів</span></span>
+      <span class="verdict-note">Рефактор і підготовка до DataService — одна послідовність, не дві.</span>
+    </div>
+    <div class="legend">
+      <span><i class="dot crit"></i> критичне</span>
+      <span><i class="dot warn"></i> середнє</span>
+      <span><i class="dot minor"></i> дрібне</span>
+      <span><i class="dot good"></i> цільовий стан</span>
+    </div>
+  </header>
+
+  <!-- 01 FLOW -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Потік запиту крізь шари</h2></div>
+    <p class="sec-sub">Зараз — 6 рівнів, один порожній, бекенд жорстко OData. Після — домен бере наскрізну логіку, а CRUD-гілка роздвоюється на рівні контракту: фабрика обирає бекенд за env.</p>
+    <div class="compare">
+      <!-- now -->
+      <div class="col">
+        <div class="col__head"><span class="tag now">Зараз</span><span class="col__meta">6 рівнів · 1 порожній · OData намертво</span></div>
+        <div class="stack">
+          <div class="node node--endpoint"><div class="node__role">клієнт</div><div class="node__name">MCP Client</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--crit"><div class="node__role">транспорт MCP</div><div class="node__name">server.ts</div><div class="node__note"><span class="node__flag flag-crit">God-class 🔴</span> 525 рядків · уся логіка хендлерів інлайн · білдить OData-запит прямо тут</div></div>
+          <div class="arrow">↓</div>
+          <div class="node"><div class="node__role">резолвер</div><div class="node__name">EngineManager · Registry</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--crit"><div class="node__role">домен (?)</div><div class="node__name">CrudEngine ×7</div><div class="node__note"><span class="node__flag flag-crit">pass-through 🔴</span> нуль логіки</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--warn"><div class="node__role">реалізація</div><div class="node__name">ODataCrudProvider</div><div class="node__note"><span class="node__flag flag-warn">🔒 єдиний бекенд</span> + сирий <code>filter:string</code> тече наскрізь (інжекшн)</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--warn"><div class="node__role">транспорт HTTP</div><div class="node__name">CreatioHttpClient</div><div class="node__note"><span class="node__flag flag-warn">5-в-1 🟡</span></div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--endpoint"><div class="node__role">система</div><div class="node__name">Creatio CRM</div></div>
+        </div>
+      </div>
+      <!-- next -->
+      <div class="col">
+        <div class="col__head"><span class="tag next">Після</span><span class="col__meta">домен + контракт із 2 бекендами</span></div>
+        <div class="stack">
+          <div class="node node--endpoint"><div class="node__role">клієнт</div><div class="node__name">MCP Client</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--good"><div class="node__role">транспорт MCP</div><div class="node__name">server.ts + HandlerTable</div><div class="node__note"><span class="node__flag flag-good">тонкий ✅</span> приймає <code>ReadQuery</code> (наші типи), не знає про OData</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--good"><div class="node__role">домен</div><div class="node__name">EngineManager (readonly · audit)</div><div class="node__note"><span class="node__flag flag-good">заробив місце ✅</span> наскрізна логіка — один раз для обох бекендів</div></div>
+          <div class="arrow">↓</div>
+          <div class="branch">
+            <div class="branch__title">CrudContract</div>
+            <div class="branch__sub">порт (Strategy) · <b>CrudProviderFactory</b> обирає за <code>CRUD_BACKEND</code></div>
+            <div class="branch__kids">
+              <div class="kid"><b>ODataCrudProvider</b><span>+ ODataFilterTranslator + MetadataStore</span></div>
+              <div class="kid"><b>DataServiceProvider</b><span>+ DSFilterTranslator + MetadataStore</span></div>
+            </div>
+          </div>
+          <div class="arrow">↓</div>
+          <div class="node node--good"><div class="node__role">транспорт HTTP</div><div class="node__name">HttpClient + Interceptors</div><div class="node__note"><span class="node__flag flag-good">✅</span> чистий транспорт; auth-retry / тайминг — інтерсептори</div></div>
+          <div class="arrow">↓</div>
+          <div class="node node--endpoint"><div class="node__role">система</div><div class="node__name">Creatio CRM</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="thread">
+      <h3>🧵 Червона нитка</h3>
+      <p>Усе сходиться до <b>порожнього <code>Engine</code></b>. Із другим бекендом він стає несучим: readonly + audit + нормалізація <b>мусять жити НАД контрактом</b>, інакше дублюються в обох провайдерах. Те, що було YAGNI, стає стіною.</p>
+    </div>
+  </section>
+
+  <!-- 02 QUERY CONTRACT -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Контракт запиту: filter · sort · select · expand · paging · count</h2></div>
+    <p class="sec-sub">Нейтральним стає <b>увесь read-запит</b>, не лише фільтр. Тул приймає типізований <code>ReadQuery</code>, провайдер білдить його повністю у свою мову, а різні відповіді нормалізуються назад у спільну форму <code>{ items, totalCount? }</code>.</p>
+    <div class="filterflow">
+      <div class="ff-top">
+        <div class="lbl">вхід тулу · Zod ReadQuery</div>
+        <div class="nm">ReadQuery (наші типи)</div>
+        <div class="ex">{ select:["Name","Owner.Name"], filter:{…}, sort:[{field:"CreatedOn",dir:"desc"}],<br>&nbsp;&nbsp;expand:["Owner"], top:50, skip:0, count:true }</div>
+      </div>
+      <div class="ff-mid">↓ &nbsp; Engine → активний провайдер → <b>QueryTranslator</b> &nbsp; ↓</div>
+      <div class="ff-kids">
+        <div class="ff-kid">
+          <h4>→ OData</h4>
+          <div class="out"><div class="cap">query string</div><pre>$select=Name&$expand=Owner($select=Name)
+&$orderby=CreatedOn desc
+&$top=50&$count=true</pre></div>
+        </div>
+        <div class="ff-kid">
+          <h4>→ DataService</h4>
+          <div class="out"><div class="cap">request JSON</div><pre>{ columns:[{path:"Name"},
+   {path:"Owner.Name"}], filters:{…},
+  rowCount:50, isPageable:true }</pre></div>
+        </div>
+      </div>
+      <div class="qmap-wrap"><table class="qmap">
+        <thead><tr><th>можливість</th><th>OData білд</th><th>DataService білд</th></tr></thead>
+        <tbody>
+          <tr><td>select</td><td><code>$select</code></td><td><code>columns[].path</code></td></tr>
+          <tr><td>filter</td><td><code>$filter</code> рядок + <code>Xxx/Id</code>, bare-GUID</td><td><code>filters</code> дерево</td></tr>
+          <tr><td>сортування</td><td><code>$orderby Name desc</code></td><td><code>orderDirection + orderPosition</code></td></tr>
+          <tr><td>paging</td><td><code>$top / $skip</code></td><td><code>rowCount / isPageable</code></td></tr>
+          <tr><td>count</td><td><code>$count → @odata.count</code></td><td>прапор <code>rowCount</code> → лічильник</td></tr>
+          <tr class="gotcha"><td>expand ⚠️</td><td><code>$expand=Nav($select)</code> — навігація</td><td><code>"Nav.Field"</code> у columns — НЕ expand</td></tr>
+        </tbody>
+      </table></div>
+      <div class="ff-was">⚠️ <b>Чому контракт, а не passthrough:</b> <code>expand</code> у бекендах принципово різний — OData розкриває навігацію окремою конструкцією, DataService адресує вкладене полем-шляхом. Прокинути OData-параметри наскрізь у DataService <b>неможливо</b>. Тому нейтральний <code>ReadQuery</code> + нормалізація відповіді (<code>value/@odata.count</code> vs <code>rows/rowCount</code> → <code>{items,totalCount}</code>) обов'язкові. OData-квірки (<code>XxxId→Xxx/Id</code>, bare-GUID) переїжджають у OData-транслятор, де їм і місце.</div>
+    </div>
+  </section>
+
+  <!-- 03 SEAMS -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Точки розширення — «має бути гнучко»</h2></div>
+    <p class="sec-sub">Три види розширення, кожне ізольоване. Зразок уже в репозиторії — capability-слайси <code>mcp/dataforge</code>. Зелене — що додаєш; сіре — чого НЕ торкаєшся.</p>
+    <div class="seams">
+      <div class="seam">
+        <h3>Додати CRUD-бекенд</h3>
+        <div class="pat">Strategy + Factory</div>
+        <div class="lbl">Створюєш</div>
+        <ul class="touch">
+          <li>impl <code>CrudContract</code></li>
+          <li><code>FilterTranslator</code></li>
+          <li><code>MetadataStore</code></li>
+          <li>1 рядок у <code>CrudProviderFactory</code></li>
+        </ul>
+        <div class="lbl">Не чіпаєш</div>
+        <ul class="keep"><li>тули / descriptors</li><li><code>Engine</code> / server.ts</li></ul>
+      </div>
+      <div class="seam">
+        <h3>Додати тул</h3>
+        <div class="pat">Handler table</div>
+        <div class="lbl">Створюєш</div>
+        <ul class="touch">
+          <li>Zod-descriptor у <code>tools-data</code></li>
+          <li>рядок у HandlerTable → <code>Engine</code></li>
+        </ul>
+        <div class="lbl">Не чіпаєш</div>
+        <ul class="keep"><li>провайдери / транспорт</li><li>білд фільтрів</li></ul>
+      </div>
+      <div class="seam">
+        <h3>Додати capability</h3>
+        <div class="pat">ToolPreparer (env-gated)</div>
+        <div class="lbl">Створюєш</div>
+        <ul class="touch">
+          <li>Client (без MCP)</li>
+          <li><code>ToolPreparer</code></li>
+          <li>нову папку-слайс</li>
+        </ul>
+        <div class="lbl">Не чіпаєш</div>
+        <ul class="keep"><li>ядро server.ts</li><li>CRUD-гілку</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 STRUCTURE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Структура папок</h2></div>
+    <p class="sec-sub">Вертикальні слайси за зразком <code>dataforge/</code>: кожен бекенд тримає provider + translator + metadata в одній папці. Контракти й нейтральні типи фільтрів — окремо.</p>
+    <div class="compare">
+      <div class="col">
+        <div class="col__head"><span class="tag now">Зараз</span></div>
+        <div class="tree-wrap"><pre class="tree"><span class="key">creatio/</span>
+  providers/        <span class="anno crit">інтерфейси — назва бреше</span>
+  services/         <span class="anno warn">усі impl впереміш</span>
+    odata-crud-provider.ts
+    metadata-store.ts
+  engines/
+    crud/<span class="dim">crud-engine.ts</span>  <span class="anno minor">папка на 1 файл</span>
+<span class="key">services/</span>           <span class="anno warn">сесії — колізія імен</span>
+<span class="key">server/</span>
+  mcp/<span class="dim">filters.ts</span>       <span class="anno crit">OData білд у транспорті</span>
+  http/<span class="dim">httpServer.ts</span>  <span class="anno minor">camelCase</span>
+  mcp/dataforge/      <span class="anno good">✅ еталон</span></pre></div>
+      </div>
+      <div class="col">
+        <div class="col__head"><span class="tag next">Після</span></div>
+        <div class="tree-wrap"><pre class="tree"><span class="key">creatio/</span>
+  contracts/        <span class="anno good">✅ порти + типи</span>
+    crud-contract.ts
+    query.ts        <span class="anno good">ReadQuery + FilterNode</span>
+    metadata-store.ts
+  services/
+    odata/          <span class="anno good">✅ слайс бекенда</span>
+      provider · translator · metadata
+    dataservice/    <span class="anno good">✅ новий слайс</span>
+    crud-provider-factory.ts <span class="anno good">вибір за env</span>
+  engines/          <span class="anno good">домен: readonly+audit</span>
+<span class="key">sessions/</span>          <span class="anno good">✅ нема колізії</span>
+<span class="key">server/</span> mcp/dataforge/ <span class="dim">…</span></pre></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 ROADMAP -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Порядок робіт</h2></div>
+    <p class="sec-sub">Зелені кроки — це буквально «зробити місце для DataService». Архітектурний рефактор і новий бекенд — одна стрічка.</p>
+    <div class="road">
+      <div class="step pre"><div class="n">1</div><h4>Наповнити Engine</h4><p>readonly + audit + нормалізація над контрактом</p></div>
+      <div class="step pre"><div class="n">2</div><h4>Контракт запиту</h4><p><code>ReadQuery</code> (filter/sort/select/expand/paging/count); білд + нормалізація → транслятор</p></div>
+      <div class="step pre"><div class="n">3</div><h4>contracts/ + Factory</h4><p>порти, MetadataStore-інтерфейс, вибір бекенда за env</p></div>
+      <div class="step"><div class="n">4</div><h4>Розвантажити server.ts</h4><p>HandlerTable, єдина нормалізація</p></div>
+      <div class="step"><div class="n">5</div><h4>ISP auth · інтерсептори · TTL</h4><p>решта чистоти</p></div>
+    </div>
+  </section>
+
+  <!-- 06 FINDINGS -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Знахідки → фікси</h2></div>
+    <p class="sec-sub">Повна мапа. План DataService піднімає №1, №4, №9 у розряд «зробити першими».</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Знахідка</th><th>Принцип</th><th>Серйозність</th><th>Фікс</th></tr></thead>
+        <tbody>
+          <tr><td class="f-num">1</td><td class="f-find">Шар <code>Engine</code> — 7/7 pass-through</td><td class="f-princ">YAGNI</td><td><span class="chip crit">критичне</span></td><td class="f-fix">Наповнити (readonly+audit) — над контрактом, не дублювати в бекендах</td></tr>
+          <tr><td class="f-num">2</td><td class="f-find"><code>server.ts</code> God-class (525 / 260 рядків)</td><td class="f-princ">SRP</td><td><span class="chip crit">критичне</span></td><td class="f-fix">HandlerTable + єдиний <code>toToolResult()</code></td></tr>
+          <tr><td class="f-num">9★</td><td class="f-find">Увесь read-запит (filter/sort/expand/count) білдиться як OData в транспорті; сирий <code>filter:string</code></td><td class="f-princ">OCP · DIP</td><td><span class="chip crit">критичне*</span></td><td class="f-fix"><code>ReadQuery</code> контракт + <code>QueryTranslator</code>-за-провайдер + нормалізація відповіді (*підвищено планом)</td></tr>
+          <tr><td class="f-num">3</td><td class="f-find">Товстий <code>ICreatioAuthProvider</code> → база <code>throw</code></td><td class="f-princ">ISP · LSP</td><td><span class="chip warn">середнє</span></td><td class="f-fix">Credential / Revocable / Interactive</td></tr>
+          <tr><td class="f-num">4</td><td class="f-find">readonly-гейт лише на реєстрації</td><td class="f-princ">SRP · safety</td><td><span class="chip warn">середнє</span></td><td class="f-fix">Enforcement у домені (на №1)</td></tr>
+          <tr><td class="f-num">5</td><td class="f-find"><code>HttpClient</code> 5-в-1 + дубль ×6</td><td class="f-princ">SRP · DRY</td><td><span class="chip warn">середнє</span></td><td class="f-fix">Інтерсептори + базовий ServiceProvider + <code>routes.ts</code></td></tr>
+          <tr><td class="f-num">6</td><td class="f-find"><code>SessionContext</code> токени без TTL</td><td class="f-princ">Resources</td><td><span class="chip warn">середнє</span></td><td class="f-fix">TTL / LRU евікція</td></tr>
+          <tr><td class="f-num">7</td><td class="f-find">Перевантаження <code>services</code>/<code>providers</code></td><td class="f-princ">Naming</td><td><span class="chip warn">середнє</span></td><td class="f-fix"><code>providers→contracts</code>, <code>services→sessions</code></td></tr>
+          <tr><td class="f-num">8</td><td class="f-find">Папки-на-файл; <code>httpServer.ts</code></td><td class="f-princ">Structure</td><td><span class="chip minor">дрібне</span></td><td class="f-fix">Слайси за зразком; kebab-case</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="footer">Верифіковано по файлах · <code>filters.ts</code>, <code>crud-provider.ts</code>, <code>engine-manager.ts</code>, auth, транспорт · ~8.5K LOC · v0.5.0. Зелене — цільове. ★ №9 об'єднує колишні OCP-фільтри й тепер несучий для двох бекендів. Вибір бекенда — per-deployment (env), дзеркало <code>CreatioAuthManager</code>.</p>
+
+</div>

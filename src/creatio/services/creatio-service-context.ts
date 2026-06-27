@@ -9,14 +9,14 @@ import {
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
-} from '../providers';
+} from '../contracts';
 
 import { AdminOperationServiceProvider } from './admin-operation-service-provider';
 import { ConfigurationServiceProvider } from './configuration-service-provider';
+import { createCrudProvider } from './crud-provider-factory';
 import { FeatureServiceProvider } from './feature-service-provider';
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';
-import { ODataCrudProvider } from './odata-crud-provider';
 import { ProcessServiceProvider } from './process-service-provider';
 import { SysSettingsServiceProvider } from './sys-settings-service-provider';
 import { UserInfoProvider } from './user-info-provider';
@@ -46,7 +46,10 @@ export class CreatioServiceContext implements CreatioProviderContext {
 		const metadataStore = new ODataMetadataStore(this._httpClient);
 		this.adminOperation = new AdminOperationServiceProvider(this._httpClient);
 		this.configuration = new ConfigurationServiceProvider(this._httpClient);
-		this.crud = new ODataCrudProvider(this._httpClient, metadataStore);
+		this.crud = createCrudProvider(config.crudBackend, {
+			client: this._httpClient,
+			metadataStore,
+		});
 		this.feature = new FeatureServiceProvider(this._httpClient);
 		this.process = new ProcessServiceProvider(this._httpClient);
 		this.sysSettings = new SysSettingsServiceProvider(this._httpClient);

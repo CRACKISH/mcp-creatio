@@ -1,5 +1,5 @@
 import log from '../log';
-import { SessionContext } from '../services';
+import { SessionContext } from '../sessions';
 export type TokenRefreshCallback = (userKey: string) => Promise<void>;
 
 export class TokenRefreshScheduler {

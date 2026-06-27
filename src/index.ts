@@ -11,8 +11,9 @@ async function main() {
 	log.appStart({ env: { node: process.version, HTTP_MCP_PORT } });
 	const cfg = getCreatioClientConfig();
 	const provider = new CreatioServiceContext(cfg);
-	const engines = new CreatioEngineManager(provider);
-	const server = new Server(engines, { readonlyMode: envBool('READONLY_MODE', false) });
+	const readonlyMode = envBool('READONLY_MODE', false);
+	const engines = new CreatioEngineManager(provider, { readonly: readonlyMode });
+	const server = new Server(engines, { readonlyMode });
 	const http = new HttpServer(server);
 	_httpInstance = http;
 	await http.start(HTTP_MCP_PORT);
