@@ -62,7 +62,42 @@ export enum OrderDirection {
 /** `Terrasoft.ExpressionType` (the only ones we emit). */
 export enum ExpressionType {
 	SchemaColumn = 0,
+	Function = 1,
 	Parameter = 2,
+	SubQuery = 3,
+}
+
+/** `Terrasoft.FunctionType` (subset). */
+export enum FunctionType {
+	None = 0,
+	Macros = 1,
+	Aggregation = 2,
+}
+
+/** `Terrasoft.AggregationType` (subset — we only need Count). */
+export enum AggregationType {
+	None = 0,
+	Count = 1,
+	Sum = 2,
+	Avg = 3,
+	Min = 4,
+	Max = 5,
+}
+
+/** `Terrasoft.AggregationEvalType`. */
+export enum AggregationEvalType {
+	None = 0,
+	All = 1,
+	Distinct = 2,
+}
+
+/** `Terrasoft.QueryOperationType` (op is actually selected by the endpoint; sent for fidelity). */
+export enum QueryOperationType {
+	Select = 0,
+	Insert = 1,
+	Update = 2,
+	Delete = 3,
+	Batch = 4,
 }
 
 export interface DataServiceColumnExpression {
@@ -70,18 +105,91 @@ export interface DataServiceColumnExpression {
 	columnPath: string;
 }
 
+/** A typed parameter value (`BaseExpression.Parameter`). DataValueType is mandatory — the
+ *  platform does not infer it from the JSON value (an absent type silently defaults to Text). */
+export interface DataServiceParameter {
+	dataValueType: DataValueType;
+	value: unknown;
+}
+
+export interface DataServiceParameterExpression {
+	expressionType: ExpressionType.Parameter;
+	parameter: DataServiceParameter;
+}
+
+export type DataServiceExpression = DataServiceColumnExpression | DataServiceParameterExpression;
+
+/**
+ * A node of the DataService `Filters` tree. A group uses `filterType: Group` + `items`
+ * (a keyed map of child filters) + `logicalOperation`; a comparison uses
+ * `filterType: CompareFilter` + `comparisonType` + left/right expressions; a null-check
+ * uses `filterType: IsNullFilter` + `comparisonType: IsNull|IsNotNull` + `leftExpression`.
+ */
+export interface DataServiceFilter {
+	filterType: FilterType;
+	comparisonType?: FilterComparisonType;
+	logicalOperation?: LogicalOperation;
+	isNull?: boolean;
+	isNot?: boolean;
+	isEnabled?: boolean;
+	leftExpression?: DataServiceExpression;
+	rightExpression?: DataServiceExpression;
+	rightExpressions?: DataServiceExpression[];
+	items?: Record<string, DataServiceFilter>;
+}
+
+/** Root of a filter tree — a {@link DataServiceFilter} carrying the schema name. */
+export interface DataServiceFilters extends DataServiceFilter {
+	rootSchemaName?: string;
+}
+
+/** An aggregate-function expression (e.g. COUNT) over a column argument. */
+export interface DataServiceAggregationExpression {
+	expressionType: ExpressionType.Function;
+	functionType: FunctionType.Aggregation;
+	functionArgument: DataServiceColumnExpression;
+	aggregationType: AggregationType;
+	aggregationEvalType: AggregationEvalType;
+}
+
 export interface DataServiceSelectColumn {
-	expression: DataServiceColumnExpression;
+	expression: DataServiceColumnExpression | DataServiceAggregationExpression;
 	orderDirection?: OrderDirection;
 	orderPosition?: number;
 }
 
 export interface DataServiceSelectQuery {
 	rootSchemaName: string;
-	operationType: 0; // Select
+	operationType: QueryOperationType.Select;
 	columns: { items: Record<string, DataServiceSelectColumn> };
 	allColumns: boolean;
+	isDistinct?: boolean;
+	filters?: DataServiceFilters;
 	rowCount?: number;
 	rowsOffset?: number;
 	isPageable?: boolean;
+}
+
+/** `ColumnValues` map for Insert/Update — each entry a typed parameter expression. */
+export interface DataServiceColumnValues {
+	items: Record<string, DataServiceParameterExpression>;
+}
+
+export interface DataServiceInsertQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Insert;
+	columnValues: DataServiceColumnValues;
+}
+
+export interface DataServiceUpdateQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Update;
+	columnValues: DataServiceColumnValues;
+	filters: DataServiceFilters;
+}
+
+export interface DataServiceDeleteQuery {
+	rootSchemaName: string;
+	operationType: QueryOperationType.Delete;
+	filters: DataServiceFilters;
 }

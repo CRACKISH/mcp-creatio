@@ -115,7 +115,7 @@ describe('Server tool handlers (read path)', () => {
 		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
 	});
 
-	it('read merges raw filter and structured filters with AND', async () => {
+	it('compiles structured filters to a FilterNode and carries raw $filter as an OData extra', async () => {
 		const { handlers, context } = buildServer();
 		await callTool(handlers, 'read', {
 			entity: 'Contact',
@@ -123,11 +123,18 @@ describe('Server tool handlers (read path)', () => {
 			filters: { all: [{ field: 'Name', op: 'eq', value: 'Bob' }] },
 			top: 10,
 		});
+		// The neutral ReadQuery carries the structured filter as an AST; the raw OData string
+		// is an OData-only escape hatch. AND-merging the two is the OData translator's job.
 		expect(context.crud.read).toHaveBeenCalledWith(
 			expect.objectContaining({
 				entity: 'Contact',
-				filter: "(IsActive eq true) and (Name eq 'Bob')",
 				top: 10,
+				odata: { rawFilter: 'IsActive eq true' },
+				filter: {
+					kind: 'group',
+					logic: 'and',
+					items: [{ kind: 'condition', field: 'Name', op: 'eq', value: 'Bob' }],
+				},
 			}),
 		);
 	});
@@ -150,12 +157,40 @@ describe('Server tool handlers (read path)', () => {
 		expect(context.crud.read).toHaveBeenCalledWith(
 			expect.objectContaining({
 				entity: 'Opportunity',
-				filter: `Contact/Id eq ${GUID}`,
 				top: 0,
 				skip: 25,
 				count: true,
+				// The lookup-nav rewrite (ContactId -> Contact/Id) is an OData-dialect concern
+				// applied by the translator, not at this neutral layer.
+				filter: {
+					kind: 'group',
+					logic: 'and',
+					items: [{ kind: 'condition', field: 'ContactId', op: 'eq', value: GUID }],
+				},
 			}),
 		);
+	});
+
+	it('omits OData-only read params (filter/expand) when the backend lacks the capability', async () => {
+		const context = makeFakeContext();
+		// A DataService-like backend: no raw $filter, no $expand.
+		(context.crud as { capabilities: unknown }).capabilities = { rawFilter: false, expand: false };
+		const engines = new CreatioEngineManager(context as never);
+		const server = new Server(engines, { readonlyMode: false });
+		const handlers = (server as unknown as { _handlers: Map<string, ToolHandler> })._handlers;
+		await callTool(handlers, 'read', {
+			entity: 'Contact',
+			filter: 'IsActive eq true', // unsupported -> stripped by the schema
+			expand: ['Account'], // unsupported -> stripped by the schema
+			filters: { all: [{ field: 'Name', op: 'eq', value: 'Bob' }] },
+		});
+		const arg = (context.crud.read as unknown as { mock: { calls: any[][] } }).mock.calls[0][0];
+		expect(arg.odata).toBeUndefined();
+		expect(arg.filter).toEqual({
+			kind: 'group',
+			logic: 'and',
+			items: [{ kind: 'condition', field: 'Name', op: 'eq', value: 'Bob' }],
+		});
 	});
 
 	it('query-sys-settings delegates with codes', async () => {

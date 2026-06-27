@@ -17,7 +17,7 @@ Also discoverable as:
 - Exposes Creatio data as MCP tools for MCP-compatible clients (Claude Desktop, ChatGPT Connectors, GitHub Copilot)
 - Supports reading, creating, updating, deleting records and inspecting schema
 - Execute Creatio business processes with parameters
-- Uses Creatio OData v4 API under the hood
+- Selectable data backend: Creatio DataService (default) or OData v4 (`CREATIO_CRUD_BACKEND`)
 
 ## Features
 
@@ -122,8 +122,21 @@ Then connect using URL:
 | `CREATIO_CODE_CLIENT_SECRET` | OAuth2 authorization code client secret                              |
 | `CREATIO_CODE_REDIRECT_URI`  | OAuth2 redirect URI (e.g. `http://localhost:3000/oauth/callback`)    |
 | `CREATIO_CODE_SCOPE`         | OAuth2 scope (e.g. `offline_access ApplicationAccess_yourappguid`)   |
+| `CREATIO_CRUD_BACKEND`       | CRUD data API: `dataservice` (default) or `odata`                    |
 | `READONLY_MODE`              | Set `true` to disable create/update/delete operations                |
 | `MCP_CREATIO_LOG_LEVEL`      | Log verbosity: `silent` (default), `error`, `warn`, `info`           |
+
+### CRUD backend
+
+CRUD tools (`read`, `create`, `update`, `delete`, `list-entities`, `describe-entity`) run on a
+selectable data API, chosen once per deployment via `CREATIO_CRUD_BACKEND`:
+
+- **`dataservice`** (default) — Creatio's native DataService.
+- **`odata`** — Creatio OData v4. Also enables the OData-only `read` extras (`filter` raw
+  `$filter` string, `expand`).
+
+Either way you query through the same tool surface: prefer the structured `filters` parameter —
+it works unchanged on both backends.
 
 ## Authentication Modes
 

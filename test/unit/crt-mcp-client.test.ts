@@ -11,16 +11,16 @@ function makeClient(overrides?: {
 		overrides?.call ??
 			(async () => ({ status: 200, body: { result: {} } }) as ConfigurationCallResult),
 	);
-	const read = vi.fn(overrides?.read ?? (async () => []));
+	const read = vi.fn(overrides?.read ?? (async () => ({ items: [] })));
 	const client = new CrtMcpPublishingClient({ call }, { read });
 	return { client, call, read };
 }
 
 describe('CrtMcpPublishingClient.isInstalled', () => {
 	it('is true when McpServer can be read', async () => {
-		const { client, read } = makeClient({ read: async () => [{ Id: '1' }] });
+		const { client, read } = makeClient({ read: async () => ({ items: [{ Id: '1' }] }) });
 		expect(await client.isInstalled()).toBe(true);
-		expect(read).toHaveBeenCalledWith({ entity: 'McpServer', select: ['Id'], top: 1 });
+		expect(read).toHaveBeenCalledWith({ entity: 'McpServer', columns: ['Id'], top: 1 });
 	});
 
 	it('is false (degrades) when the entity read throws', async () => {
@@ -36,12 +36,14 @@ describe('CrtMcpPublishingClient.isInstalled', () => {
 describe('CrtMcpPublishingClient.listOnlineServers', () => {
 	it('keeps only online servers with a code', async () => {
 		const { client } = makeClient({
-			read: async () => [
-				{ Code: 'A', Name: 'Alpha', IsOnline: true },
-				{ Code: 'B', Name: 'Beta', IsOnline: false },
-				{ Code: '', Name: 'NoCode', IsOnline: true },
-				{ Name: 'Missing', IsOnline: true },
-			],
+			read: async () => ({
+				items: [
+					{ Code: 'A', Name: 'Alpha', IsOnline: true },
+					{ Code: 'B', Name: 'Beta', IsOnline: false },
+					{ Code: '', Name: 'NoCode', IsOnline: true },
+					{ Name: 'Missing', IsOnline: true },
+				],
+			}),
 		});
 		expect(await client.listOnlineServers()).toEqual([{ code: 'A', title: 'Alpha' }]);
 	});

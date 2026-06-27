@@ -52,10 +52,12 @@ CreatioServiceContext
   ├─ CreatioHttpClient → transport + logging + retry + header helpers
   │     └─ request(op, url, build, onSuccess, {errorPrefix, logContext}) → the standard
   │        timed call (wraps executeWithTiming + handleErrorResponse); prefer it in providers
-  ├─ ODataMetadataStore → caches entity schemas per environment
   ├─ createCrudProvider(config.crudBackend, …) → selects the CRUD backend per-deployment
-  │     ├─ ODataCrudProvider (default) → implements CrudProvider using http + metadata
-  │     └─ DataServiceCrudProvider (CREATIO_CRUD_BACKEND=dataservice) → SKELETON, see below
+  │     ├─ DataServiceCrudProvider (DEFAULT) → SelectQuery/Insert/Update/Delete via
+  │     │     /0/DataService/json/SyncReply/*; schema via RuntimeEntitySchemaRequest +
+  │     │     VwSysSchemaInWorkspace (services/dataservice/*)
+  │     └─ ODataCrudProvider (CREATIO_CRUD_BACKEND=odata) → http + ODataMetadataStore
+  │           (services/odata/*)
   ├─ ProcessServiceProvider → POSTs to ProcessEngineService
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
   ├─ FeatureServiceProvider → /rest/FeatureService/ClearFeaturesCacheForAllUsers
@@ -74,9 +76,11 @@ Usage pattern:
 
 The engines under `src/creatio/engines/` are the domain seam ABOVE the provider interface, so cross-cutting policy is written once for every CRUD backend. `BaseEngine._mutate(action, details, run)` enforces `readonly` (throws `ReadonlyModeError`) and records an audit entry (`log.audit`) before delegating. **Every new mutating engine method MUST route through `_mutate`; read methods stay direct pass-throughs.** `CreatioEngineManager` owns the shared `EngineEnv` ({readonly, audit}); readonly is threaded from `READONLY_MODE`.
 
-### CRUD backend selection (add a backend here)
+### CRUD backend selection + neutral query contract
 
-`createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_CRUD_BACKEND` (`odata` default | `dataservice`), mirroring `CreatioAuthManager`. To add a CRUD backend: implement `CrudProvider`, add a branch in the factory — nothing above the provider interface changes. `DataServiceCrudProvider` is currently a **skeleton** (fails fast with `dataservice_not_implemented:<op>`); its pure groundwork (`DataServiceQueryBuilder`, `data-service-types.ts`) is real and tested. Completing it requires the neutral query-contract rework (see §18) since the read contract still carries a raw OData `$filter` string.
+`createCrudProvider(backend, deps)` (`src/creatio/services/crud-provider-factory.ts`) picks the backend per-deployment from `CREATIO_CRUD_BACKEND` (**`dataservice` default** | `odata`), mirroring `CreatioAuthManager`. Both backends are fully implemented; each lives in its own folder (`services/dataservice/*`, `services/odata/*`). To add a backend: implement `CrudProvider`, add a branch in the factory — nothing above the interface changes.
+
+The seam is a **backend-agnostic query contract** (`src/creatio/contracts/query.ts`): `ReadQuery` carries a structured `FilterNode` AST (NOT a dialect string), neutral `columns`/`order`/paging, and an `odata` bag for OData-only escape hatches (`rawFilter`, `expand`). `read` returns a normalized `ReadResult { items, totalCount? }`. Each backend owns a **translator** (Information Expert): `ODataQueryTranslator` (AST → `$filter`/`$select`/`$orderby`, incl. the lookup-nav `XxxId→Xxx/Id` + bare-GUID quirks) and `DataServiceFilterTranslator`/`DataServiceQueryBuilder` (AST → `Filters` tree + `Columns`, paths normalized `Contact/Id → Contact.Id`). DataService writes type `ColumnValues` from `RuntimeEntitySchemaRequest` metadata (authoritative `dataValueType`) with a heuristic fallback — the platform never infers the type from the JSON value. `mcp/filters.ts` only compiles the tool's `{all,any}` arg into a `FilterNode` (`buildFilterNode`) + parses `orderBy`; it knows nothing about either dialect.
 
 ## 3. Core Modules You Will Touch
 
@@ -85,7 +89,9 @@ The engines under `src/creatio/engines/` are the domain seam ABOVE the provider 
 | Tool registration            | `src/server/mcp/server.ts`                                      | Add/remove tool handlers; keep descriptors in separate file. Composition root that also runs tool preparers.                           |
 | Tool schemas & text guidance | `src/server/mcp/tools-data.ts`                                  | Use `zod` schemas; detailed descriptions help AI reasoning.                                                                            |
 | Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*` | `ToolPreparer` strategy: probe once at startup, register tools only when the capability is available. DataForge is the reference impl. |
-| Filters logic                | `src/server/mcp/filters.ts`                                     | Converts structured JSON filters into OData `$filter` strings.                                                                         |
+| Query contract               | `src/creatio/contracts/query.ts`                                | Neutral `ReadQuery`/`FilterNode`/`ReadResult`; the seam both CRUD backends translate from.                                              |
+| Filters logic                | `src/server/mcp/filters.ts`                                     | `buildFilterNode` compiles the tool `{all,any}` arg into the neutral `FilterNode` AST (+ `parseOrderBy`). NO dialect here.              |
+| Backend translators          | `src/creatio/services/{odata,dataservice}/*`                    | `ODataQueryTranslator` / `DataServiceFilterTranslator`+builder turn `FilterNode` into each dialect.                                     |
 | Prompts                      | `src/server/mcp/prompts-data.ts`                                | Pre-baked instructional prompts consumed by clients.                                                                                   |
 | Creatio API                  | `src/creatio/services/*`                                        | `CreatioServiceContext` composes auth + http client + providers; extend providers instead of bypassing them.                           |
 | OAuth for clients            | `src/server/oauth/*`                                            | Maintains tokens for MCP clients; ephemeral memory by default.                                                                         |
@@ -295,7 +301,10 @@ Baseline rules live in `docs/coding-style.md`. Highlights:
 - Implement persistent token storage (e.g., file/Redis) for OAuth tokens.
 - Provide structured error codes instead of raw messages.
 - Raise branch coverage toward 90% and wire `npm test` into CI.
-- Move the raw OData `$filter` to a fully structured contract (reduce injection surface).
+- Live-regress the DataService backend against a real environment, then consider dropping the
+  raw OData `$filter`/`expand` escape hatches entirely (structured `filters` is portable).
+- Split `CrudProvider` per ISP into `ICrudProvider` + `ISchemaProvider` (schema discovery is
+  backend-independent); today the DataService schema lives in `DataServiceSchemaProvider`.
 
 ## 19. Contact Points
 

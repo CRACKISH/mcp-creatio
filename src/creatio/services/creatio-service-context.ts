@@ -16,7 +16,7 @@ import { ConfigurationServiceProvider } from './configuration-service-provider';
 import { createCrudProvider } from './crud-provider-factory';
 import { FeatureServiceProvider } from './feature-service-provider';
 import { CreatioHttpClient } from './http-client';
-import { ODataMetadataStore } from './metadata-store';
+import { ODataMetadataStore } from './odata/metadata-store';
 import { ProcessServiceProvider } from './process-service-provider';
 import { SysSettingsServiceProvider } from './sys-settings-service-provider';
 import { UserInfoProvider } from './user-info-provider';

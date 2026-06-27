@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ODataMetadataStore } from '../../src/creatio/services/metadata-store';
+import { ODataMetadataStore } from '../../src/creatio/services/odata/metadata-store';
 
 const META_XML = `<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
@@ -30,7 +30,7 @@ describe('ODataMetadataStore caching + TTL (H3)', () => {
 		vi.setSystemTime(0);
 		let fetchTextCalls = 0;
 		const fakeClient = {
-			odataRoot: 'https://x/0/odata',
+			normalizedBaseUrl: 'https://x',
 			async getXmlHeaders() {
 				return {};
 			},
@@ -52,7 +52,7 @@ describe('ODataMetadataStore caching + TTL (H3)', () => {
 
 	it('describeEntity returns key + properties (with nullable) and errors for unknown sets', async () => {
 		const store = new ODataMetadataStore({
-			odataRoot: 'https://x/0/odata',
+			normalizedBaseUrl: 'https://x',
 			async getXmlHeaders() {
 				return {};
 			},
@@ -69,7 +69,7 @@ describe('ODataMetadataStore caching + TTL (H3)', () => {
 
 	it('falls back to $metadata when the service document call is not ok', async () => {
 		const store = new ODataMetadataStore({
-			odataRoot: 'https://x/0/odata',
+			normalizedBaseUrl: 'https://x',
 			async getJsonHeaders() {
 				return {};
 			},
@@ -91,7 +91,7 @@ describe('ODataMetadataStore caching + TTL (H3)', () => {
 		vi.setSystemTime(0);
 		let serviceCalls = 0;
 		const fakeClient = {
-			odataRoot: 'https://x/0/odata',
+			normalizedBaseUrl: 'https://x',
 			async getJsonHeaders() {
 				return {};
 			},

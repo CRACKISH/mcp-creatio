@@ -69,10 +69,12 @@ function _getLegacyAuthConfig(): LegacyAuthConfig | null {
 
 function getCrudBackend(): CrudBackend {
 	const raw = env('CREATIO_CRUD_BACKEND')?.toLowerCase();
-	if (raw === 'dataservice') {
+	// DataService is the default backend (Creatio's native data API, what the UI uses);
+	// set CREATIO_CRUD_BACKEND=odata to opt into the OData backend instead.
+	if (!raw || raw === 'dataservice') {
 		return 'dataservice';
 	}
-	if (raw && raw !== 'odata') {
+	if (raw !== 'odata') {
 		throw new Error(`unsupported_crud_backend:${raw} (expected "odata" or "dataservice")`);
 	}
 	return 'odata';

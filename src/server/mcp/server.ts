@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
 	CreatioEngineManager,
 	ICreatioAuthProvider,
+	ReadQuery,
 	SysSettingDefinitionUpdate,
 } from '../../creatio';
 import log from '../../log';
@@ -15,7 +16,7 @@ import { DataForgeClient } from './dataforge/dataforge-client';
 import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
 import { GlobalSearchClient } from './globalsearch/globalsearch-client';
 import { GlobalSearchToolPreparer } from './globalsearch/globalsearch-tool-preparer';
-import { buildFilterFromStructured } from './filters';
+import { buildFilterNode, parseOrderBy } from './filters';
 import { ALL_PROMPTS } from './prompts-data';
 import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
 import {
@@ -41,8 +42,8 @@ import {
 	listEntitiesInput,
 	querySysSettingsDescriptor,
 	querySysSettingsInput,
-	readDescriptor,
-	readInput,
+	buildReadDescriptor,
+	buildReadInput,
 	refreshFeatureCacheDescriptor,
 	refreshFeatureCacheInput,
 	setAdminOperationGranteeDescriptor,
@@ -233,30 +234,38 @@ export class Server {
 		return this._capabilities.get(this._dataForgePreparer.name) === true;
 	}
 
-	/** Resolve `read` into a single OData filter: structured `filters` compiled and, if a
-	 *  raw `filter` is also supplied, AND-combined with it. */
-	private _read(args: any): Promise<unknown> {
+	/** Compile the `read` tool args into a neutral {@link ReadQuery}: structured `filters`
+	 *  become a {@link FilterNode}; a raw `$filter` string and `expand` are carried as
+	 *  OData-only escape hatches. The normalized {@link ReadResult} is mapped back to the
+	 *  tool's established output shape (a bare array, or `{ total, value }` when counting). */
+	private async _read(args: any): Promise<unknown> {
 		const { entity, filter, filters, select, top, expand, orderBy, skip, count } = args;
-		const structured = buildFilterFromStructured(filters);
-		let finalFilter = filter || structured;
-		if (filter && structured) {
-			finalFilter = `(${filter}) and (${structured})`;
+		const odata: { rawFilter?: string; expand?: string[] } = {};
+		if (filter) {
+			odata.rawFilter = filter;
 		}
-		return this._engines.crud.read({
+		if (Array.isArray(expand) && expand.length > 0) {
+			odata.expand = expand;
+		}
+		const node = buildFilterNode(filters);
+		const order = parseOrderBy(orderBy);
+		const query: ReadQuery = {
 			entity,
-			filter: finalFilter ?? undefined,
-			select,
 			top: top ?? DEFAULT_READ_TOP,
-			expand,
-			orderBy,
-			skip,
-			count,
-		});
+			...(select ? { columns: select } : {}),
+			...(node ? { filter: node } : {}),
+			...(order ? { order } : {}),
+			...(skip !== undefined ? { skip } : {}),
+			...(count !== undefined ? { count } : {}),
+			...(Object.keys(odata).length ? { odata } : {}),
+		};
+		const result = await this._engines.crud.read(query);
+		return count ? { total: result.totalCount, value: result.items } : result.items;
 	}
 
-	/** When DataForge is enabled, prefer its richer column details and fall back to exact
-	 *  OData `$metadata` on a per-call miss; otherwise go straight to OData. The `source`
-	 *  discriminator is part of the public tool contract — preserve it. */
+	/** When DataForge is enabled, prefer its richer column details and fall back to the active
+	 *  CRUD backend's schema on a per-call miss. The `source` discriminator is part of the
+	 *  public tool contract and reflects where the schema actually came from. */
 	private async _describeEntity(entitySet: string): Promise<unknown> {
 		if (this._isDataForgeReady()) {
 			const dataForge = await this._dataForge.getColumnsOrNull(entitySet);
@@ -265,7 +274,8 @@ export class Server {
 			}
 		}
 		const metadata = await this._engines.crud.describeEntity(entitySet);
-		return { source: 'odata', entitySet, metadata };
+		const source = this._engines.crud.kind === 'creatio-dataservice' ? 'dataservice' : 'odata';
+		return { source, entitySet, metadata };
 	}
 
 	/**
@@ -298,8 +308,8 @@ export class Server {
 			},
 			{
 				name: 'read',
-				descriptor: readDescriptor,
-				input: readInput,
+				descriptor: buildReadDescriptor(crud.capabilities),
+				input: buildReadInput(crud.capabilities),
 				run: (args) => this._read(args),
 			},
 			{

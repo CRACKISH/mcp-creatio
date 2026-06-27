@@ -22,10 +22,6 @@ export class CreatioHttpClient {
 		return this._normalizedBaseUrl;
 	}
 
-	public get odataRoot(): string {
-		return `${this._normalizedBaseUrl}/0/odata`;
-	}
-
 	constructor(config: CreatioClientConfig, authManager: CreatioAuthManager) {
 		this._config = config;
 		this._authManager = authManager;

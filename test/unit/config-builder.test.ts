@@ -75,16 +75,16 @@ describe('getCreatioClientConfig', () => {
 		vi.stubEnv('CREATIO_PASSWORD', 'p');
 	}
 
-	it('defaults the CRUD backend to odata', () => {
+	it('defaults the CRUD backend to dataservice', () => {
 		legacyEnv();
 		vi.stubEnv('CREATIO_CRUD_BACKEND', '');
-		expect(getCreatioClientConfig().crudBackend).toBe('odata');
+		expect(getCreatioClientConfig().crudBackend).toBe('dataservice');
 	});
 
-	it('selects the dataservice backend when CREATIO_CRUD_BACKEND=dataservice', () => {
+	it('selects the odata backend when CREATIO_CRUD_BACKEND=odata', () => {
 		legacyEnv();
-		vi.stubEnv('CREATIO_CRUD_BACKEND', 'dataservice');
-		expect(getCreatioClientConfig().crudBackend).toBe('dataservice');
+		vi.stubEnv('CREATIO_CRUD_BACKEND', 'odata');
+		expect(getCreatioClientConfig().crudBackend).toBe('odata');
 	});
 
 	it('rejects an unknown CRUD backend', () => {

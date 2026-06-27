@@ -3,8 +3,8 @@ import { CrudProvider } from '../contracts';
 
 import { DataServiceCrudProvider } from './dataservice/data-service-crud-provider';
 import { CreatioHttpClient } from './http-client';
-import { ODataMetadataStore } from './metadata-store';
-import { ODataCrudProvider } from './odata-crud-provider';
+import { ODataCrudProvider } from './odata/odata-crud-provider';
+import { ODataMetadataStore } from './odata/metadata-store';
 
 export interface CrudProviderDeps {
 	client: CreatioHttpClient;
@@ -13,15 +13,15 @@ export interface CrudProviderDeps {
 
 /**
  * Selects the CRUD provider for the configured backend — the same per-deployment,
- * one-per-process pattern as {@link CreatioAuthManager}. Defaults to OData. This is the
- * single extension point for adding a CRUD backend: implement {@link CrudProvider} and
- * add a branch here; nothing above the provider interface changes.
+ * one-per-process pattern as {@link CreatioAuthManager}. Defaults to DataService (Creatio's
+ * native data API). This is the single extension point for adding a CRUD backend: implement
+ * {@link CrudProvider} and add a branch here; nothing above the provider interface changes.
  */
 export function createCrudProvider(
 	backend: CrudBackend | undefined,
 	deps: CrudProviderDeps,
 ): CrudProvider {
-	switch (backend ?? 'odata') {
+	switch (backend ?? 'dataservice') {
 		case 'dataservice':
 			return new DataServiceCrudProvider(deps.client);
 		case 'odata':

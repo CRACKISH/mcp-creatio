@@ -1,70 +1,170 @@
+import log from '../../../log';
 import {
+	CrudCapabilities,
 	CrudDeleteParams,
 	CrudProvider,
-	CrudReadParams,
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
+	ReadQuery,
+	ReadResult,
 } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
 
-import { DataServiceQueryBuilder } from './data-service-query-builder';
-import { DataServiceSelectQuery } from './data-service-types';
+import { assertEntityName } from '../entity-name';
+
+import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
+import { DataServiceFilterTranslator } from './data-service-filter-translator';
+import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
+import { DataServiceSchemaProvider } from './data-service-schema';
+import { DataServiceFilters, DataServiceSelectQuery, QueryOperationType } from './data-service-types';
+import { DataServiceTransport } from './data-service-transport';
+
+const PRIMARY_KEY = 'Id';
 
 /**
- * SKELETON for the planned DataService-backed CRUD provider (alternative to OData,
- * selected per-deployment via `CREATIO_CRUD_BACKEND=dataservice`). The selection seam,
- * config plumbing, and the pure query-builder groundwork are real and tested; the
- * transport wiring to `/0/DataService/json/SyncReply/*` is deferred to the dedicated
- * DataService task (it depends on the neutral query-contract rework, audit finding #9).
- *
- * Until then every CRUD method fails fast with a clear, greppable error rather than
- * silently misbehaving, so accidentally selecting this backend is obvious.
+ * DataService-backed CRUD provider (alternative to OData, selected via
+ * `CREATIO_CRUD_BACKEND=dataservice`). Talks to `/0/DataService/json/SyncReply/*` using the
+ * neutral query contract end to end:
+ * - read    -> SelectQuery (+ a COUNT aggregation query when `count`),
+ * - create  -> InsertQuery with type-coerced ColumnValues,
+ * - update  -> UpdateQuery (id -> Filters{ Id eq … }) + ColumnValues,
+ * - delete  -> DeleteQuery (id -> Filters{ Id eq … }),
+ * - schema  -> RuntimeEntitySchemaRequest / VwSysSchemaInWorkspace (see schema provider).
+ * Column values are typed from authoritative entity metadata, falling back to a heuristic.
  */
 export class DataServiceCrudProvider implements CrudProvider {
-	private readonly _client: CreatioHttpClient;
+	private readonly _transport: DataServiceTransport;
 	private readonly _queryBuilder: DataServiceQueryBuilder;
+	private readonly _filters: DataServiceFilterTranslator;
+	private readonly _schema: DataServiceSchemaProvider;
 
 	public readonly kind = 'creatio-dataservice';
+	// DataService has no raw-string filter and no $expand; related data is read by column
+	// path and filters are always structured. So neither OData-only extra is offered.
+	public readonly capabilities: CrudCapabilities = { rawFilter: false, expand: false };
 
-	constructor(client: CreatioHttpClient, queryBuilder = new DataServiceQueryBuilder()) {
-		this._client = client;
-		this._queryBuilder = queryBuilder;
+	constructor(
+		client: CreatioHttpClient,
+		deps: {
+			transport?: DataServiceTransport;
+			queryBuilder?: DataServiceQueryBuilder;
+			filters?: DataServiceFilterTranslator;
+			schema?: DataServiceSchemaProvider;
+		} = {},
+	) {
+		this._transport = deps.transport ?? new DataServiceTransport(client);
+		this._queryBuilder = deps.queryBuilder ?? new DataServiceQueryBuilder();
+		this._filters = deps.filters ?? new DataServiceFilterTranslator();
+		this._schema = deps.schema ?? new DataServiceSchemaProvider(this._transport);
 	}
 
-	/** Visible for the upcoming read implementation + tests: build (don't send) the payload. */
-	public buildSelectQuery(params: CrudReadParams): DataServiceSelectQuery {
-		return this._queryBuilder.buildSelectQuery(params);
+	/** Visible for tests: build (don't send) the SelectQuery payload. */
+	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
+		return this._queryBuilder.buildSelectQuery(query);
 	}
 
-	private _notImplemented(operation: string): never {
-		throw new Error(
-			`dataservice_not_implemented:${operation} — DataService CRUD backend is groundwork only; ` +
-				`use CREATIO_CRUD_BACKEND=odata until the DataService provider is completed`,
-		);
+	private _rows(body: any): any[] {
+		return Array.isArray(body?.rows) ? body.rows : [];
+	}
+
+	private _extractCount(body: any): number | undefined {
+		const rows = this._rows(body);
+		const raw = rows.length ? rows[0]?.[COUNT_COLUMN_ALIAS] : undefined;
+		const n = Number(raw);
+		return Number.isFinite(n) ? n : undefined;
+	}
+
+	/** Filter selecting a single record by primary key (id-addressed update/delete -> set-based). */
+	private _byIdFilter(entity: string, id: string): DataServiceFilters {
+		const filters = this._filters.translate(entity, {
+			kind: 'condition',
+			field: PRIMARY_KEY,
+			op: 'eq',
+			value: id,
+		});
+		if (!filters) {
+			throw new Error(`invalid_record_id:${id}`);
+		}
+		return filters;
+	}
+
+	private async _columnValues(entity: string, data: Record<string, unknown>) {
+		const types = await this._schema.columnTypes(entity);
+		return buildColumnValues(data, makeTypeResolver(types));
 	}
 
 	public listEntitySets(): Promise<string[]> {
-		return this._notImplemented('listEntitySets');
+		return this._schema.listEntitySets();
 	}
 
-	public describeEntity(_entitySet: string): Promise<EntitySchemaDescription> {
-		return this._notImplemented('describeEntity');
+	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {
+		return this._schema.describeEntity(assertEntityName(entitySet));
 	}
 
-	public read(_params: CrudReadParams): Promise<any> {
-		return this._notImplemented('read');
+	public async read(query: ReadQuery): Promise<ReadResult> {
+		assertEntityName(query.entity);
+		const select = this._queryBuilder.buildSelectQuery(query);
+		const body = await this._transport.post('SelectQuery', select, {
+			logContext: { entity: query.entity, top: query.top, skip: query.skip },
+		});
+		const items = this._rows(body);
+		if (body?.notFoundColumns?.length) {
+			log.warn('creatio.dataservice.read.not_found_columns', {
+				entity: query.entity,
+				notFoundColumns: body.notFoundColumns,
+			});
+		}
+		if (!query.count) {
+			return { items };
+		}
+		const countBody = await this._transport.post(
+			'SelectQuery',
+			this._queryBuilder.buildCountQuery(query),
+			{ logContext: { entity: query.entity, count: true } },
+		);
+		const totalCount = this._extractCount(countBody);
+		return totalCount !== undefined ? { items, totalCount } : { items };
 	}
 
-	public create(_params: CrudWriteParams): Promise<any> {
-		return this._notImplemented('create');
+	public async create({ entity, data }: CrudWriteParams): Promise<any> {
+		assertEntityName(entity);
+		const columnValues = await this._columnValues(entity, data ?? {});
+		const body = await this._transport.post(
+			'InsertQuery',
+			{ rootSchemaName: entity, operationType: QueryOperationType.Insert, columnValues },
+			{ logContext: { entity }, checkSuccess: true },
+		);
+		return { id: body?.id, success: body?.success !== false, rowsAffected: body?.rowsAffected };
 	}
 
-	public update(_params: CrudUpdateParams): Promise<any> {
-		return this._notImplemented('update');
+	public async update({ entity, id, data }: CrudUpdateParams): Promise<any> {
+		assertEntityName(entity);
+		const columnValues = await this._columnValues(entity, data ?? {});
+		const body = await this._transport.post(
+			'UpdateQuery',
+			{
+				rootSchemaName: entity,
+				operationType: QueryOperationType.Update,
+				columnValues,
+				filters: this._byIdFilter(entity, id),
+			},
+			{ logContext: { entity, id }, checkSuccess: true },
+		);
+		return { success: body?.success !== false, rowsAffected: body?.rowsAffected };
 	}
 
-	public delete(_params: CrudDeleteParams): Promise<any> {
-		return this._notImplemented('delete');
+	public async delete({ entity, id }: CrudDeleteParams): Promise<any> {
+		assertEntityName(entity);
+		const body = await this._transport.post(
+			'DeleteQuery',
+			{
+				rootSchemaName: entity,
+				operationType: QueryOperationType.Delete,
+				filters: this._byIdFilter(entity, id),
+			},
+			{ logContext: { entity, id }, checkSuccess: true },
+		);
+		return { success: body?.success !== false, rowsAffected: body?.rowsAffected };
 	}
 }

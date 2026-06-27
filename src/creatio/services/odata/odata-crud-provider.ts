@@ -1,59 +1,38 @@
-import log from '../../log';
+import log from '../../../log';
 import {
+	CrudCapabilities,
 	CrudDeleteParams,
 	CrudProvider,
-	CrudReadParams,
 	CrudUpdateParams,
 	CrudWriteParams,
 	EntitySchemaDescription,
-} from '../contracts';
+	ReadQuery,
+	ReadResult,
+} from '../../contracts';
+import { assertEntityName } from '../entity-name';
+import { CreatioHttpClient } from '../http-client';
 
-import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './metadata-store';
+import { ODataQueryTranslator } from './odata-query-translator';
+import { odataRoot } from './odata-routes';
 
 export class ODataCrudProvider implements CrudProvider {
 	private readonly _client: CreatioHttpClient;
 	private readonly _metadataStore: ODataMetadataStore;
+	private readonly _translator: ODataQueryTranslator;
 
 	public readonly kind = 'creatio-odata';
+	// OData honors both read escape hatches: a raw `$filter` string and `$expand`.
+	public readonly capabilities: CrudCapabilities = { rawFilter: true, expand: true };
 
-	constructor(client: CreatioHttpClient, metadataStore: ODataMetadataStore) {
+	constructor(
+		client: CreatioHttpClient,
+		metadataStore: ODataMetadataStore,
+		translator = new ODataQueryTranslator(),
+	) {
 		this._client = client;
 		this._metadataStore = metadataStore;
-	}
-
-	private _buildODataQueryParams(
-		filter?: string,
-		select?: string[],
-		top?: number,
-		expand?: string[],
-		orderBy?: string,
-		skip?: number,
-		count?: boolean,
-	): string[] {
-		const params: string[] = [];
-		if (filter) {
-			params.push(`$filter=${encodeURIComponent(filter)}`);
-		}
-		if (select && select.length > 0) {
-			params.push(`$select=${encodeURIComponent(select.join(','))}`);
-		}
-		if (expand && expand.length > 0) {
-			params.push(`$expand=${encodeURIComponent(expand.join(','))}`);
-		}
-		if (orderBy) {
-			params.push(`$orderby=${encodeURIComponent(orderBy)}`);
-		}
-		if (typeof top === 'number') {
-			params.push(`$top=${top}`);
-		}
-		if (typeof skip === 'number' && skip > 0) {
-			params.push(`$skip=${skip}`);
-		}
-		if (count) {
-			params.push('$count=true');
-		}
-		return params;
+		this._translator = translator;
 	}
 
 	private _buildQueryString(params: string[]): string {
@@ -64,19 +43,9 @@ export class ODataCrudProvider implements CrudProvider {
 		return body && typeof body === 'object' && 'value' in body ? body.value : body;
 	}
 
-	private static readonly ENTITY_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
-
-	private _validateEntityName(entity: string): string {
-		// OData entity-set names are simple identifiers. Reject anything else to prevent
-		// path/segment injection into the request URL (CWE-20 / CWE-943).
-		if (!entity || !ODataCrudProvider.ENTITY_NAME_PATTERN.test(entity)) {
-			throw new Error(`invalid_entity_name:${entity}`);
-		}
-		return entity;
-	}
-
 	private _buildEntityUrl(entity: string): string {
-		return `${this._client.odataRoot}/${this._validateEntityName(entity)}`;
+		// Validate to prevent path/segment injection into the request URL (CWE-20 / CWE-943).
+		return `${odataRoot(this._client.normalizedBaseUrl)}/${assertEntityName(entity)}`;
 	}
 
 	private _formatEntityKey(id: string): string {
@@ -118,53 +87,35 @@ export class ODataCrudProvider implements CrudProvider {
 		);
 	}
 
-	public async read({
-		entity,
-		filter,
-		select,
-		top,
-		expand,
-		orderBy,
-		skip,
-		count,
-	}: CrudReadParams) {
+	public async read(query: ReadQuery): Promise<ReadResult> {
+		const { entity, count } = query;
 		const startTime = Date.now();
-		const queryParams = this._buildODataQueryParams(
-			filter,
-			select,
-			top,
-			expand,
-			orderBy,
-			skip,
-			count,
-		);
+		const queryParams = this._translator.buildQueryParams(query);
 		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
 		const headers = await this._client.getJsonHeaders();
 		try {
 			const body = await this._client.fetchJson(url, async () => ({ headers }));
 			const value = this._extractODataValue(body);
+			const items = Array.isArray(value) ? value : value != null ? [value] : [];
 			const duration = Date.now() - startTime;
-			const resultCount = Array.isArray(value) ? value.length : value ? 1 : 0;
 			// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
 			const total =
 				body && typeof body === 'object' && '@odata.count' in body
-					? (body as Record<string, unknown>)['@odata.count']
+					? Number((body as Record<string, unknown>)['@odata.count'])
 					: undefined;
 			log.info('creatio.crud.read.success', {
 				entity,
-				filter,
-				select: select?.join(','),
-				expand: expand?.join(','),
-				orderBy,
-				top,
-				skip,
+				select: query.columns?.join(','),
+				expand: query.odata?.expand?.join(','),
+				top: query.top,
+				skip: query.skip,
 				count,
-				resultCount,
+				resultCount: items.length,
 				total,
 				duration,
 			});
-			// When a count was requested, surface the total alongside the rows.
-			return count ? { total, value } : value;
+			// Surface the server-side total only when a count was requested and present.
+			return count && total !== undefined ? { items, totalCount: total } : { items };
 		} catch (error: any) {
 			const duration = Date.now() - startTime;
 			log.error('creatio.crud.read.error', {

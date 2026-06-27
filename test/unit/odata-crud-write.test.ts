@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ODataCrudProvider } from '../../src/creatio/services/odata-crud-provider';
+import { ODataCrudProvider } from '../../src/creatio/services/odata/odata-crud-provider';
 import { bodyOf, jsonResponse, makeHttpClientHarness, textResponse } from '../support/http-client';
 
 afterEach(() => vi.unstubAllGlobals());

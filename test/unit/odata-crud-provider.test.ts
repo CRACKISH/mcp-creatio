@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { ODataCrudProvider } from '../../src/creatio/services/odata-crud-provider';
+import { ODataCrudProvider } from '../../src/creatio/services/odata/odata-crud-provider';
 
 function makeProvider(body: unknown = { value: [] }) {
 	const calls: { url?: string } = {};
 	const fakeClient = {
-		odataRoot: 'https://tenant/0/odata',
+		normalizedBaseUrl: 'https://tenant',
 		async getJsonHeaders() {
 			return {};
 		},
@@ -42,11 +42,10 @@ describe('ODataCrudProvider OData query building', () => {
 		const { provider, calls } = makeProvider();
 		await provider.read({
 			entity: 'Contact',
-			filter: "Name eq 'A&B'",
-			select: ['Id', 'Name'],
+			columns: ['Id', 'Name'],
 			top: 5,
-			orderBy: 'Name desc',
-			expand: ['Account'],
+			order: [{ field: 'Name', dir: 'desc' }],
+			odata: { rawFilter: "Name eq 'A&B'", expand: ['Account'] },
 		} as never);
 		const url = calls.url ?? '';
 		expect(url).toContain('$filter=' + encodeURIComponent("Name eq 'A&B'"));
@@ -73,16 +72,16 @@ describe('ODataCrudProvider OData query building', () => {
 	});
 });
 
-describe('ODataCrudProvider $count', () => {
-	it('returns { total, value } from @odata.count when count is requested', async () => {
+describe('ODataCrudProvider read result normalization', () => {
+	it('returns { items, totalCount } from @odata.count when count is requested', async () => {
 		const { provider } = makeProvider({ '@odata.count': 42, value: [{ Id: '1' }] });
 		const res = await provider.read({ entity: 'Contact', count: true } as never);
-		expect(res).toEqual({ total: 42, value: [{ Id: '1' }] });
+		expect(res).toEqual({ items: [{ Id: '1' }], totalCount: 42 });
 	});
 
-	it('returns a bare array when count is not requested', async () => {
+	it('returns a bare { items } result when count is not requested', async () => {
 		const { provider } = makeProvider({ value: [{ Id: '1' }] });
 		const res = await provider.read({ entity: 'Contact' } as never);
-		expect(res).toEqual([{ Id: '1' }]);
+		expect(res).toEqual({ items: [{ Id: '1' }] });
 	});
 });
