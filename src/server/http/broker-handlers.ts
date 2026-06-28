@@ -2,7 +2,7 @@ import { CreatioOAuthClient } from '../../creatio';
 import log from '../../log';
 import { SessionContext } from '../../sessions';
 import { generatePkcePair } from '../../utils';
-import { inspectBearer } from '../bearer';
+import { buildProtectedResourceMetadata, inspectBearer } from '../bearer';
 import { OAuthServer, OAuthValidators } from '../oauth';
 
 import type { NextFunction, Request, Response } from 'express';
@@ -22,11 +22,18 @@ function authServerMetadata(req: Request) {
 		token_endpoint: `${base}/token`,
 		registration_endpoint: `${base}/register`,
 		response_types_supported: ['code'],
-		grant_types_supported: ['authorization_code'],
+		grant_types_supported: ['authorization_code', 'refresh_token'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
 		code_challenge_methods_supported: ['S256'],
 		scopes_supported: ['offline_access'],
 	};
+}
+
+/** The `iss`/`aud` the tokens this server issues are bound to: its own origin and `/mcp` resource.
+ *  Derived from the (proxy-aware) request so issue and validate always agree for this deployment. */
+function tokenAudience(req: Request): { issuer: string; audience: string } {
+	const base = origin(req);
+	return { issuer: base, audience: `${base}/mcp` };
 }
 
 /**
@@ -48,6 +55,40 @@ export class BrokerHandlers {
 		return `${origin(req)}${this._callbackPath}`;
 	}
 
+	/** RFC 6750 `401` challenge pointing at our protected-resource metadata. `invalid_token` tells a
+	 *  client holding a now-unusable token to re-authenticate (vs. a plain "no credentials" prompt). */
+	private _challenge(
+		req: Request,
+		res: Response,
+		description: string,
+		error: 'unauthorized' | 'invalid_token' = 'unauthorized',
+	): void {
+		const resourceMetadata = `${origin(req)}${PROTECTED_RESOURCE_METADATA_PATH}`;
+		const params = [`Bearer resource_metadata="${resourceMetadata}"`];
+		if (error === 'invalid_token') {
+			params.push(`error="invalid_token"`, `error_description="${description}"`);
+		}
+		res.setHeader('WWW-Authenticate', params.join(', '));
+		res.status(401).json({ error, error_description: description });
+	}
+
+	private _redirectError(
+		res: Response,
+		redirectUri: string,
+		error: { error: string; error_description?: string },
+		state: string | undefined,
+	): void {
+		const url = new URL(redirectUri);
+		url.searchParams.set('error', error.error);
+		if (error.error_description) {
+			url.searchParams.set('error_description', error.error_description);
+		}
+		if (state) {
+			url.searchParams.set('state', state);
+		}
+		res.redirect(302, url.toString());
+	}
+
 	public handleMetadata(req: Request, res: Response): void {
 		res.json(authServerMetadata(req));
 	}
@@ -55,12 +96,7 @@ export class BrokerHandlers {
 	/** RFC 9728: in broker mode WE are the authorization server, so it points back at this origin. */
 	public handleProtectedResourceMetadata(req: Request, res: Response): void {
 		const base = origin(req);
-		res.json({
-			resource: `${base}/mcp`,
-			authorization_servers: [base],
-			scopes_supported: ['offline_access'],
-			bearer_methods_supported: ['header'],
-		});
+		res.json(buildProtectedResourceMetadata(`${base}/mcp`, base));
 	}
 
 	/**
@@ -74,7 +110,7 @@ export class BrokerHandlers {
 		return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
 			const header = req.headers.authorization;
 			const userKey = header?.startsWith('Bearer ')
-				? this._oauth.validateAccessToken(header.slice(7))
+				? this._oauth.validateAccessToken(header.slice(7), tokenAudience(req))
 				: null;
 			if (!userKey) {
 				this._challenge(
@@ -96,23 +132,6 @@ export class BrokerHandlers {
 			(req as Request & { userKey?: string }).userKey = userKey;
 			next();
 		};
-	}
-
-	/** RFC 6750 `401` challenge pointing at our protected-resource metadata. `invalid_token` tells a
-	 *  client holding a now-unusable token to re-authenticate (vs. a plain "no credentials" prompt). */
-	private _challenge(
-		req: Request,
-		res: Response,
-		description: string,
-		error: 'unauthorized' | 'invalid_token' = 'unauthorized',
-	): void {
-		const resourceMetadata = `${origin(req)}${PROTECTED_RESOURCE_METADATA_PATH}`;
-		const params = [`Bearer resource_metadata="${resourceMetadata}"`];
-		if (error === 'invalid_token') {
-			params.push(`error="invalid_token"`, `error_description="${description}"`);
-		}
-		res.setHeader('WWW-Authenticate', params.join(', '));
-		res.status(401).json({ error, error_description: description });
 	}
 
 	public handleRegister(req: Request, res: Response): void {
@@ -206,28 +225,18 @@ export class BrokerHandlers {
 	}
 
 	public async handleToken(req: Request, res: Response): Promise<void> {
-		const result = await this._oauth.exchangeCodeForToken(req.body ?? {});
+		const body = req.body ?? {};
+		const aud = tokenAudience(req);
+		const sessionStillHeld = (userKey: string): Promise<boolean> =>
+			this._session.getTokensForUser(userKey).then(Boolean);
+		const result =
+			body.grant_type === 'refresh_token'
+				? await this._oauth.exchangeRefreshToken(body, aud, sessionStillHeld)
+				: await this._oauth.exchangeCodeForToken(body, aud);
 		if ('error' in result) {
 			res.status(400).json(result);
 			return;
 		}
 		res.json(result);
-	}
-
-	private _redirectError(
-		res: Response,
-		redirectUri: string,
-		error: { error: string; error_description?: string },
-		state: string | undefined,
-	): void {
-		const url = new URL(redirectUri);
-		url.searchParams.set('error', error.error);
-		if (error.error_description) {
-			url.searchParams.set('error_description', error.error_description);
-		}
-		if (state) {
-			url.searchParams.set('state', state);
-		}
-		res.redirect(302, url.toString());
 	}
 }

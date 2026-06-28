@@ -9,9 +9,17 @@ function makeProvider(body: unknown = { value: [] }) {
 		async getJsonHeaders() {
 			return {};
 		},
-		async fetchJson(url: string) {
+		logSuccess() {},
+		async request(_op: string, url: string, _build: unknown, onSuccess: any) {
 			calls.url = url;
-			return body;
+			const response = {
+				status: 200,
+				ok: true,
+				async json() {
+					return body;
+				},
+			};
+			return onSuccess(response, 0);
 		},
 	};
 	const provider = new ODataCrudProvider(fakeClient as never, {} as never);

@@ -7,13 +7,13 @@ export class ProcessEngine extends BaseEngine {
 
 	public readonly name = 'process';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: ProcessProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public execute(params: ExecuteProcessParams): Promise<ExecuteProcessResult> {

@@ -13,9 +13,9 @@ export const GLOBAL_SEARCH_CAPABILITY = 'global-search';
  * stays agnostic (Open/Closed: adding capabilities = adding preparers).
  */
 export class GlobalSearchToolPreparer implements ToolPreparer {
-	public readonly name = GLOBAL_SEARCH_CAPABILITY;
-
 	private readonly _client: GlobalSearchClient;
+
+	public readonly name = GLOBAL_SEARCH_CAPABILITY;
 
 	constructor(client: GlobalSearchClient) {
 		this._client = client;

@@ -7,7 +7,10 @@ import { ToolHandler } from '../../src/server/mcp/tool-preparer';
 function makeRegistrar() {
 	const registered = new Map<string, { descriptor: any; handler: ToolHandler }>();
 	return {
-		registrar: { register: (name: string, descriptor: any, handler: ToolHandler) => registered.set(name, { descriptor, handler }) },
+		registrar: {
+			register: (name: string, descriptor: any, handler: ToolHandler) =>
+				registered.set(name, { descriptor, handler }),
+		},
 		registered,
 	};
 }
@@ -17,7 +20,15 @@ function makeClient(over?: Partial<CrtMcpPublishingClient>): CrtMcpPublishingCli
 		isInstalled: vi.fn(async () => true),
 		listOnlineServers: vi.fn(async () => [{ code: 'Srv', title: 'Srv' }]),
 		listTools: vi.fn(async () => [
-			{ name: 'get-thing', description: 'Get a thing', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+			{
+				name: 'get-thing',
+				description: 'Get a thing',
+				inputSchema: {
+					type: 'object',
+					properties: { id: { type: 'string' } },
+					required: ['id'],
+				},
+			},
 		]),
 		callTool: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] })),
 		...over,

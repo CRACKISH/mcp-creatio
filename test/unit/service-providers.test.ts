@@ -18,9 +18,9 @@ describe('ConfigurationServiceProvider', () => {
 	it('rejects an invalid service or method name (injection guard)', async () => {
 		const { client } = makeHttpClientHarness(() => jsonResponse({}));
 		const provider = new ConfigurationServiceProvider(client);
-		await expect(
-			provider.call({ service: 'bad name', method: 'M' } as never),
-		).rejects.toThrow(/invalid_service_name/);
+		await expect(provider.call({ service: 'bad name', method: 'M' } as never)).rejects.toThrow(
+			/invalid_service_name/,
+		);
 		await expect(
 			provider.call({ service: 'Svc', method: 'bad/method' } as never),
 		).rejects.toThrow(/invalid_method_name/);
@@ -36,9 +36,7 @@ describe('ConfigurationServiceProvider', () => {
 			body: { a: 1 },
 			query: { p: 'v', n: 2 },
 		} as never);
-		expect(calls[0].url).toBe(
-			'https://tenant.creatio.local/0/rest/MyService/DoIt?p=v&n=2',
-		);
+		expect(calls[0].url).toBe('https://tenant.creatio.local/0/rest/MyService/DoIt?p=v&n=2');
 		expect(calls[0].init.method).toBe('POST');
 		expect(bodyOf(calls[0])).toEqual({ a: 1 });
 		expect(res.status).toBe(200);
@@ -64,9 +62,7 @@ describe('ProcessServiceProvider', () => {
 		const { client, calls } = makeHttpClientHarness(() => jsonResponse({ result: 'ok' }));
 		const provider = new ProcessServiceProvider(client);
 		await provider.executeProcess({ processName: 'MyProcess', parameters: { x: 1, y: 'z' } });
-		expect(calls[0].url).toContain(
-			'/0/ServiceModel/ProcessEngineService.svc/RunProcess',
-		);
+		expect(calls[0].url).toContain('/0/ServiceModel/ProcessEngineService.svc/RunProcess');
 		const body = bodyOf(calls[0]) as { schemaName: string; parameterValues: unknown[] };
 		expect(body.schemaName).toBe('MyProcess');
 		expect(body.parameterValues).toEqual([
@@ -81,9 +77,7 @@ describe('UserInfoProvider', () => {
 		const { client, calls } = makeHttpClientHarness(() => jsonResponse({ Id: 'u-1' }));
 		const provider = new UserInfoProvider(client);
 		const res = await provider.getCurrentUserInfo();
-		expect(calls[0].url).toContain(
-			'/0/ServiceModel/UserInfoService.svc/GetCurrentUserInfo',
-		);
+		expect(calls[0].url).toContain('/0/ServiceModel/UserInfoService.svc/GetCurrentUserInfo');
 		expect(res).toEqual({ Id: 'u-1' });
 	});
 });
@@ -151,7 +145,11 @@ describe('SysSettingsServiceProvider', () => {
 	it('updateDefinition posts to UpdateSysSettingRequest', async () => {
 		const { client, calls } = makeHttpClientHarness(() => jsonResponse({ success: true }));
 		const provider = new SysSettingsServiceProvider(client);
-		await provider.updateDefinition({ code: 'C', name: 'N', valueTypeName: 'Boolean' } as never);
+		await provider.updateDefinition({
+			code: 'C',
+			name: 'N',
+			valueTypeName: 'Boolean',
+		} as never);
 		expect(calls[0].url).toContain('/UpdateSysSettingRequest');
 		expect((bodyOf(calls[0]) as { code: string }).code).toBe('C');
 	});

@@ -1,4 +1,5 @@
 import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../../contracts';
+import { isGuid, isIsoDateLike } from '../identifiers';
 import { lookupIdPath } from '../lookup-path';
 
 /**
@@ -14,22 +15,24 @@ import { lookupIdPath } from '../lookup-path';
  *   embedded quotes doubled.
  */
 export class ODataQueryTranslator {
-	private static readonly GUID =
-		/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+	// A column path is an identifier, optionally navigation-dotted with `/` (e.g. `Contact/Name`).
+	// Filter/select/orderby field names are concatenated into the `$filter`/`$select`/`$orderby`
+	// expressions, so reject anything else to deny OData expression injection via a crafted column
+	// name (CWE-943) — filter *values* are already escaped/typed; this guards the *identifiers*.
+	private static readonly SAFE_PATH = /^[A-Za-z_][A-Za-z0-9_]*(\/[A-Za-z_][A-Za-z0-9_]*)*$/;
 
-	private _isGuid(value: unknown): value is string {
-		return typeof value === 'string' && ODataQueryTranslator.GUID.test(value);
-	}
-
+	// A field whose name ends in `Id` (the scalar key `Id`, a lookup FK `XxxId`, or a nav `Xxx/Id`)
+	// — such a column is GUID-typed, so a GUID literal against it is emitted bare (see _literalFor).
 	private _isIdish(field: string): boolean {
-		return /(^|\/)Id$/.test(field) || /Id$/i.test(field);
+		return /Id$/i.test(field);
 	}
 
-	// ISO-8601 date / date-time. OData v4 expresses Edm.Date and Edm.DateTimeOffset literals
-	// UNQUOTED (e.g. `2026-06-01`, `2026-06-01T00:00:00Z`); quoting them 400s with
-	// "incompatible types Edm.DateTimeOffset and Edm.String".
-	private static readonly ISO_DATETIME =
-		/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+	private _assertPath(field: string): string {
+		if (!ODataQueryTranslator.SAFE_PATH.test(field)) {
+			throw new Error(`unsafe_odata_identifier:${field}`);
+		}
+		return field;
+	}
 
 	private _escapeStr(value: string): string {
 		return value.replace(/'/g, "''");
@@ -52,10 +55,12 @@ export class ODataQueryTranslator {
 			const v = String(value);
 			// Bare (unquoted) GUID for any Id-typed path — the scalar key `Id`, a lookup FK
 			// `XxxId`, or a navigation `Xxx/Id`. Other strings (incl. `Xxx/Name`) are quoted.
-			if (this._isGuid(v) && this._isIdish(field)) {
+			if (isGuid(v) && this._isIdish(field)) {
 				return v;
 			}
-			if (temporal && ODataQueryTranslator.ISO_DATETIME.test(v)) {
+			// OData v4 expresses Edm.Date / Edm.DateTimeOffset literals UNQUOTED (quoting them 400s
+			// with "incompatible types Edm.DateTimeOffset and Edm.String").
+			if (temporal && isIsoDateLike(v)) {
 				return v;
 			}
 			return `'${this._escapeStr(v)}'`;
@@ -66,11 +71,11 @@ export class ODataQueryTranslator {
 	/** Navigate a lookup compared to a GUID to its `Id` path (`ContactId`/`Owner`/`Contact/Type`
 	 *  -> `…/Id`); non-GUID values and already-`Id` paths are left untouched. */
 	private _lookupNavField(field: string, value: unknown): string {
-		return this._isGuid(value) ? lookupIdPath(field, '/') : field;
+		return isGuid(value) ? lookupIdPath(field, '/') : field;
 	}
 
 	private _condition(node: FilterCondition): string | undefined {
-		const field = String(node.field);
+		const field = this._assertPath(String(node.field));
 		const { op } = node;
 		if (op === 'isNull') {
 			return `${field} eq null`;
@@ -94,6 +99,7 @@ export class ODataQueryTranslator {
 		if (!node.values.length) {
 			return undefined;
 		}
+		this._assertPath(String(node.field));
 		const parts = node.values.map((v) => {
 			const f = this._lookupNavField(node.field, v);
 			return `${f} eq ${this._literalFor(f, v)}`;
@@ -120,11 +126,6 @@ export class ODataQueryTranslator {
 		return `(${rendered.join(` ${node.logic} `)})`;
 	}
 
-	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty). */
-	public translateFilter(node: FilterNode | undefined): string | undefined {
-		return node ? this._node(node) : undefined;
-	}
-
 	/** Combine the structured filter with an optional raw `$filter` escape hatch (AND-joined). */
 	private _resolveFilter(query: ReadQuery): string | undefined {
 		const structured = this.translateFilter(query.filter);
@@ -139,7 +140,12 @@ export class ODataQueryTranslator {
 		if (!query.order || query.order.length === 0) {
 			return undefined;
 		}
-		return query.order.map((o) => `${o.field} ${o.dir}`).join(', ');
+		return query.order.map((o) => `${this._assertPath(o.field)} ${o.dir}`).join(', ');
+	}
+
+	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty). */
+	public translateFilter(node: FilterNode | undefined): string | undefined {
+		return node ? this._node(node) : undefined;
 	}
 
 	/** Build the encoded OData query-string params for a read. */
@@ -150,7 +156,8 @@ export class ODataQueryTranslator {
 			params.push(`$filter=${encodeURIComponent(filter)}`);
 		}
 		if (query.columns && query.columns.length > 0) {
-			params.push(`$select=${encodeURIComponent(query.columns.join(','))}`);
+			const columns = query.columns.map((c) => this._assertPath(c));
+			params.push(`$select=${encodeURIComponent(columns.join(','))}`);
 		}
 		const expand = query.odata?.expand;
 		if (expand && expand.length > 0) {

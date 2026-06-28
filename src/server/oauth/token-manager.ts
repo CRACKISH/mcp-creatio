@@ -5,7 +5,24 @@ import jwt from 'jsonwebtoken';
 import log from '../../log';
 
 import type { AuthorizationCodeData } from './storage';
-import type { OAuthAccessToken, OAuthError, OAuthTokenRequest } from './types';
+import type { OAuthError, OAuthTokenRequest } from './types';
+
+/**
+ * Issuer + audience an access token is bound to: this MCP deployment's own origin (`iss`) and its
+ * `/mcp` resource (`aud`). Binding both closes token-redirection / confused-deputy — a token minted
+ * for deployment A is rejected by deployment B even when both share `CREATIO_MCP_JWT_SECRET`
+ * (the documented multi-instance setup). Mirrors RFC 9068 (`aud`) / RFC 8707 (resource indicators).
+ */
+export interface TokenAudience {
+	issuer: string;
+	audience: string;
+}
+
+/** The claims we trust off a verified access token. */
+export interface DecodedAccessToken {
+	userKey: string;
+	client_id: string;
+}
 
 export class OAuthTokenManager {
 	private readonly _jwtSecret: string;
@@ -14,41 +31,35 @@ export class OAuthTokenManager {
 		this._jwtSecret = jwtSecret;
 	}
 
-	public generateAccessToken(userKey: string, client_id: string): string {
-		return jwt.sign({ userKey, client_id }, this._jwtSecret, { expiresIn: '1h' });
+	/** Mint a 1h access token bound to `userKey` (as `sub`), the issuing `client_id`, and the
+	 *  deployment's `iss`/`aud`. */
+	public generateAccessToken(userKey: string, client_id: string, aud: TokenAudience): string {
+		return jwt.sign({ client_id }, this._jwtSecret, {
+			subject: userKey,
+			expiresIn: '1h',
+			issuer: aud.issuer,
+			audience: aud.audience,
+		});
 	}
 
 	public generateRefreshToken(): string {
 		return crypto.randomBytes(32).toString('base64url');
 	}
 
-	public validateAccessToken(token: string): string | null {
+	/** Verify signature AND issuer/audience binding; return the trusted claims or `null`. */
+	public validateAccessToken(token: string, aud: TokenAudience): DecodedAccessToken | null {
 		try {
-			const decoded = jwt.verify(token, this._jwtSecret) as any;
-			return decoded.userKey || null;
+			const decoded = jwt.verify(token, this._jwtSecret, {
+				issuer: aud.issuer,
+				audience: aud.audience,
+			}) as jwt.JwtPayload;
+			const userKey = typeof decoded.sub === 'string' ? decoded.sub : null;
+			const client_id = typeof decoded.client_id === 'string' ? decoded.client_id : '';
+			return userKey ? { userKey, client_id } : null;
 		} catch (error) {
 			log.warn('oauth.token.invalid', { error: String(error) });
 			return null;
 		}
-	}
-
-	public createTokenResponse(
-		userKey: string,
-		client_id: string,
-		refresh_token_required: boolean = true,
-	): OAuthAccessToken {
-		const access_token = this.generateAccessToken(userKey, client_id);
-		const expires_in = 3600;
-		const tokenResponse: OAuthAccessToken = {
-			access_token,
-			token_type: 'Bearer',
-			expires_in,
-			userKey,
-		};
-		if (refresh_token_required) {
-			tokenResponse.refresh_token = this.generateRefreshToken();
-		}
-		return tokenResponse;
 	}
 
 	public verifyPKCE(code_verifier: string, code_challenge: string): boolean {

@@ -27,7 +27,9 @@ describe('DataForgeClient.isEnabled', () => {
 	it('is true when the nested setting value is a non-empty URL', async () => {
 		const { client, queryValues } = makeClient({
 			queryValues: async () => ({
-				values: { DataForgeServiceUrl: { code: 'DataForgeServiceUrl', value: 'https://df/' } },
+				values: {
+					DataForgeServiceUrl: { code: 'DataForgeServiceUrl', value: 'https://df/' },
+				},
 			}),
 		});
 		expect(await client.isEnabled()).toBe(true);

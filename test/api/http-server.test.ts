@@ -2,7 +2,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProviderType, CreatioEngineManager } from '../../src/creatio';
-import { HttpServer } from '../../src/server/http/httpServer';
+import { HttpServer } from '../../src/server/http/http-server';
 import { Server } from '../../src/server/mcp';
 import { SessionContext } from '../../src/sessions/session-context';
 import { makeFakeContext } from '../support/fake-context';
@@ -55,9 +55,11 @@ describe('McpHandlers error branches', () => {
 	});
 
 	it('routes GET /mcp to an existing session transport', async () => {
-		const handleRequest = vi.fn(async (_req: unknown, res: { status: (n: number) => { end: () => void } }) => {
-			res.status(200).end();
-		});
+		const handleRequest = vi.fn(
+			async (_req: unknown, res: { status: (n: number) => { end: () => void } }) => {
+				res.status(200).end();
+			},
+		);
 		SessionContext.instance.createSession('s-live', 'u1');
 		SessionContext.instance.setSessionTransport('s-live', { handleRequest } as never);
 		const res = await request(app).get('/mcp').set('mcp-session-id', 's-live');

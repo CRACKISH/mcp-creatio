@@ -13,7 +13,10 @@ function config() {
 	} as never;
 }
 function jsonOk(body: unknown) {
-	return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+	return new Response(JSON.stringify(body), {
+		status: 200,
+		headers: { 'content-type': 'application/json' },
+	});
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -41,7 +44,12 @@ describe('BrokerProvider — serves stored per-user Creatio tokens', () => {
 			accessTokenExpiryMs: Date.now() - 1000,
 			refreshToken: 'RT',
 		});
-		vi.stubGlobal('fetch', vi.fn(async () => jsonOk({ access_token: 'fresh', refresh_token: 'RT2', expires_in: 3600 })));
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonOk({ access_token: 'fresh', refresh_token: 'RT2', expires_in: 3600 }),
+			),
+		);
 		const headers = await runWithContext({ userKey: 'u1' }, () =>
 			new BrokerProvider(config()).getHeaders('application/json', true),
 		);
@@ -73,8 +81,8 @@ describe('BrokerProvider — serves stored per-user Creatio tokens', () => {
 	});
 
 	it('throws without a user context', async () => {
-		await expect(new BrokerProvider(config()).getHeaders('application/json', true)).rejects.toThrow(
-			/broker_no_user/,
-		);
+		await expect(
+			new BrokerProvider(config()).getHeaders('application/json', true),
+		).rejects.toThrow(/broker_no_user/);
 	});
 });

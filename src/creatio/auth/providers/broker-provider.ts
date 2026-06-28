@@ -24,26 +24,6 @@ export class BrokerProvider extends BaseProvider<BrokerAuthConfig> {
 		this._creatio = new CreatioOAuthClient(config.baseUrl, this.authConfig);
 	}
 
-	public async getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>> {
-		const userKey = getEffectiveUserKey();
-		if (!userKey) {
-			throw new Error('broker_no_user');
-		}
-		return buildHeaders(accept, Boolean(isJson), await this._ensureAccessToken(userKey));
-	}
-
-	/** Forces a refresh for the current user (called by the HTTP client on a 401, then it retries). */
-	public async refresh(): Promise<void> {
-		const userKey = getEffectiveUserKey();
-		if (!userKey) {
-			return;
-		}
-		const saved = await this._session.getTokensForUser(userKey);
-		if (saved?.refreshToken) {
-			await this._refreshDeduped(userKey, saved.refreshToken);
-		}
-	}
-
 	private async _ensureAccessToken(userKey: string): Promise<string> {
 		const saved = await this._session.getTokensForUser(userKey);
 		if (!saved) {
@@ -71,5 +51,25 @@ export class BrokerProvider extends BaseProvider<BrokerAuthConfig> {
 		})().finally(() => this._inflightRefresh.delete(userKey));
 		this._inflightRefresh.set(userKey, promise);
 		return promise;
+	}
+
+	public async getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>> {
+		const userKey = getEffectiveUserKey();
+		if (!userKey) {
+			throw new Error('broker_no_user');
+		}
+		return buildHeaders(accept, Boolean(isJson), await this._ensureAccessToken(userKey));
+	}
+
+	/** Forces a refresh for the current user (called by the HTTP client on a 401, then it retries). */
+	public async refresh(): Promise<void> {
+		const userKey = getEffectiveUserKey();
+		if (!userKey) {
+			return;
+		}
+		const saved = await this._session.getTokensForUser(userKey);
+		if (saved?.refreshToken) {
+			await this._refreshDeduped(userKey, saved.refreshToken);
+		}
 	}
 }

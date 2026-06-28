@@ -96,7 +96,11 @@ describe('DataServiceQueryBuilder (groundwork)', () => {
 		const q = builder.buildSelectQuery({
 			entity: 'Contact',
 			columns: ['Name'],
-			filter: { kind: 'group', logic: 'and', items: [{ kind: 'condition', field: 'Name', op: 'eq', value: 'Bob' }] },
+			filter: {
+				kind: 'group',
+				logic: 'and',
+				items: [{ kind: 'condition', field: 'Name', op: 'eq', value: 'Bob' }],
+			},
 		});
 		// A single-child group collapses to the bare compare filter, carrying the root schema.
 		expect(q.filters?.rootSchemaName).toBe('Contact');

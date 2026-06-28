@@ -48,6 +48,24 @@ export class CrtMcpPublishingClient {
 		this._crud = crud;
 	}
 
+	private async _rpc(serverCode: string, method: string, params: unknown): Promise<unknown> {
+		const response = await this._configuration.call({
+			rawPath: `/0/rest/ToolServiceMcp/${encodeURIComponent(serverCode)}/v1/mcp`,
+			httpMethod: 'POST',
+			body: { jsonrpc: '2.0', id: 1, method, params },
+		});
+		const body = response.body as {
+			result?: unknown;
+			error?: { code?: number; message?: string };
+		} | null;
+		if (body && body.error) {
+			throw new Error(
+				`crtmcp_rpc_error:${method}:${body.error.code ?? ''} ${body.error.message ?? ''}`.trim(),
+			);
+		}
+		return body?.result;
+	}
+
 	/** Whether the publishing app is installed on this environment (its `McpServer` entity exists). */
 	public async isInstalled(): Promise<boolean> {
 		try {
@@ -93,23 +111,5 @@ export class CrtMcpPublishingClient {
 		args: Record<string, unknown>,
 	): Promise<unknown> {
 		return this._rpc(serverCode, 'tools/call', { name, arguments: args ?? {} });
-	}
-
-	private async _rpc(serverCode: string, method: string, params: unknown): Promise<unknown> {
-		const response = await this._configuration.call({
-			rawPath: `/0/rest/ToolServiceMcp/${encodeURIComponent(serverCode)}/v1/mcp`,
-			httpMethod: 'POST',
-			body: { jsonrpc: '2.0', id: 1, method, params },
-		});
-		const body = response.body as {
-			result?: unknown;
-			error?: { code?: number; message?: string };
-		} | null;
-		if (body && body.error) {
-			throw new Error(
-				`crtmcp_rpc_error:${method}:${body.error.code ?? ''} ${body.error.message ?? ''}`.trim(),
-			);
-		}
-		return body?.result;
 	}
 }

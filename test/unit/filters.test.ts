@@ -32,8 +32,16 @@ describe('buildFilterNode (tool filters -> neutral AST)', () => {
 			kind: 'group',
 			logic: 'and',
 			items: [
-				{ kind: 'group', logic: 'and', items: [{ kind: 'condition', field: 'A', op: 'eq', value: 1 }] },
-				{ kind: 'group', logic: 'or', items: [{ kind: 'condition', field: 'B', op: 'eq', value: 2 }] },
+				{
+					kind: 'group',
+					logic: 'and',
+					items: [{ kind: 'condition', field: 'A', op: 'eq', value: 1 }],
+				},
+				{
+					kind: 'group',
+					logic: 'or',
+					items: [{ kind: 'condition', field: 'B', op: 'eq', value: 2 }],
+				},
 			],
 		});
 	});
@@ -123,8 +131,12 @@ describe('ODataQueryTranslator filter rendering', () => {
 		const guid = '11111111-2222-3333-4444-555555555555';
 
 		it('rewrites <Lookup>Id eq <guid> to <Lookup>/Id eq <guid> (unquoted)', () => {
-			expect(odata({ all: [{ field: 'ContactId', value: guid }] })).toBe(`Contact/Id eq ${guid}`);
-			expect(odata({ all: [{ field: 'AccountId', value: guid }] })).toBe(`Account/Id eq ${guid}`);
+			expect(odata({ all: [{ field: 'ContactId', value: guid }] })).toBe(
+				`Contact/Id eq ${guid}`,
+			);
+			expect(odata({ all: [{ field: 'AccountId', value: guid }] })).toBe(
+				`Account/Id eq ${guid}`,
+			);
 			expect(odata({ all: [{ field: 'CreatedById', value: guid }] })).toBe(
 				`CreatedBy/Id eq ${guid}`,
 			);
@@ -148,11 +160,15 @@ describe('ODataQueryTranslator filter rendering', () => {
 		});
 
 		it('accepts an already-navigated Contact/Id (unquoted GUID)', () => {
-			expect(odata({ all: [{ field: 'Contact/Id', value: guid }] })).toBe(`Contact/Id eq ${guid}`);
+			expect(odata({ all: [{ field: 'Contact/Id', value: guid }] })).toBe(
+				`Contact/Id eq ${guid}`,
+			);
 		});
 
 		it('does not rewrite when the value is not a GUID', () => {
-			expect(odata({ all: [{ field: 'ContactId', value: 'abc' }] })).toBe("ContactId eq 'abc'");
+			expect(odata({ all: [{ field: 'ContactId', value: 'abc' }] })).toBe(
+				"ContactId eq 'abc'",
+			);
 		});
 
 		it('keeps navigation string filters quoted (Contact/Name)', () => {

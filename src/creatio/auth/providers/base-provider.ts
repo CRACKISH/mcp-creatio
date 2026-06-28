@@ -28,6 +28,6 @@ export abstract class BaseProvider<
 	public abstract refresh(): Promise<void>;
 
 	public cancelAllRefresh(): void {
-		// No background refresh timers by default; OAuth2CodeProvider overrides this.
+		// No background refresh timers in any current provider; the hook stays for shutdown symmetry.
 	}
 }

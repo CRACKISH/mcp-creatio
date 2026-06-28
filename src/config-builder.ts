@@ -74,16 +74,33 @@ function clientCredentialsConfig(): OAuth2AuthConfig {
 	return conf;
 }
 
+/** HS256 security rests ENTIRELY on the secret's entropy, so a short secret is brute-forceable
+ *  offline from any issued token. Refuse anything weaker than 32 chars (256 bits of base64). */
+const MIN_JWT_SECRET_LENGTH = 32;
+
 /**
  * The secret that signs the tokens the broker issues to its OWN clients. A stable secret is
  * required to (a) keep client tokens valid across restarts and (b) validate them across multiple
- * instances. When unset we generate an ephemeral one so local/dev just works — with a warning,
- * since both properties above are lost.
+ * instances. A configured secret must clear the entropy floor; in production an explicit secret is
+ * mandatory (fail closed). Outside production an unset secret yields an ephemeral one (with a
+ * warning) so local/dev just works — at the cost of both properties above.
  */
 function resolveBrokerJwtSecret(): string {
 	const configured = env('CREATIO_MCP_JWT_SECRET');
 	if (configured) {
+		if (configured.length < MIN_JWT_SECRET_LENGTH) {
+			throw new Error(
+				`CREATIO_MCP_JWT_SECRET is too weak: it must be at least ${MIN_JWT_SECRET_LENGTH} ` +
+					`characters (got ${configured.length}). HS256 token security depends entirely on it.`,
+			);
+		}
 		return configured;
+	}
+	if (env('NODE_ENV') === 'production') {
+		throw new Error(
+			'CREATIO_MCP_JWT_SECRET is required in production for broker mode. Set a stable secret ' +
+				`of at least ${MIN_JWT_SECRET_LENGTH} characters.`,
+		);
 	}
 	log.warn('broker.jwt_secret.ephemeral', {
 		detail:

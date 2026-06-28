@@ -303,7 +303,7 @@ consent flow is the point of the mode:
 ```bash
 CREATIO_MCP_AUTH_MODE=broker CREATIO_BASE_URL=… CREATIO_CLIENT_ID=… \
 CREATIO_CLIENT_SECRET=…           # only for a confidential Creatio app
-CREATIO_MCP_JWT_SECRET=…          # optional; set it so client tokens survive a restart
+CREATIO_MCP_JWT_SECRET=…          # ≥32 chars; required in prod; set it so client tokens survive a restart
 NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/index.js
 ```
 
@@ -369,12 +369,28 @@ If adding new auth provider:
 3. Document environment variables clearly in README + AGENTS.md.
 
 > **Token model by mode.** In **`broker`** the MCP IS its own OAuth 2.1 authorization server for
-> clients (`src/server/oauth/` + `http/broker-handlers.ts`): it does DCR + `/authorize` + `/token`,
-> brokers the login to Creatio via authorization_code+PKCE, and holds each user's Creatio tokens
-> server-side in `SessionContext` (in-memory; lost on restart — a `401 invalid_token` then makes the
-> client re-authorize). In **`delegated`/`gateway`** the MCP stores nothing: the client (delegated,
-> obtained from Creatio Identity, advertised via RFC 9728) or a fronting Control-Plane (gateway)
-> supplies the token and the Bearer edge in `src/server/bearer/` passes it through.
+> clients (`src/server/oauth/` + `http/broker-handlers.ts`): it does DCR + `/authorize` + `/token`
+> (`authorization_code` **and** rotating `refresh_token` grants), brokers the login to Creatio via
+> authorization_code+PKCE, and holds each user's Creatio tokens server-side in `SessionContext`
+> (in-memory; lost on restart — a `401 invalid_token` then makes the client re-authorize). The tokens
+> it issues are **audience-bound** (`aud`=`/mcp`, `iss`=origin; verified on every `/mcp` call) so a
+> token from one deployment is rejected by another sharing the secret; the signing secret
+> (`CREATIO_MCP_JWT_SECRET`) must be ≥32 chars and is required in production.
+>
+> In **`delegated`/`gateway`** the MCP stores nothing and does **not** cryptographically verify the
+> Bearer — both are **fully-trusted-environment** modes (Creatio is the authority; the request's
+> `userKey` is an unverified, logging-only identity). The client (delegated, token obtained from
+> Creatio Identity, advertised via RFC 9728) or a fronting Control-Plane (gateway) supplies the token
+> and the Bearer edge in `src/server/bearer/` passes it through. Gateway's `X-Creatio-Base-Url`
+> override is validated against `CREATIO_MCP_ALLOWED_BASE_URLS` (and always blocks cloud-metadata IPs)
+> since it controls where the Bearer is sent. For an untrusted direct external client, use `broker`.
+
+> **Session keep-alive (single-session modes only).** `legacy`/`client_credentials` hold one shared
+> Creatio session; a long idle period lets Creatio drop the forms cookie. Reactive reconnect (the
+> HTTP client retries on `401` AND on a login-page→HTML bounce) keeps it correct; `SessionKeepAlive`
+> (`src/server/keepalive.ts`) additionally pings `get-current-user-info` on an interval to avoid the
+> first-call re-login latency. `CREATIO_MCP_KEEPALIVE_SECONDS` controls it — **default 300s (5 min)**,
+> `0` disables. NOT used for broker/delegated/gateway (per-user / per-request, no shared session).
 
 ## 14. Prompts Extension
 

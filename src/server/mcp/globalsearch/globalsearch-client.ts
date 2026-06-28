@@ -1,5 +1,4 @@
-import log from '../../../log';
-import { ConfigurationCaller, SysSettingReader, hasNonEmptySetting } from '../creatio-rest';
+import { ConfigurationCaller, SysSettingReader, probeSettingEnabled } from '../creatio-rest';
 
 /**
  * Global Search access layer.
@@ -39,53 +38,6 @@ export class GlobalSearchClient {
 	constructor(configuration: ConfigurationCaller, sysSettings: SysSettingReader) {
 		this._configuration = configuration;
 		this._sysSettings = sysSettings;
-	}
-
-	/**
-	 * Whether Global Search is configured on this environment. Gated on a non-empty
-	 * `GlobalSearchUrl`. Note: the platform additionally requires the `GlobalSearch_V2`
-	 * feature; a configured URL is the cheap operator-facing signal used to decide
-	 * whether to expose the tool. Probe failures degrade to "disabled".
-	 */
-	public async isEnabled(): Promise<boolean> {
-		try {
-			const response = await this._sysSettings.queryValues([SEARCH_URL_SETTING]);
-			return hasNonEmptySetting(response, SEARCH_URL_SETTING);
-		} catch (err) {
-			log.warn('globalsearch.probe.failed', { error: String(err) });
-			return false;
-		}
-	}
-
-	/**
-	 * Run a global search and return a compact, UI-like result: per match the
-	 * entity, record id, a display title, and the highlighted `matched` columns —
-	 * plus `total`/`nextFrom` for paging. (The raw service returns every indexed
-	 * column of every record as a stringified `SearchResult`; that is far too large
-	 * to hand to an LLM, so we parse and project it. Use `read` with the id for the
-	 * full record.)
-	 */
-	public async search(q: GlobalSearchQuery): Promise<unknown> {
-		// `GlobalSearchService.Search(queryString, sectionEntityName, recordCount, type="", from=0)`
-		// — the first three parameters have no defaults, so the WCF Wrapped body MUST
-		// include them or binding fails with HTTP 400. `type` is optional; only send it
-		// when filtering, mirroring the UI call.
-		const body: Record<string, unknown> = {
-			queryString: q.query,
-			sectionEntityName: q.sectionEntityName ?? '',
-			recordCount: q.recordCount ?? DEFAULT_RECORD_COUNT,
-			from: q.from ?? 0,
-		};
-		if (q.type) {
-			body.type = q.type;
-		}
-		const response = await this._configuration.call({
-			service: SEARCH_SERVICE,
-			method: 'Search',
-			httpMethod: 'POST',
-			body,
-		});
-		return this._project(response.body);
 	}
 
 	/** Parse the stringified `SearchResult` envelope and project it to a compact shape. */
@@ -149,5 +101,46 @@ export class GlobalSearchClient {
 			}
 		}
 		return undefined;
+	}
+
+	/**
+	 * Whether Global Search is configured on this environment. Gated on a non-empty
+	 * `GlobalSearchUrl`. Note: the platform additionally requires the `GlobalSearch_V2`
+	 * feature; a configured URL is the cheap operator-facing signal used to decide
+	 * whether to expose the tool. Probe failures degrade to "disabled".
+	 */
+	public isEnabled(): Promise<boolean> {
+		return probeSettingEnabled(this._sysSettings, SEARCH_URL_SETTING, 'globalsearch');
+	}
+
+	/**
+	 * Run a global search and return a compact, UI-like result: per match the
+	 * entity, record id, a display title, and the highlighted `matched` columns —
+	 * plus `total`/`nextFrom` for paging. (The raw service returns every indexed
+	 * column of every record as a stringified `SearchResult`; that is far too large
+	 * to hand to an LLM, so we parse and project it. Use `read` with the id for the
+	 * full record.)
+	 */
+	public async search(q: GlobalSearchQuery): Promise<unknown> {
+		// `GlobalSearchService.Search(queryString, sectionEntityName, recordCount, type="", from=0)`
+		// — the first three parameters have no defaults, so the WCF Wrapped body MUST
+		// include them or binding fails with HTTP 400. `type` is optional; only send it
+		// when filtering, mirroring the UI call.
+		const body: Record<string, unknown> = {
+			queryString: q.query,
+			sectionEntityName: q.sectionEntityName ?? '',
+			recordCount: q.recordCount ?? DEFAULT_RECORD_COUNT,
+			from: q.from ?? 0,
+		};
+		if (q.type) {
+			body.type = q.type;
+		}
+		const response = await this._configuration.call({
+			service: SEARCH_SERVICE,
+			method: 'Search',
+			httpMethod: 'POST',
+			body,
+		});
+		return this._project(response.body);
 	}
 }

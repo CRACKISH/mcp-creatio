@@ -40,7 +40,9 @@ describe('env backward-compatible aliases', () => {
 		vi.stubEnv('ENABLE_PUBLISHED_TOOLS', 'true');
 		env('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS');
 		env('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS'); // second read must NOT warn again
-		const notices = writes.filter((w) => /ENABLE_PUBLISHED_TOOLS.*deprecated|deprecated.*ENABLE_PUBLISHED_TOOLS/i.test(w));
+		const notices = writes.filter((w) =>
+			/ENABLE_PUBLISHED_TOOLS.*deprecated|deprecated.*ENABLE_PUBLISHED_TOOLS/i.test(w),
+		);
 		expect(notices.length).toBe(1);
 		expect(writes.join('')).toContain('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS');
 		spy.mockRestore();

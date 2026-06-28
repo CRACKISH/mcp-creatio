@@ -11,13 +11,13 @@ export class ConfigurationEngine extends BaseEngine {
 
 	public readonly name = 'configuration';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: ConfigurationProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public call(request: CallConfigurationServiceRequest): Promise<CallConfigurationServiceResult> {

@@ -62,7 +62,17 @@ export abstract class BaseEngine implements CreatioEngine {
 		if (this._env.readonly) {
 			throw new ReadonlyModeError(action);
 		}
+		// Record the attempt up front (so a mutation is auditable even if it then throws), and add a
+		// distinct outcome record on failure so the trail distinguishes attempted-vs-failed mutations.
 		this._env.audit(action, details);
-		return run();
+		try {
+			return await run();
+		} catch (err) {
+			this._env.audit(`${action}.failed`, {
+				...details,
+				error: String((err as Error)?.message ?? err),
+			});
+			throw err;
+		}
 	}
 }

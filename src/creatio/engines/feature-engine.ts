@@ -7,13 +7,13 @@ export class FeatureEngine extends BaseEngine {
 
 	public readonly name = 'feature';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: FeatureProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public clearFeaturesCache(featureCode?: string): Promise<ClearFeatureCacheResult> {

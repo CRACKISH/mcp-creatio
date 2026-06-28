@@ -135,11 +135,8 @@ export interface DataServiceFilter {
 	comparisonType?: FilterComparisonType;
 	logicalOperation?: LogicalOperation;
 	isNull?: boolean;
-	isNot?: boolean;
-	isEnabled?: boolean;
 	leftExpression?: DataServiceExpression;
 	rightExpression?: DataServiceExpression;
-	rightExpressions?: DataServiceExpression[];
 	items?: Record<string, DataServiceFilter>;
 }
 
@@ -178,23 +175,4 @@ export interface DataServiceSelectQuery {
 /** `ColumnValues` map for Insert/Update — each entry a typed parameter expression. */
 export interface DataServiceColumnValues {
 	items: Record<string, DataServiceParameterExpression>;
-}
-
-export interface DataServiceInsertQuery {
-	rootSchemaName: string;
-	operationType: QueryOperationType.Insert;
-	columnValues: DataServiceColumnValues;
-}
-
-export interface DataServiceUpdateQuery {
-	rootSchemaName: string;
-	operationType: QueryOperationType.Update;
-	columnValues: DataServiceColumnValues;
-	filters: DataServiceFilters;
-}
-
-export interface DataServiceDeleteQuery {
-	rootSchemaName: string;
-	operationType: QueryOperationType.Delete;
-	filters: DataServiceFilters;
 }

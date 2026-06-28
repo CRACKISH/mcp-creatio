@@ -24,21 +24,12 @@ export const DATAFORGE_CAPABILITY = 'dataforge';
  * agnostic of how the capability is probed or wired.
  */
 export class DataForgeToolPreparer implements ToolPreparer {
-	public readonly name = DATAFORGE_CAPABILITY;
-
 	private readonly _client: DataForgeClient;
+
+	public readonly name = DATAFORGE_CAPABILITY;
 
 	constructor(client: DataForgeClient) {
 		this._client = client;
-	}
-
-	public async prepare(registrar: ToolRegistrar): Promise<boolean> {
-		const enabled = await this._client.isEnabled();
-		if (!enabled) {
-			return false;
-		}
-		this._registerTools(registrar);
-		return true;
 	}
 
 	private _registerTools(registrar: ToolRegistrar): void {
@@ -83,5 +74,14 @@ export class DataForgeToolPreparer implements ToolPreparer {
 			dataforgeStatusDescriptor,
 			withValidation(dataforgeStatusInput, () => this._client.getServiceStatus()),
 		);
+	}
+
+	public async prepare(registrar: ToolRegistrar): Promise<boolean> {
+		const enabled = await this._client.isEnabled();
+		if (!enabled) {
+			return false;
+		}
+		this._registerTools(registrar);
+		return true;
 	}
 }

@@ -4,6 +4,8 @@
  * on these interfaces rather than the concrete engines (Dependency Inversion).
  */
 
+import log from '../../log';
+
 export type ConfigurationHttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export interface ConfigurationCallRequest {
@@ -53,4 +55,23 @@ export function hasNonEmptySetting(
 ): boolean {
 	const value = getSettingValue(response, code);
 	return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
+ * Probe whether an optional capability is configured by checking a system setting holds a non-empty
+ * value (the cheap operator-facing signal both DataForge and Global Search use). Any probe failure
+ * degrades to `false` so callers stay graceful. `logLabel` namespaces the warning (e.g. `dataforge`).
+ */
+export async function probeSettingEnabled(
+	sysSettings: SysSettingReader,
+	settingCode: string,
+	logLabel: string,
+): Promise<boolean> {
+	try {
+		const response = await sysSettings.queryValues([settingCode]);
+		return hasNonEmptySetting(response, settingCode);
+	} catch (err) {
+		log.warn(`${logLabel}.probe.failed`, { error: String(err) });
+		return false;
+	}
 }

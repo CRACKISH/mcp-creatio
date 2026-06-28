@@ -1,7 +1,6 @@
 export enum AuthProviderType {
 	Legacy = 'legacy',
 	OAuth2 = 'oauth2',
-	OAuth2Code = 'oauth2_code',
 	/**
 	 * Stateless per-request Bearer passthrough: the incoming request carries a Creatio access token
 	 * (obtained by the client directly from Creatio Identity in `delegated` mode, or injected by a

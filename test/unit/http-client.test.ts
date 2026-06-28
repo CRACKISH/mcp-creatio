@@ -41,6 +41,47 @@ describe('CreatioHttpClient', () => {
 		expect(n).toBe(2);
 	});
 
+	it('treats a followed redirect to an HTML login page as a dead session and re-auths once', async () => {
+		const { client, refresh } = makeClient();
+		let n = 0;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				n++;
+				// 1st call: the expired cookie session bounced to a login page (followed → 200 HTML).
+				if (n === 1) {
+					return {
+						status: 200,
+						redirected: true,
+						headers: { get: () => 'text/html; charset=utf-8' },
+					};
+				}
+				return new Response(JSON.stringify({ ok: true }), {
+					status: 200,
+					headers: { 'content-type': 'application/json' },
+				});
+			}),
+		);
+		const res = (await client.fetchWithAuth('https://x/y', async () => ({}))) as Response;
+		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(n).toBe(2);
+		expect(res.status).toBe(200);
+	});
+
+	it('does NOT treat a redirected JSON response as a dead session', async () => {
+		const { client, refresh } = makeClient();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({
+				status: 200,
+				redirected: true,
+				headers: { get: () => 'application/json' },
+			})),
+		);
+		await client.fetchWithAuth('https://x/y', async () => ({}));
+		expect(refresh).not.toHaveBeenCalled();
+	});
+
 	it('returns the 401 response if a single refresh does not help', async () => {
 		const { client, refresh } = makeClient();
 		vi.stubGlobal(

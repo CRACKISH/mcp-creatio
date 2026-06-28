@@ -18,7 +18,10 @@ import { resetSessionContext } from '../support/test-server';
 describe('getUserKeyFromRequest precedence (C4 surface)', () => {
 	it('prefers the x-user-key header', () => {
 		expect(
-			getUserKeyFromRequest({ headers: { 'x-user-key': 'h' }, query: { userKey: 'q' } } as never),
+			getUserKeyFromRequest({
+				headers: { 'x-user-key': 'h' },
+				query: { userKey: 'q' },
+			} as never),
 		).toBe('h');
 	});
 
@@ -40,12 +43,17 @@ describe('getUserKeyFromRequest precedence (C4 surface)', () => {
 describe('getSessionIdFromRequest', () => {
 	it('reads the mcp-session-id header first', () => {
 		expect(
-			getSessionIdFromRequest({ headers: { 'mcp-session-id': 'a' }, query: { session_id: 'b' } } as never),
+			getSessionIdFromRequest({
+				headers: { 'mcp-session-id': 'a' },
+				query: { session_id: 'b' },
+			} as never),
 		).toBe('a');
 	});
 
 	it('falls back to the session_id query param', () => {
-		expect(getSessionIdFromRequest({ headers: {}, query: { session_id: 'b' } } as never)).toBe('b');
+		expect(getSessionIdFromRequest({ headers: {}, query: { session_id: 'b' } } as never)).toBe(
+			'b',
+		);
 	});
 });
 
@@ -55,15 +63,17 @@ describe('getClientIp', () => {
 			'1.1.1.1',
 		);
 		expect(getClientIp({ headers: {}, ip: '3.3.3.3' } as never)).toBe('3.3.3.3');
-		expect(
-			getClientIp({ headers: {}, socket: { remoteAddress: '4.4.4.4' } } as never),
-		).toBe('4.4.4.4');
+		expect(getClientIp({ headers: {}, socket: { remoteAddress: '4.4.4.4' } } as never)).toBe(
+			'4.4.4.4',
+		);
 	});
 });
 
 describe('parseSetCookie', () => {
 	it('extracts name/value pairs and ignores attributes', () => {
-		expect(parseSetCookie(['BPMCSRF=abc; Path=/; HttpOnly', 'BPMSESSIONID=zzz; Secure'])).toEqual([
+		expect(
+			parseSetCookie(['BPMCSRF=abc; Path=/; HttpOnly', 'BPMSESSIONID=zzz; Secure']),
+		).toEqual([
 			{ name: 'BPMCSRF', value: 'abc' },
 			{ name: 'BPMSESSIONID', value: 'zzz' },
 		]);

@@ -22,7 +22,8 @@ const G2 = '11111111-2222-3333-4444-555555555555';
 const odata = (filters: unknown): string | undefined =>
 	new ODataQueryTranslator().translateFilter(buildFilterNode(filters));
 
-const ds = (filters: unknown): any => new DataServiceFilterTranslator().translate('E', buildFilterNode(filters));
+const ds = (filters: unknown): any =>
+	new DataServiceFilterTranslator().translate('E', buildFilterNode(filters));
 /** Build a single-condition `all` filter. */
 const one = (field: string, op: string, value?: unknown, extra?: object) => ({
 	all: [{ field, op, ...(value === undefined ? {} : { value }), ...extra }],
@@ -79,13 +80,19 @@ describe('OData filter matrix', () => {
 		it.each([
 			['datetime with Z', '2026-06-01T00:00:00Z', 'CreatedOn ge 2026-06-01T00:00:00Z'],
 			['date only', '2026-06-01', 'CreatedOn ge 2026-06-01'],
-			['datetime with offset', '2026-06-01T10:00:00+03:00', 'CreatedOn ge 2026-06-01T10:00:00+03:00'],
+			[
+				'datetime with offset',
+				'2026-06-01T10:00:00+03:00',
+				'CreatedOn ge 2026-06-01T10:00:00+03:00',
+			],
 		])('ISO %s is emitted UNQUOTED', (_name, value, expected) => {
 			expect(odata(one('CreatedOn', 'ge', value))).toBe(expected);
 		});
 
 		it('a date-shaped value inside a string function stays quoted', () => {
-			expect(odata(one('Name', 'contains', '2026-06-01'))).toBe("contains(Name,'2026-06-01')");
+			expect(odata(one('Name', 'contains', '2026-06-01'))).toBe(
+				"contains(Name,'2026-06-01')",
+			);
 		});
 	});
 
@@ -127,12 +134,22 @@ describe('OData filter matrix', () => {
 	describe('combinations', () => {
 		it('multiple AND', () => {
 			expect(
-				odata({ all: [{ field: 'A', op: 'eq', value: 1 }, { field: 'B', op: 'eq', value: 2 }] }),
+				odata({
+					all: [
+						{ field: 'A', op: 'eq', value: 1 },
+						{ field: 'B', op: 'eq', value: 2 },
+					],
+				}),
 			).toBe('(A eq 1 and B eq 2)');
 		});
 		it('multiple OR', () => {
 			expect(
-				odata({ any: [{ field: 'A', op: 'eq', value: 1 }, { field: 'B', op: 'eq', value: 2 }] }),
+				odata({
+					any: [
+						{ field: 'A', op: 'eq', value: 1 },
+						{ field: 'B', op: 'eq', value: 2 },
+					],
+				}),
 			).toBe('(A eq 1 or B eq 2)');
 		});
 		it('AND + OR combined', () => {
@@ -180,9 +197,9 @@ describe('DataService filter matrix', () => {
 			['startswith', FilterComparisonType.StartWith],
 			['endswith', FilterComparisonType.EndWith],
 		])('%s', (op, expected) => {
-			expect(ds(one('X', op, op === 'contains' || op.endsWith('with') ? 'a' : 5)).comparisonType).toBe(
-				expected,
-			);
+			expect(
+				ds(one('X', op, op === 'contains' || op.endsWith('with') ? 'a' : 5)).comparisonType,
+			).toBe(expected);
 		});
 
 		it('eq/ne null -> IsNull / IsNotNull filter', () => {
@@ -204,7 +221,9 @@ describe('DataService filter matrix', () => {
 			['iso date', '2026-01-01', DataValueType.DateTime],
 			['iso datetime', '2026-01-01T10:00:00Z', DataValueType.DateTime],
 		])('%s', (_name, value, expected) => {
-			expect(ds(one('X', 'eq', value)).rightExpression.parameter.dataValueType).toBe(expected);
+			expect(ds(one('X', 'eq', value)).rightExpression.parameter.dataValueType).toBe(
+				expected,
+			);
 		});
 	});
 
@@ -240,7 +259,12 @@ describe('DataService filter matrix', () => {
 		});
 
 		it('multiple AND -> And group', () => {
-			const f = ds({ all: [{ field: 'A', op: 'eq', value: 1 }, { field: 'B', op: 'eq', value: 2 }] });
+			const f = ds({
+				all: [
+					{ field: 'A', op: 'eq', value: 1 },
+					{ field: 'B', op: 'eq', value: 2 },
+				],
+			});
 			expect(f.filterType).toBe(FilterType.Group);
 			expect(f.logicalOperation).toBe(LogicalOperation.And);
 			expect(Object.keys(f.items)).toHaveLength(2);

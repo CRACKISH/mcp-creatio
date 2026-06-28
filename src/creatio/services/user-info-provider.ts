@@ -17,7 +17,7 @@ export class UserInfoProvider implements UserProvider {
 
 	public async getCurrentUserInfo(): Promise<CurrentUserInfo> {
 		const url = this._getServiceUrl();
-		return this._client.executeWithTiming(
+		return this._client.request(
 			'getCurrentUserInfo',
 			url,
 			async () => {
@@ -29,13 +29,7 @@ export class UserInfoProvider implements UserProvider {
 				const body = await response.json().catch(() => ({}));
 				return body as CurrentUserInfo;
 			},
-			async (response, duration) =>
-				this._client.handleErrorResponse(
-					'getCurrentUserInfo',
-					response,
-					duration,
-					'creatio_get_current_user_info_failed',
-				),
+			{ errorPrefix: 'creatio_get_current_user_info_failed' },
 		);
 	}
 }

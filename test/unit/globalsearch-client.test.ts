@@ -26,7 +26,9 @@ describe('GlobalSearchClient.isEnabled', () => {
 	it('is true when GlobalSearchUrl has a non-empty nested value', async () => {
 		const { client, queryValues } = makeClient({
 			queryValues: async () => ({
-				values: { GlobalSearchUrl: { code: 'GlobalSearchUrl', value: 'http://es:9200/gs' } },
+				values: {
+					GlobalSearchUrl: { code: 'GlobalSearchUrl', value: 'http://es:9200/gs' },
+				},
 			}),
 		});
 		expect(await client.isEnabled()).toBe(true);
@@ -113,8 +115,18 @@ describe('GlobalSearchClient.search', () => {
 		expect(result.total).toBe(2);
 		expect(result.nextFrom).toBe(15);
 		expect(result.results).toEqual([
-			{ entityName: 'Account', id: 'acc-1', title: 'Sbear Financial', matched: { Address: ['Van'] } },
-			{ entityName: 'Contact', id: 'c-1', title: 'Athanasakos Van', matched: { Name: ['Van'] } },
+			{
+				entityName: 'Account',
+				id: 'acc-1',
+				title: 'Sbear Financial',
+				matched: { Address: ['Van'] },
+			},
+			{
+				entityName: 'Contact',
+				id: 'c-1',
+				title: 'Athanasakos Van',
+				matched: { Name: ['Van'] },
+			},
 		]);
 	});
 });

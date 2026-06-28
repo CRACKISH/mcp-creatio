@@ -62,11 +62,6 @@ export class DataServiceCrudProvider implements CrudProvider {
 		this._schema = deps.schema ?? new DataServiceSchemaProvider(this._transport);
 	}
 
-	/** Visible for tests: build (don't send) the SelectQuery payload. */
-	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
-		return this._queryBuilder.buildSelectQuery(query);
-	}
-
 	private _rows(body: any): any[] {
 		return Array.isArray(body?.rows) ? body.rows : [];
 	}
@@ -123,6 +118,11 @@ export class DataServiceCrudProvider implements CrudProvider {
 			}
 			return out;
 		});
+	}
+
+	/** Visible for tests: build (don't send) the SelectQuery payload. */
+	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
+		return this._queryBuilder.buildSelectQuery(query);
 	}
 
 	public listEntitySets(): Promise<string[]> {

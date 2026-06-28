@@ -45,7 +45,6 @@ export class CreatioEngineManager {
 	private readonly _context: CreatioProviderContext;
 	private readonly _options: EngineManagerOptions | undefined;
 	private readonly _registry = new EngineRegistry();
-	private readonly _engines = new Map<string, CreatioEngine>();
 	private readonly _env: EngineEnv;
 
 	public get authProvider() {
@@ -103,8 +102,7 @@ export class CreatioEngineManager {
 			EngineType.AdminOperation,
 			() =>
 				new AdminOperationEngine(
-					this._options?.adminOperationProvider ??
-						(this._context.adminOperation as AdminOperationProvider),
+					this._options?.adminOperationProvider ?? this._context.adminOperation,
 					this._env,
 				),
 			this._options?.enableAdminOperation ?? true,
@@ -113,26 +111,21 @@ export class CreatioEngineManager {
 			EngineType.Configuration,
 			() =>
 				new ConfigurationEngine(
-					this._options?.configurationProvider ??
-						(this._context.configuration as ConfigurationProvider),
+					this._options?.configurationProvider ?? this._context.configuration,
 					this._env,
 				),
 			this._options?.enableConfiguration ?? true,
 		);
 		this._registerEngine(
 			EngineType.Crud,
-			() =>
-				new CrudEngine(
-					this._options?.crudProvider ?? (this._context.crud as CrudProvider),
-					this._env,
-				),
+			() => new CrudEngine(this._options?.crudProvider ?? this._context.crud, this._env),
 			this._options?.enableCrud ?? true,
 		);
 		this._registerEngine(
 			EngineType.Feature,
 			() =>
 				new FeatureEngine(
-					this._options?.featureProvider ?? (this._context.feature as FeatureProvider),
+					this._options?.featureProvider ?? this._context.feature,
 					this._env,
 				),
 			this._options?.enableFeature ?? true,
@@ -141,7 +134,7 @@ export class CreatioEngineManager {
 			EngineType.Process,
 			() =>
 				new ProcessEngine(
-					this._options?.processProvider ?? (this._context.process as ProcessProvider),
+					this._options?.processProvider ?? this._context.process,
 					this._env,
 				),
 			this._options?.enableProcess ?? true,
@@ -150,19 +143,14 @@ export class CreatioEngineManager {
 			EngineType.SysSettings,
 			() =>
 				new SysSettingsEngine(
-					this._options?.sysSettingsProvider ??
-						(this._context.sysSettings as SysSettingsProvider),
+					this._options?.sysSettingsProvider ?? this._context.sysSettings,
 					this._env,
 				),
 			this._options?.enableSysSettings ?? true,
 		);
 		this._registerEngine(
 			EngineType.User,
-			() =>
-				new UserEngine(
-					this._options?.userProvider ?? (this._context.user as UserProvider),
-					this._env,
-				),
+			() => new UserEngine(this._options?.userProvider ?? this._context.user, this._env),
 			this._options?.enableUser ?? true,
 		);
 	}
@@ -175,8 +163,6 @@ export class CreatioEngineManager {
 		if (!enabled) {
 			return;
 		}
-		const engine = factory();
-		this._engines.set(type, engine);
-		this._registry.register(engine);
+		this._registry.register(factory());
 	}
 }

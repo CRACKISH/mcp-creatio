@@ -1,5 +1,8 @@
 import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
+import log from '../../log';
+import { env } from '../../utils';
 
+import { isAllowedBaseUrl, parseAllowedBaseUrls } from './base-url-guard';
 import { inspectBearer, isExpired } from './bearer-token';
 
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -26,17 +29,18 @@ export function buildProtectedResourceMetadata(resource: string, identityBase: s
  *   that authorization server via RFC 9728, challenges unauthenticated requests, and fails fast on
  *   an obviously-expired JWT.
  *
- * In both modes Creatio remains the ultimate authority — it independently rejects invalid tokens on
- * the API call — so the runtime is a straight token passthrough; only discovery/trust differ here.
+ * Both modes are FULLY-TRUSTED-ENVIRONMENT deployments: gateway trusts the Control-Plane in front of
+ * it; delegated trusts the client + the network it runs on. The MCP does NOT cryptographically
+ * verify the Bearer here — Creatio remains the ultimate authority and independently rejects invalid
+ * tokens on the API call — so the runtime is a straight token passthrough; only discovery/trust
+ * differ. The `userKey` derived from the token is therefore an UNVERIFIED, session/logging-only
+ * identity, not an authenticated principal. For an untrusted, direct external client that needs the
+ * MCP itself to verify identity, use `broker` mode (the MCP is its own audience-bound OAuth 2.1 AS).
  */
 export class BearerEdge {
 	private readonly _config: BearerAuthConfig;
 	private readonly _baseUrl: string;
-
-	constructor(config: BearerAuthConfig, baseUrl: string) {
-		this._config = config;
-		this._baseUrl = baseUrl;
-	}
+	private readonly _allowedBaseUrls: string[];
 
 	private get _isDelegated(): boolean {
 		return this._config.mode === BearerAuthMode.Delegated;
@@ -47,42 +51,10 @@ export class BearerEdge {
 		return this._config.idBaseUrl ?? `${this._baseUrl.replace(/\/$/, '')}/0`;
 	}
 
-	/** Delegated mode publishes RFC 9728 metadata so clients can discover the authorization server. */
-	public registerRoutes(app: Express): void {
-		if (!this._isDelegated) {
-			return;
-		}
-		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
-			const resource = `${req.protocol}://${req.get('host')}/mcp`;
-			res.json(buildProtectedResourceMetadata(resource, this._identityBase));
-		});
-	}
-
-	/** Express middleware guarding `/mcp`. Sets `req.bearerToken` / `req.userKey` / `req.baseUrlOverride`. */
-	public mcpAuth() {
-		return (req: Request, res: Response, next: NextFunction): void => {
-			const header = req.headers.authorization;
-			if (!header || !header.startsWith('Bearer ')) {
-				return this._challenge(req, res, 'missing_token');
-			}
-			const token = header.slice(7);
-
-			if (!this._isDelegated) {
-				// gateway: a per-request instance override is honored only here (from the trusted gateway).
-				const baseOverride = req.headers[BASE_URL_OVERRIDE_HEADER];
-				if (typeof baseOverride === 'string' && baseOverride) {
-					(req as Request & { baseUrlOverride?: string }).baseUrlOverride = baseOverride;
-				}
-				return this._accept(req, token, next);
-			}
-
-			// delegated: fail fast on an obviously-expired JWT; Creatio validates the rest on the call.
-			const decoded = inspectBearer(token);
-			if (decoded.isJwt && isExpired(decoded)) {
-				return this._challenge(req, res, 'token_expired');
-			}
-			return this._accept(req, token, next, decoded.userKey);
-		};
+	constructor(config: BearerAuthConfig, baseUrl: string) {
+		this._config = config;
+		this._baseUrl = baseUrl;
+		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
 	}
 
 	private _accept(req: Request, token: string, next: NextFunction, userKey?: string): void {
@@ -107,5 +79,53 @@ export class BearerEdge {
 					? 'A Creatio access token is required in the Authorization header.'
 					: `Bearer token rejected: ${reason}.`,
 		});
+	}
+
+	/** Delegated mode publishes RFC 9728 metadata so clients can discover the authorization server. */
+	public registerRoutes(app: Express): void {
+		if (!this._isDelegated) {
+			return;
+		}
+		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
+			const resource = `${req.protocol}://${req.get('host')}/mcp`;
+			res.json(buildProtectedResourceMetadata(resource, this._identityBase));
+		});
+	}
+
+	/** Express middleware guarding `/mcp`. Sets `req.bearerToken` / `req.userKey` / `req.baseUrlOverride`. */
+	public mcpAuth() {
+		return (req: Request, res: Response, next: NextFunction): void => {
+			const header = req.headers.authorization;
+			if (!header || !header.startsWith('Bearer ')) {
+				return this._challenge(req, res, 'missing_token');
+			}
+			const token = header.slice(7);
+
+			if (!this._isDelegated) {
+				// gateway: a per-request instance override is honored only here (from the trusted
+				// gateway). Still validate it — the override decides where the Bearer is sent, so a
+				// bad value is an SSRF / token-redirection lever even from a trusted source (CWE-918).
+				const baseOverride = req.headers[BASE_URL_OVERRIDE_HEADER];
+				if (typeof baseOverride === 'string' && baseOverride) {
+					if (!isAllowedBaseUrl(baseOverride, this._allowedBaseUrls)) {
+						log.warn('bearer.base_url_override.rejected', { override: baseOverride });
+						res.status(400).json({
+							error: 'invalid_request',
+							error_description: 'Disallowed X-Creatio-Base-Url override.',
+						});
+						return;
+					}
+					(req as Request & { baseUrlOverride?: string }).baseUrlOverride = baseOverride;
+				}
+				return this._accept(req, token, next);
+			}
+
+			// delegated: fail fast on an obviously-expired JWT; Creatio validates the rest on the call.
+			const decoded = inspectBearer(token);
+			if (decoded.isJwt && isExpired(decoded)) {
+				return this._challenge(req, res, 'token_expired');
+			}
+			return this._accept(req, token, next, decoded.userKey);
+		};
 	}
 }
