@@ -335,7 +335,13 @@ prefixes (`feat:`, `fix:`, `docs:`, `chore:`). **Whenever you bump the version, 
 the full release — never bump without tagging AND publishing:**
 
 1. `npm version <x.y.z> --no-git-tag-version` (updates `package.json` + lockfile, no auto-tag).
-2. Update `CHANGELOG.md` (new version section; what changed, grouped Added/Fixed/Changed).
+2. Update `CHANGELOG.md` (new version section; what changed, grouped Added/Fixed/Changed). **First
+   enumerate EVERY commit since the previous release tag — `git log v<prev>..HEAD --no-merges
+--oneline` — and make sure each user-facing change is reflected; do NOT changelog only your own
+   session's commits (commits that landed since the last tag but before your work still ship in this
+   release).** Also add the version's reference-link definition at the bottom
+   (`[x.y.z]: https://github.com/CRACKISH/mcp-creatio/releases/tag/vx.y.z`) so the heading links like
+   the others.
 3. `npm run build` + `npm test` — must be green (the build also runs on `prepack`).
 4. Commit: `chore(release): vX.Y.Z`.
 5. **Tag**: `git tag vX.Y.Z` (use the `v` prefix).
