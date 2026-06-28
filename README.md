@@ -148,6 +148,17 @@ CREATIO_MCP_JWT_SECRET=a-long-random-secret-min-32   # signs the tokens the MCP 
 > every restart and are not valid across multiple instances, so **set a stable secret for production
 > or any horizontally-scaled deployment.**
 
+**Persistence / horizontal scaling (broker holds users' Creatio tokens).** By default those tokens
+live in-process — fine for a single instance, but lost on restart and not shared across replicas.
+For production set a **Redis** token store: tokens are encrypted at rest (AES-256-GCM) and survive
+restarts, so the broker becomes stateless and horizontally scalable.
+
+```bash
+CREATIO_MCP_TOKEN_STORE=redis
+CREATIO_MCP_REDIS_URL=redis://your-redis:6379
+# CREATIO_MCP_TOKEN_ENC_KEY=...   # optional; encryption key, else derived from CREATIO_MCP_JWT_SECRET
+```
+
 Register the Creatio app in System Designer → _OAuth 2.0 applications_ → _On behalf of a user_, and
 add the MCP callback (`http://localhost:3000/oauth/callback` for a local run) to its redirect URIs.
 
@@ -218,11 +229,11 @@ nothing works without it; the rest depend on the auth method and the features yo
 
 ### Transport & runtime (optional)
 
-| Variable                        | Description                                                                                                                                                                              |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CREATIO_MCP_TRANSPORT`         | Docker only: `http` (default) or `stdio`                                                                                                                                                 |
-| `CREATIO_MCP_PORT`              | HTTP listen port (default `3000`; `PORT` also accepted)                                                                                                                                  |
-| `CREATIO_MCP_LOG_LEVEL`         | Log verbosity: `silent` (default), `error`, `warn`, `info`                                                                                                                               |
+| Variable                        | Description                                                                                                                                                                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CREATIO_MCP_TRANSPORT`         | Docker only: `http` (default) or `stdio`                                                                                                                                                                                                                       |
+| `CREATIO_MCP_PORT`              | HTTP listen port (default `3000`; `PORT` also accepted)                                                                                                                                                                                                        |
+| `CREATIO_MCP_LOG_LEVEL`         | Log verbosity: `silent` (default), `error`, `warn`, `info`                                                                                                                                                                                                     |
 | `CREATIO_MCP_KEEPALIVE_SECONDS` | _Optional_ — proactive session keep-alive interval (seconds) for `legacy` / `client_credentials`, to avoid first-call re-login latency after an idle period. **Defaults to `300` (5 min)**; set `0` to disable. Keep it below the Creatio idle-session timeout |
 
 > **Disabling optional capabilities.** DataForge and Global Search are auto-detected at startup and

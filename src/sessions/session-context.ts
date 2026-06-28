@@ -2,6 +2,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import log from '../log';
 
+import { InMemoryTokenStore, TokenStore } from './token-store';
+
 export interface SessionInfo {
 	id: string;
 	userKey?: string | undefined;
@@ -31,18 +33,23 @@ export interface UserTokens {
  * context therefore only manages transport/session lifecycle and the identity used for logging.
  */
 export class SessionContext {
-	/** Idle window after which an abandoned token entry is evicted (24h), even if refreshable. */
-	private static readonly TOKEN_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 	private static _instance: SessionContext | undefined;
 	private readonly _sessions = new Map<string, SessionInfo>();
-	private readonly _userTokens = new Map<string, UserTokens>();
 	private readonly _deletingSessions = new Set<string>();
+	// Broker-mode Creatio token store. Defaults to in-memory (single instance, lost on restart);
+	// swapped for the Redis store at startup via {@link setTokenStore} when configured.
+	private _tokenStore: TokenStore = new InMemoryTokenStore();
 
 	public static get instance(): SessionContext {
 		if (!SessionContext._instance) {
 			SessionContext._instance = new SessionContext();
 		}
 		return SessionContext._instance;
+	}
+
+	/** Swap the broker token store (e.g. Redis) — call once at startup, broker mode only. */
+	public setTokenStore(store: TokenStore): void {
+		this._tokenStore = store;
 	}
 
 	public createSession(sessionId: string, userKey?: string, remoteIp?: string): SessionInfo {
@@ -118,42 +125,26 @@ export class SessionContext {
 		return Array.from(this._sessions.values()).filter((s) => s.userKey === userKey);
 	}
 
-	public getStats(): { sessionsCount: number; tokensCount: number } {
-		return { sessionsCount: this._sessions.size, tokensCount: this._userTokens.size };
+	public getStats(): { sessionsCount: number } {
+		return { sessionsCount: this._sessions.size };
 	}
 
-	// --- Per-user Creatio token store (broker mode only) ---
+	// --- Per-user Creatio token store (broker mode only) — delegated to the configured TokenStore ---
 
-	public async getTokensForUser(userKey: string): Promise<UserTokens | null> {
-		return this._userTokens.get(userKey) ?? null;
+	public getTokensForUser(userKey: string): Promise<UserTokens | null> {
+		return this._tokenStore.get(userKey);
 	}
 
-	public async setTokensForUser(userKey: string, tokens: UserTokens): Promise<void> {
-		this._userTokens.set(userKey, { ...tokens, storedAtMs: tokens.storedAtMs ?? Date.now() });
+	public setTokensForUser(userKey: string, tokens: UserTokens): Promise<void> {
+		return this._tokenStore.set(userKey, tokens);
 	}
 
-	public async deleteTokensForUser(userKey: string): Promise<void> {
-		this._userTokens.delete(userKey);
+	public deleteTokensForUser(userKey: string): Promise<void> {
+		return this._tokenStore.delete(userKey);
 	}
 
-	/**
-	 * Keeps the per-user token map bounded over a long-running process without evicting tokens a
-	 * client could still use: a token is removed only when expired AND non-refreshable, or idle past
-	 * {@link TOKEN_IDLE_TTL_MS}. Returns how many were removed.
-	 */
-	public evictStaleTokens(now: number = Date.now()): number {
-		let removed = 0;
-		for (const [userKey, tokens] of this._userTokens) {
-			const deadNoRefresh = now > tokens.accessTokenExpiryMs && !tokens.refreshToken;
-			const abandoned = now - (tokens.storedAtMs ?? now) > SessionContext.TOKEN_IDLE_TTL_MS;
-			if (deadNoRefresh || abandoned) {
-				this._userTokens.delete(userKey);
-				removed++;
-			}
-		}
-		if (removed > 0) {
-			log.info('session.tokens.evicted', { removed, remaining: this._userTokens.size });
-		}
-		return removed;
+	/** Evict stale token entries (no-op for a store with native key-expiry, e.g. Redis). */
+	public evictStaleTokens(now: number = Date.now()): Promise<number> {
+		return this._tokenStore.evictStale(now);
 	}
 }

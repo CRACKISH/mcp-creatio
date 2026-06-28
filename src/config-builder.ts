@@ -12,6 +12,7 @@ import {
 	OAuth2AuthConfig,
 } from './creatio';
 import log from './log';
+import { TokenStoreConfig } from './sessions';
 import { env } from './utils';
 
 /**
@@ -178,6 +179,24 @@ function getRequiredBaseUrl(): string {
 		throw new Error('Environment variable CREATIO_BASE_URL is required but not set');
 	}
 	return baseUrl;
+}
+
+/**
+ * Broker token-store selection. `memory` (default) keeps tokens in-process (lost on restart, single
+ * instance); `redis` makes the broker stateless + restart-durable + multi-instance. The at-rest
+ * encryption key derives from `CREATIO_MCP_TOKEN_ENC_KEY` when set, else the (mandatory) broker
+ * `CREATIO_MCP_JWT_SECRET`.
+ */
+export function getTokenStoreConfig(): TokenStoreConfig {
+	const kind = env('CREATIO_MCP_TOKEN_STORE')?.toLowerCase() === 'redis' ? 'redis' : 'memory';
+	if (kind === 'memory') {
+		return { kind };
+	}
+	return {
+		kind,
+		redisUrl: env('CREATIO_MCP_REDIS_URL'),
+		encryptionSecret: env('CREATIO_MCP_TOKEN_ENC_KEY') || env('CREATIO_MCP_JWT_SECRET'),
+	};
 }
 
 export function getCreatioClientConfig(): CreatioClientConfig {
