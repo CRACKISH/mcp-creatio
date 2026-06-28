@@ -29,6 +29,18 @@ export class RateLimiter {
 		this._options = options;
 	}
 
+	private _maybeSweep(now: number): void {
+		if (now - this._lastSweepAt < this._options.windowMs) {
+			return;
+		}
+		this._lastSweepAt = now;
+		for (const [key, bucket] of this._buckets.entries()) {
+			if (now >= bucket.resetAt) {
+				this._buckets.delete(key);
+			}
+		}
+	}
+
 	public check(key: string, now: number): RateLimitResult {
 		this._maybeSweep(now);
 		const bucket = this._buckets.get(key);
@@ -41,17 +53,5 @@ export class RateLimiter {
 		}
 		bucket.count++;
 		return { allowed: true, retryAfterMs: 0 };
-	}
-
-	private _maybeSweep(now: number): void {
-		if (now - this._lastSweepAt < this._options.windowMs) {
-			return;
-		}
-		this._lastSweepAt = now;
-		for (const [key, bucket] of this._buckets.entries()) {
-			if (now >= bucket.resetAt) {
-				this._buckets.delete(key);
-			}
-		}
 	}
 }

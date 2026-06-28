@@ -16,11 +16,6 @@ export class CrudEngine extends BaseEngine {
 
 	public readonly name = 'crud';
 
-	constructor(provider: CrudProvider, env?: EngineEnv) {
-		super(env);
-		this._provider = provider;
-	}
-
 	public get kind(): string {
 		return this._provider.kind;
 	}
@@ -28,6 +23,11 @@ export class CrudEngine extends BaseEngine {
 	/** Read features the active backend honors — drives which read params the tool registers. */
 	public get capabilities(): CrudCapabilities {
 		return this._provider.capabilities;
+	}
+
+	constructor(provider: CrudProvider, env?: EngineEnv) {
+		super(env);
+		this._provider = provider;
 	}
 
 	public listEntitySets(): Promise<string[]> {

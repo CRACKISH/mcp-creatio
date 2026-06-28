@@ -14,13 +14,13 @@ export class SysSettingsEngine extends BaseEngine {
 
 	public readonly name = 'sys-settings';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: SysSettingsProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public setValues(values: Record<string, any>): Promise<any> {

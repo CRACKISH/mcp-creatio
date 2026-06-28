@@ -75,6 +75,42 @@ module.exports = [
           }
         }
       ],
+      // Codifies the AGENTS.md class-member ordering convention:
+      // readonly fields → fields → getters → setters → constructor → methods, each private→protected→public.
+      '@typescript-eslint/member-ordering': [
+        'error',
+        {
+          default: {
+            memberTypes: [
+              'private-static-readonly-field',
+              'protected-static-readonly-field',
+              'public-static-readonly-field',
+              'private-readonly-field',
+              'protected-readonly-field',
+              'public-readonly-field',
+              'private-static-field',
+              'protected-static-field',
+              'public-static-field',
+              'private-instance-field',
+              'protected-instance-field',
+              'public-instance-field',
+              'private-get',
+              'protected-get',
+              'public-get',
+              'private-set',
+              'protected-set',
+              'public-set',
+              'constructor',
+              'private-static-method',
+              'protected-static-method',
+              'public-static-method',
+              'private-instance-method',
+              'protected-instance-method',
+              'public-instance-method'
+            ]
+          }
+        }
+      ],
       '@typescript-eslint/naming-convention': [
         'error',
         {

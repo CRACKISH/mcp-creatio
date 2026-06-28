@@ -58,6 +58,55 @@ export class DataForgeClient {
 		this._sysSettings = sysSettings;
 	}
 
+	private _read(
+		method: string,
+		request: Record<string, unknown>,
+	): Promise<ConfigurationCallResult> {
+		return this._configuration.call({
+			service: READ_SERVICE,
+			method,
+			httpMethod: 'POST',
+			body: { request: this._omitUndefined(request) },
+		});
+	}
+
+	/**
+	 * The configuration REST services use WCF `BodyStyle = Wrapped`, so a response
+	 * is nested under a single `<Method>Result` key (e.g. `GetTableColumnsDetailsResult`).
+	 * Unwrap it so failure detection and the returned payload see the actual response.
+	 */
+	private _unwrapResult(body: unknown): unknown {
+		if (body && typeof body === 'object' && !Array.isArray(body)) {
+			const keys = Object.keys(body as object);
+			if (keys.length === 1 && keys[0]!.endsWith('Result')) {
+				return (body as Record<string, unknown>)[keys[0]!];
+			}
+		}
+		return body;
+	}
+
+	/** Creatio serializes `BaseResponse.Success` as camelCase `success`; tolerate both. */
+	private _isFailure(result: unknown): boolean {
+		if (!result || typeof result !== 'object') {
+			return false;
+		}
+		const r = result as { success?: boolean; Success?: boolean };
+		return r.success === false || r.Success === false;
+	}
+
+	private _errorCode(result: unknown): string | undefined {
+		const r = result as {
+			errorInfo?: { errorCode?: string; ErrorCode?: string };
+			ErrorInfo?: { errorCode?: string; ErrorCode?: string };
+		} | null;
+		const info = r?.errorInfo ?? r?.ErrorInfo;
+		return info?.errorCode ?? info?.ErrorCode;
+	}
+
+	private _omitUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+		return Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined));
+	}
+
 	/**
 	 * Whether DataForge is configured on this environment. Gated on a non-empty
 	 * `DataForgeServiceUrl`, mirroring the server-side `IsDataForgeEnabled` check.
@@ -127,54 +176,5 @@ export class DataForgeClient {
 			log.warn('dataforge.describe-entity.error', { error: String(err) });
 			return null;
 		}
-	}
-
-	private _read(
-		method: string,
-		request: Record<string, unknown>,
-	): Promise<ConfigurationCallResult> {
-		return this._configuration.call({
-			service: READ_SERVICE,
-			method,
-			httpMethod: 'POST',
-			body: { request: this._omitUndefined(request) },
-		});
-	}
-
-	/**
-	 * The configuration REST services use WCF `BodyStyle = Wrapped`, so a response
-	 * is nested under a single `<Method>Result` key (e.g. `GetTableColumnsDetailsResult`).
-	 * Unwrap it so failure detection and the returned payload see the actual response.
-	 */
-	private _unwrapResult(body: unknown): unknown {
-		if (body && typeof body === 'object' && !Array.isArray(body)) {
-			const keys = Object.keys(body as object);
-			if (keys.length === 1 && keys[0]!.endsWith('Result')) {
-				return (body as Record<string, unknown>)[keys[0]!];
-			}
-		}
-		return body;
-	}
-
-	/** Creatio serializes `BaseResponse.Success` as camelCase `success`; tolerate both. */
-	private _isFailure(result: unknown): boolean {
-		if (!result || typeof result !== 'object') {
-			return false;
-		}
-		const r = result as { success?: boolean; Success?: boolean };
-		return r.success === false || r.Success === false;
-	}
-
-	private _errorCode(result: unknown): string | undefined {
-		const r = result as {
-			errorInfo?: { errorCode?: string; ErrorCode?: string };
-			ErrorInfo?: { errorCode?: string; ErrorCode?: string };
-		} | null;
-		const info = r?.errorInfo ?? r?.ErrorInfo;
-		return info?.errorCode ?? info?.ErrorCode;
-	}
-
-	private _omitUndefined(obj: Record<string, unknown>): Record<string, unknown> {
-		return Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined));
 	}
 }

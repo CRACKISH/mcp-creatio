@@ -42,12 +42,6 @@ export class BearerEdge {
 	private readonly _baseUrl: string;
 	private readonly _allowedBaseUrls: string[];
 
-	constructor(config: BearerAuthConfig, baseUrl: string) {
-		this._config = config;
-		this._baseUrl = baseUrl;
-		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
-	}
-
 	private get _isDelegated(): boolean {
 		return this._config.mode === BearerAuthMode.Delegated;
 	}
@@ -55,6 +49,36 @@ export class BearerEdge {
 	/** Identity Service base advertised to clients. */
 	private get _identityBase(): string {
 		return this._config.idBaseUrl ?? `${this._baseUrl.replace(/\/$/, '')}/0`;
+	}
+
+	constructor(config: BearerAuthConfig, baseUrl: string) {
+		this._config = config;
+		this._baseUrl = baseUrl;
+		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
+	}
+
+	private _accept(req: Request, token: string, next: NextFunction, userKey?: string): void {
+		const r = req as Request & { userKey?: string; bearerToken?: string };
+		r.userKey = userKey ?? inspectBearer(token).userKey;
+		r.bearerToken = token;
+		next();
+	}
+
+	private _challenge(req: Request, res: Response, reason: string): void {
+		if (this._isDelegated) {
+			const resourceMetadata = `${req.protocol}://${req.get('host')}${PROTECTED_RESOURCE_METADATA_PATH}`;
+			res.setHeader(
+				'WWW-Authenticate',
+				`Bearer resource_metadata="${resourceMetadata}", error="${reason}"`,
+			);
+		}
+		res.status(401).json({
+			error: 'unauthorized',
+			error_description:
+				reason === 'missing_token'
+					? 'A Creatio access token is required in the Authorization header.'
+					: `Bearer token rejected: ${reason}.`,
+		});
 	}
 
 	/** Delegated mode publishes RFC 9728 metadata so clients can discover the authorization server. */
@@ -103,29 +127,5 @@ export class BearerEdge {
 			}
 			return this._accept(req, token, next, decoded.userKey);
 		};
-	}
-
-	private _accept(req: Request, token: string, next: NextFunction, userKey?: string): void {
-		const r = req as Request & { userKey?: string; bearerToken?: string };
-		r.userKey = userKey ?? inspectBearer(token).userKey;
-		r.bearerToken = token;
-		next();
-	}
-
-	private _challenge(req: Request, res: Response, reason: string): void {
-		if (this._isDelegated) {
-			const resourceMetadata = `${req.protocol}://${req.get('host')}${PROTECTED_RESOURCE_METADATA_PATH}`;
-			res.setHeader(
-				'WWW-Authenticate',
-				`Bearer resource_metadata="${resourceMetadata}", error="${reason}"`,
-			);
-		}
-		res.status(401).json({
-			error: 'unauthorized',
-			error_description:
-				reason === 'missing_token'
-					? 'A Creatio access token is required in the Authorization header.'
-					: `Bearer token rejected: ${reason}.`,
-		});
 	}
 }

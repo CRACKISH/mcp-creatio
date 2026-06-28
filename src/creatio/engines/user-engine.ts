@@ -7,13 +7,13 @@ export class UserEngine extends BaseEngine {
 
 	public readonly name = 'user';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: UserProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public getCurrentUserInfo(): Promise<CurrentUserInfo> {

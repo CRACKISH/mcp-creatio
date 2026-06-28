@@ -82,6 +82,10 @@ interface ClientToolDef {
 }
 
 export class Server {
+	// After a preparer's probe THROWS (no verdict recorded), back off before re-probing it, so a
+	// persistently-failing capability doesn't fire its network probe on every new session connect.
+	private static readonly PROBE_RETRY_COOLDOWN_MS = 30_000;
+
 	private readonly _engines: CreatioEngineManager;
 	private readonly _descriptors = new Map<string, any>();
 	private readonly _handlers = new Map<string, ToolHandler>();
@@ -109,9 +113,6 @@ export class Server {
 	private readonly _publishedToolsPreparer: CrtMcpPublishingToolPreparer;
 	private readonly _preparers: ToolPreparer[];
 	private readonly _capabilities = new Map<string, boolean>();
-	// After a preparer's probe THROWS (no verdict recorded), back off before re-probing it, so a
-	// persistently-failing capability doesn't fire its network probe on every new session connect.
-	private static readonly PROBE_RETRY_COOLDOWN_MS = 30_000;
 	private readonly _probeCooldownUntil = new Map<string, number>();
 
 	public get authProvider(): ICreatioAuthProvider {

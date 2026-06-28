@@ -55,6 +55,40 @@ export class BrokerHandlers {
 		return `${origin(req)}${this._callbackPath}`;
 	}
 
+	/** RFC 6750 `401` challenge pointing at our protected-resource metadata. `invalid_token` tells a
+	 *  client holding a now-unusable token to re-authenticate (vs. a plain "no credentials" prompt). */
+	private _challenge(
+		req: Request,
+		res: Response,
+		description: string,
+		error: 'unauthorized' | 'invalid_token' = 'unauthorized',
+	): void {
+		const resourceMetadata = `${origin(req)}${PROTECTED_RESOURCE_METADATA_PATH}`;
+		const params = [`Bearer resource_metadata="${resourceMetadata}"`];
+		if (error === 'invalid_token') {
+			params.push(`error="invalid_token"`, `error_description="${description}"`);
+		}
+		res.setHeader('WWW-Authenticate', params.join(', '));
+		res.status(401).json({ error, error_description: description });
+	}
+
+	private _redirectError(
+		res: Response,
+		redirectUri: string,
+		error: { error: string; error_description?: string },
+		state: string | undefined,
+	): void {
+		const url = new URL(redirectUri);
+		url.searchParams.set('error', error.error);
+		if (error.error_description) {
+			url.searchParams.set('error_description', error.error_description);
+		}
+		if (state) {
+			url.searchParams.set('state', state);
+		}
+		res.redirect(302, url.toString());
+	}
+
 	public handleMetadata(req: Request, res: Response): void {
 		res.json(authServerMetadata(req));
 	}
@@ -98,23 +132,6 @@ export class BrokerHandlers {
 			(req as Request & { userKey?: string }).userKey = userKey;
 			next();
 		};
-	}
-
-	/** RFC 6750 `401` challenge pointing at our protected-resource metadata. `invalid_token` tells a
-	 *  client holding a now-unusable token to re-authenticate (vs. a plain "no credentials" prompt). */
-	private _challenge(
-		req: Request,
-		res: Response,
-		description: string,
-		error: 'unauthorized' | 'invalid_token' = 'unauthorized',
-	): void {
-		const resourceMetadata = `${origin(req)}${PROTECTED_RESOURCE_METADATA_PATH}`;
-		const params = [`Bearer resource_metadata="${resourceMetadata}"`];
-		if (error === 'invalid_token') {
-			params.push(`error="invalid_token"`, `error_description="${description}"`);
-		}
-		res.setHeader('WWW-Authenticate', params.join(', '));
-		res.status(401).json({ error, error_description: description });
 	}
 
 	public handleRegister(req: Request, res: Response): void {
@@ -221,22 +238,5 @@ export class BrokerHandlers {
 			return;
 		}
 		res.json(result);
-	}
-
-	private _redirectError(
-		res: Response,
-		redirectUri: string,
-		error: { error: string; error_description?: string },
-		state: string | undefined,
-	): void {
-		const url = new URL(redirectUri);
-		url.searchParams.set('error', error.error);
-		if (error.error_description) {
-			url.searchParams.set('error_description', error.error_description);
-		}
-		if (state) {
-			url.searchParams.set('state', state);
-		}
-		res.redirect(302, url.toString());
 	}
 }

@@ -16,10 +16,6 @@ export class DataServiceTransport {
 		this._client = client;
 	}
 
-	public endpoint(operation: string): string {
-		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/${operation}`;
-	}
-
 	private _assertSuccess(operation: string, body: any): void {
 		if (body && body.success === false) {
 			const rs = body.responseStatus ?? {};
@@ -31,6 +27,10 @@ export class DataServiceTransport {
 				'unknown_error';
 			throw new Error(`creatio_dataservice_${operation}_error:${message}`);
 		}
+	}
+
+	public endpoint(operation: string): string {
+		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/${operation}`;
 	}
 
 	public async post(

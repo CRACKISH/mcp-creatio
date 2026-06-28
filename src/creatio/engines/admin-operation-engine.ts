@@ -13,13 +13,13 @@ export class AdminOperationEngine extends BaseEngine {
 
 	public readonly name = 'admin-operation';
 
+	public get kind(): string {
+		return this._provider.kind;
+	}
+
 	constructor(provider: AdminOperationProvider, env?: EngineEnv) {
 		super(env);
 		this._provider = provider;
-	}
-
-	public get kind(): string {
-		return this._provider.kind;
 	}
 
 	public upsertAdminOperation(

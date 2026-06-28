@@ -55,6 +55,24 @@ export class CreatioHttpClient {
 		});
 	}
 
+	/**
+	 * A dead/expired Creatio session usually surfaces as a clean `401` (legacy sends
+	 * `ForceUseSession: true` precisely to get that), but on some endpoints/configs an expired
+	 * cookie session instead bounces to the login page — followed by `fetch` into a `200 text/html`.
+	 * Our data APIs (OData/DataService/config service) never legitimately return HTML, so a followed
+	 * redirect to HTML is treated as an auth bounce too, and one re-auth + retry is attempted.
+	 */
+	private _looksLikeAuthBounce(response: Response): boolean {
+		if (response.status === 401) {
+			return true;
+		}
+		if (response.redirected) {
+			const contentType = response.headers.get('content-type') ?? '';
+			return contentType.includes('text/html');
+		}
+		return false;
+	}
+
 	public async getJsonHeaders(): Promise<Record<string, string>> {
 		return this.authProvider.getHeaders(JSON_ACCEPT, true);
 	}
@@ -96,24 +114,6 @@ export class CreatioHttpClient {
 			throw new Error(`creatio_http_error:${response.status} ${errorText}`);
 		}
 		return response.text();
-	}
-
-	/**
-	 * A dead/expired Creatio session usually surfaces as a clean `401` (legacy sends
-	 * `ForceUseSession: true` precisely to get that), but on some endpoints/configs an expired
-	 * cookie session instead bounces to the login page — followed by `fetch` into a `200 text/html`.
-	 * Our data APIs (OData/DataService/config service) never legitimately return HTML, so a followed
-	 * redirect to HTML is treated as an auth bounce too, and one re-auth + retry is attempted.
-	 */
-	private _looksLikeAuthBounce(response: Response): boolean {
-		if (response.status === 401) {
-			return true;
-		}
-		if (response.redirected) {
-			const contentType = response.headers.get('content-type') ?? '';
-			return contentType.includes('text/html');
-		}
-		return false;
 	}
 
 	public async fetchWithAuth(url: string, initFactory: RequestFactory): Promise<Response> {

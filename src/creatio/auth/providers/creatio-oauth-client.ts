@@ -21,11 +21,6 @@ export class CreatioOAuthClient {
 	private readonly _baseUrl: string;
 	private readonly _auth: BrokerAuthConfig;
 
-	constructor(baseUrl: string, auth: BrokerAuthConfig) {
-		this._baseUrl = baseUrl;
-		this._auth = auth;
-	}
-
 	private get _identityBase(): string {
 		return resolveIdentityBase(this._baseUrl, this._auth.idBaseUrl);
 	}
@@ -34,42 +29,9 @@ export class CreatioOAuthClient {
 		return this._auth.scope || 'offline_access';
 	}
 
-	/** Builds the Creatio consent URL for the brokered login (always with S256 PKCE). */
-	public buildAuthorizeUrl(redirectUri: string, state: string, codeChallenge: string): string {
-		const url = new URL(this._identityBase + AUTHORIZE_ENDPOINT);
-		url.searchParams.set('client_id', this._auth.clientId);
-		url.searchParams.set('redirect_uri', redirectUri);
-		url.searchParams.set('response_type', 'code');
-		url.searchParams.set('state', state);
-		url.searchParams.set('code_challenge', codeChallenge);
-		url.searchParams.set('code_challenge_method', PKCE_S256);
-		url.searchParams.set('scope', this._scope);
-		return url.toString();
-	}
-
-	/** Exchanges a Creatio authorization code (+ our PKCE verifier) for the user's Creatio tokens. */
-	public async exchangeCode(
-		code: string,
-		redirectUri: string,
-		codeVerifier: string,
-	): Promise<UserTokens> {
-		const body = this._baseBody();
-		body.set('grant_type', 'authorization_code');
-		body.set('code', code);
-		body.set('redirect_uri', redirectUri);
-		body.set('code_verifier', codeVerifier);
-		return this._postToken(body, 'exchange');
-	}
-
-	/** Refreshes the user's Creatio tokens using a stored refresh token. */
-	public async refresh(refreshToken: string): Promise<UserTokens> {
-		const body = this._baseBody();
-		body.set('grant_type', 'refresh_token');
-		body.set('refresh_token', refreshToken);
-		body.set('scope', this._scope);
-		const tokens = await this._postToken(body, 'refresh');
-		// Rotating refresh tokens: keep the previous one if Creatio did not return a new one.
-		return tokens.refreshToken ? tokens : { ...tokens, refreshToken };
+	constructor(baseUrl: string, auth: BrokerAuthConfig) {
+		this._baseUrl = baseUrl;
+		this._auth = auth;
 	}
 
 	private _baseBody(): URLSearchParams {
@@ -115,5 +77,43 @@ export class CreatioOAuthClient {
 			accessTokenExpiryMs: computeTokenExpiryMs(lifetime),
 			...(json.refresh_token ? { refreshToken: String(json.refresh_token) } : {}),
 		};
+	}
+
+	/** Builds the Creatio consent URL for the brokered login (always with S256 PKCE). */
+	public buildAuthorizeUrl(redirectUri: string, state: string, codeChallenge: string): string {
+		const url = new URL(this._identityBase + AUTHORIZE_ENDPOINT);
+		url.searchParams.set('client_id', this._auth.clientId);
+		url.searchParams.set('redirect_uri', redirectUri);
+		url.searchParams.set('response_type', 'code');
+		url.searchParams.set('state', state);
+		url.searchParams.set('code_challenge', codeChallenge);
+		url.searchParams.set('code_challenge_method', PKCE_S256);
+		url.searchParams.set('scope', this._scope);
+		return url.toString();
+	}
+
+	/** Exchanges a Creatio authorization code (+ our PKCE verifier) for the user's Creatio tokens. */
+	public async exchangeCode(
+		code: string,
+		redirectUri: string,
+		codeVerifier: string,
+	): Promise<UserTokens> {
+		const body = this._baseBody();
+		body.set('grant_type', 'authorization_code');
+		body.set('code', code);
+		body.set('redirect_uri', redirectUri);
+		body.set('code_verifier', codeVerifier);
+		return this._postToken(body, 'exchange');
+	}
+
+	/** Refreshes the user's Creatio tokens using a stored refresh token. */
+	public async refresh(refreshToken: string): Promise<UserTokens> {
+		const body = this._baseBody();
+		body.set('grant_type', 'refresh_token');
+		body.set('refresh_token', refreshToken);
+		body.set('scope', this._scope);
+		const tokens = await this._postToken(body, 'refresh');
+		// Rotating refresh tokens: keep the previous one if Creatio did not return a new one.
+		return tokens.refreshToken ? tokens : { ...tokens, refreshToken };
 	}
 }

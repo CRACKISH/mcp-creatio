@@ -49,6 +49,28 @@ export class DataServiceSchemaProvider {
 		this._filters = filters;
 	}
 
+	private async _getRuntimeSchema(name: string): Promise<RuntimeSchema> {
+		const cached = this._schemaCache.get(name);
+		if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+			return cached.schema;
+		}
+		const body = await this._transport.post(
+			'RuntimeEntitySchemaRequest',
+			{ name },
+			{ logContext: { entity: name }, checkSuccess: true },
+		);
+		const schema: RuntimeSchema | undefined = body?.schema;
+		if (!schema || !schema.name) {
+			throw new Error(`entity_not_found:${name}`);
+		}
+		this._schemaCache.set(name, { schema, at: Date.now() });
+		return schema;
+	}
+
+	private _columns(schema: RuntimeSchema): RuntimeColumn[] {
+		return Object.values(schema.columns?.Items ?? {});
+	}
+
 	/** Build the entity-list SelectQuery (visible for tests). */
 	public buildListQuery(): DataServiceSelectQuery {
 		const query = this._queryBuilder.buildSelectQuery({
@@ -72,28 +94,6 @@ export class DataServiceSchemaProvider {
 		// The view yields one row per (schema, workspace/caption); a SelectQuery DISTINCT on
 		// Name+Caption still leaves Name duplicates, so dedupe by Name here.
 		return [...new Set(names)];
-	}
-
-	private async _getRuntimeSchema(name: string): Promise<RuntimeSchema> {
-		const cached = this._schemaCache.get(name);
-		if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-			return cached.schema;
-		}
-		const body = await this._transport.post(
-			'RuntimeEntitySchemaRequest',
-			{ name },
-			{ logContext: { entity: name }, checkSuccess: true },
-		);
-		const schema: RuntimeSchema | undefined = body?.schema;
-		if (!schema || !schema.name) {
-			throw new Error(`entity_not_found:${name}`);
-		}
-		this._schemaCache.set(name, { schema, at: Date.now() });
-		return schema;
-	}
-
-	private _columns(schema: RuntimeSchema): RuntimeColumn[] {
-		return Object.values(schema.columns?.Items ?? {});
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {

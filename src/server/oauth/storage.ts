@@ -52,6 +52,34 @@ export class OAuthStorage {
 	private readonly _pendingAuthorizations = new Map<string, PendingAuthorizationData>();
 	private readonly _refreshTokens = new Map<string, RefreshTokenData>();
 
+	private _evictExpired(map: Map<string, { expires_at: number }>, now: number): void {
+		for (const [key, data] of map.entries()) {
+			if (now > data.expires_at) {
+				map.delete(key);
+			}
+		}
+	}
+
+	private _evictExpiredClients(now: number): void {
+		for (const [id, client] of this._clients.entries()) {
+			if (now - client.created_at > OAuthStorage.CLIENT_TTL_MS) {
+				this._clients.delete(id);
+			}
+		}
+		this._capClients();
+	}
+
+	/** Hard-cap the client store, evicting the oldest (insertion order ~ creation order). */
+	private _capClients(): void {
+		while (this._clients.size > OAuthStorage.MAX_CLIENTS) {
+			const oldest = this._clients.keys().next().value;
+			if (oldest === undefined) {
+				break;
+			}
+			this._clients.delete(oldest);
+		}
+	}
+
 	public addClient(client: OAuthClient): void {
 		this._clients.set(client.client_id, client);
 		this._capClients();
@@ -156,33 +184,5 @@ export class OAuthStorage {
 			remaining_refresh: this._refreshTokens.size,
 			remaining_clients: this._clients.size,
 		});
-	}
-
-	private _evictExpired(map: Map<string, { expires_at: number }>, now: number): void {
-		for (const [key, data] of map.entries()) {
-			if (now > data.expires_at) {
-				map.delete(key);
-			}
-		}
-	}
-
-	private _evictExpiredClients(now: number): void {
-		for (const [id, client] of this._clients.entries()) {
-			if (now - client.created_at > OAuthStorage.CLIENT_TTL_MS) {
-				this._clients.delete(id);
-			}
-		}
-		this._capClients();
-	}
-
-	/** Hard-cap the client store, evicting the oldest (insertion order ~ creation order). */
-	private _capClients(): void {
-		while (this._clients.size > OAuthStorage.MAX_CLIENTS) {
-			const oldest = this._clients.keys().next().value;
-			if (oldest === undefined) {
-				break;
-			}
-			this._clients.delete(oldest);
-		}
 	}
 }

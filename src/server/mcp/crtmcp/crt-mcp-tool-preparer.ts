@@ -16,14 +16,34 @@ const NAME_PREFIX = 'pub';
  * JSON-RPC endpoint, so the app keeps ownership of validation/RBAC/execution.
  */
 export class CrtMcpPublishingToolPreparer implements ToolPreparer {
-	public readonly name = PUBLISHED_TOOLS_CAPABILITY;
-
 	private readonly _client: CrtMcpPublishingClient;
 	private readonly _enabled: boolean;
+
+	public readonly name = PUBLISHED_TOOLS_CAPABILITY;
 
 	constructor(client: CrtMcpPublishingClient, enabled: boolean) {
 		this._client = client;
 		this._enabled = enabled;
+	}
+
+	private _registerTool(registrar: ToolRegistrar, serverCode: string, tool: PublishedTool): void {
+		const descriptor = {
+			title: tool.name,
+			description:
+				tool.description ??
+				`Published tool "${tool.name}" from Creatio MCP server "${serverCode}".`,
+			inputSchema: jsonSchemaToZodShape(tool.inputSchema),
+		};
+		// Proxy the call straight through; the app validates args and shapes the result.
+		const handler = (args: Record<string, unknown>) =>
+			this._client.callTool(serverCode, tool.name, args ?? {});
+		registrar.register(this._toolName(serverCode, tool.name), descriptor, handler);
+	}
+
+	// Namespace by server + tool so names never collide across servers or with built-in tools.
+	private _toolName(serverCode: string, toolName: string): string {
+		const sanitize = (value: string) => value.replace(/[^A-Za-z0-9_-]/g, '_');
+		return `${NAME_PREFIX}-${sanitize(serverCode)}-${sanitize(toolName)}`;
 	}
 
 	public async prepare(registrar: ToolRegistrar): Promise<boolean> {
@@ -54,25 +74,5 @@ export class CrtMcpPublishingToolPreparer implements ToolPreparer {
 		}
 		log.info('crtmcp.prepared', { servers: servers.length, tools: registered });
 		return registered > 0;
-	}
-
-	private _registerTool(registrar: ToolRegistrar, serverCode: string, tool: PublishedTool): void {
-		const descriptor = {
-			title: tool.name,
-			description:
-				tool.description ??
-				`Published tool "${tool.name}" from Creatio MCP server "${serverCode}".`,
-			inputSchema: jsonSchemaToZodShape(tool.inputSchema),
-		};
-		// Proxy the call straight through; the app validates args and shapes the result.
-		const handler = (args: Record<string, unknown>) =>
-			this._client.callTool(serverCode, tool.name, args ?? {});
-		registrar.register(this._toolName(serverCode, tool.name), descriptor, handler);
-	}
-
-	// Namespace by server + tool so names never collide across servers or with built-in tools.
-	private _toolName(serverCode: string, toolName: string): string {
-		const sanitize = (value: string) => value.replace(/[^A-Za-z0-9_-]/g, '_');
-		return `${NAME_PREFIX}-${sanitize(serverCode)}-${sanitize(toolName)}`;
 	}
 }

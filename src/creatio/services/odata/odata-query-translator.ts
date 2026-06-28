@@ -15,17 +15,17 @@ import { lookupIdPath } from '../lookup-path';
  *   embedded quotes doubled.
  */
 export class ODataQueryTranslator {
-	// A field whose name ends in `Id` (the scalar key `Id`, a lookup FK `XxxId`, or a nav `Xxx/Id`)
-	// — such a column is GUID-typed, so a GUID literal against it is emitted bare (see _literalFor).
-	private _isIdish(field: string): boolean {
-		return /Id$/i.test(field);
-	}
-
 	// A column path is an identifier, optionally navigation-dotted with `/` (e.g. `Contact/Name`).
 	// Filter/select/orderby field names are concatenated into the `$filter`/`$select`/`$orderby`
 	// expressions, so reject anything else to deny OData expression injection via a crafted column
 	// name (CWE-943) — filter *values* are already escaped/typed; this guards the *identifiers*.
 	private static readonly SAFE_PATH = /^[A-Za-z_][A-Za-z0-9_]*(\/[A-Za-z_][A-Za-z0-9_]*)*$/;
+
+	// A field whose name ends in `Id` (the scalar key `Id`, a lookup FK `XxxId`, or a nav `Xxx/Id`)
+	// — such a column is GUID-typed, so a GUID literal against it is emitted bare (see _literalFor).
+	private _isIdish(field: string): boolean {
+		return /Id$/i.test(field);
+	}
 
 	private _assertPath(field: string): string {
 		if (!ODataQueryTranslator.SAFE_PATH.test(field)) {
@@ -126,11 +126,6 @@ export class ODataQueryTranslator {
 		return `(${rendered.join(` ${node.logic} `)})`;
 	}
 
-	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty). */
-	public translateFilter(node: FilterNode | undefined): string | undefined {
-		return node ? this._node(node) : undefined;
-	}
-
 	/** Combine the structured filter with an optional raw `$filter` escape hatch (AND-joined). */
 	private _resolveFilter(query: ReadQuery): string | undefined {
 		const structured = this.translateFilter(query.filter);
@@ -146,6 +141,11 @@ export class ODataQueryTranslator {
 			return undefined;
 		}
 		return query.order.map((o) => `${this._assertPath(o.field)} ${o.dir}`).join(', ');
+	}
+
+	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty). */
+	public translateFilter(node: FilterNode | undefined): string | undefined {
+		return node ? this._node(node) : undefined;
 	}
 
 	/** Build the encoded OData query-string params for a read. */

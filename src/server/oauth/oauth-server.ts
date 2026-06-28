@@ -34,6 +34,35 @@ export class OAuthServer {
 		this._tokenManager = new OAuthTokenManager(jwtSecret);
 	}
 
+	private _autoRegisterClientIfNeeded(client_id: string, redirect_uri: string): boolean {
+		if (this._storage.hasClient(client_id)) {
+			return false;
+		}
+		// Never auto-register a client bound to a redirect target we would not allow,
+		// otherwise validateAuthorizationRequest would "pass" against an attacker URI (CWE-601).
+		if (!OAuthValidators.isAllowedRedirectUri(redirect_uri)) {
+			log.warn('oauth.client.auto_register_rejected', { client_id });
+			return false;
+		}
+		const client = OAuthClientManager.autoRegisterClient(client_id, redirect_uri);
+		this._storage.addClient(client);
+		return true;
+	}
+
+	/** Mint an access token + a freshly-stored (rotating) refresh token as a standard OAuth response. */
+	private _issueTokens(userKey: string, client_id: string, aud: TokenAudience): OAuthAccessToken {
+		const access_token = this._tokenManager.generateAccessToken(userKey, client_id, aud);
+		const refresh_token = this._tokenManager.generateRefreshToken();
+		this._storage.storeRefreshToken(refresh_token, userKey, client_id);
+		return {
+			access_token,
+			token_type: 'Bearer',
+			expires_in: ACCESS_TOKEN_TTL_SECONDS,
+			refresh_token,
+			scope: ISSUED_SCOPE,
+		};
+	}
+
 	/**
 	 * Records a brokered authorization in flight and returns its opaque broker state (used as the
 	 * `state` on the Creatio leg). Server-side storage keeps the client's PKCE and our Creatio-leg
@@ -54,21 +83,6 @@ export class OAuthServer {
 
 	public takePendingAuthorization(brokerState: string) {
 		return this._storage.takePendingAuthorization(brokerState);
-	}
-
-	private _autoRegisterClientIfNeeded(client_id: string, redirect_uri: string): boolean {
-		if (this._storage.hasClient(client_id)) {
-			return false;
-		}
-		// Never auto-register a client bound to a redirect target we would not allow,
-		// otherwise validateAuthorizationRequest would "pass" against an attacker URI (CWE-601).
-		if (!OAuthValidators.isAllowedRedirectUri(redirect_uri)) {
-			log.warn('oauth.client.auto_register_rejected', { client_id });
-			return false;
-		}
-		const client = OAuthClientManager.autoRegisterClient(client_id, redirect_uri);
-		this._storage.addClient(client);
-		return true;
 	}
 
 	public registerClient(redirect_uris: string[]): OAuthClient {
@@ -182,20 +196,6 @@ export class OAuthServer {
 		this._storage.deleteRefreshToken(params.refresh_token!);
 		log.info('oauth.token.refreshed', { client_id: data.client_id, userKey: data.userKey });
 		return this._issueTokens(data.userKey, data.client_id, aud);
-	}
-
-	/** Mint an access token + a freshly-stored (rotating) refresh token as a standard OAuth response. */
-	private _issueTokens(userKey: string, client_id: string, aud: TokenAudience): OAuthAccessToken {
-		const access_token = this._tokenManager.generateAccessToken(userKey, client_id, aud);
-		const refresh_token = this._tokenManager.generateRefreshToken();
-		this._storage.storeRefreshToken(refresh_token, userKey, client_id);
-		return {
-			access_token,
-			token_type: 'Bearer',
-			expires_in: ACCESS_TOKEN_TTL_SECONDS,
-			refresh_token,
-			scope: ISSUED_SCOPE,
-		};
 	}
 
 	/** Verify a client-presented access token against this deployment's `iss`/`aud`; returns userKey. */
