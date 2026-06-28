@@ -5,12 +5,15 @@ import { generatePkcePair } from '../../utils';
 import { buildProtectedResourceMetadata, inspectBearer } from '../bearer';
 import { OAuthServer, OAuthValidators } from '../oauth';
 
+import { resolvePublicOrigin } from './public-origin';
+
 import type { NextFunction, Request, Response } from 'express';
 
 const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
+/** The public origin this AS advertises (honors CREATIO_MCP_PUBLIC_URL behind a proxy). */
 function origin(req: Request): string {
-	return `${req.protocol}://${req.get('host')}`;
+	return resolvePublicOrigin(req);
 }
 
 /** RFC 8414 Authorization Server Metadata, built from the request origin (proxy-aware). */

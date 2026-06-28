@@ -1,6 +1,7 @@
 import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
 import log from '../../log';
 import { env } from '../../utils';
+import { resolvePublicOrigin } from '../http/public-origin';
 
 import { isAllowedBaseUrl, parseAllowedBaseUrls } from './base-url-guard';
 import { inspectBearer, isExpired } from './bearer-token';
@@ -66,7 +67,7 @@ export class BearerEdge {
 
 	private _challenge(req: Request, res: Response, reason: string): void {
 		if (this._isDelegated) {
-			const resourceMetadata = `${req.protocol}://${req.get('host')}${PROTECTED_RESOURCE_METADATA_PATH}`;
+			const resourceMetadata = `${resolvePublicOrigin(req)}${PROTECTED_RESOURCE_METADATA_PATH}`;
 			res.setHeader(
 				'WWW-Authenticate',
 				`Bearer resource_metadata="${resourceMetadata}", error="${reason}"`,
@@ -87,7 +88,7 @@ export class BearerEdge {
 			return;
 		}
 		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
-			const resource = `${req.protocol}://${req.get('host')}/mcp`;
+			const resource = `${resolvePublicOrigin(req)}/mcp`;
 			res.json(buildProtectedResourceMetadata(resource, this._identityBase));
 		});
 	}
