@@ -349,6 +349,96 @@ describe('BrokerHandlers — full authorization_code broker flow', () => {
 		expect(badRes.statusCode).toBe(401);
 	});
 
+	it('revoke (RFC 7009) purges local tokens + calls Creatio revocation, always 200', async () => {
+		const h = makeHandlers();
+		const regRes = res();
+		h.handleRegister(
+			req({ body: { redirect_uris: [CLIENT_REDIRECT] } }) as never,
+			regRes as never,
+		);
+		const clientId = (regRes.jsonBody as { client_id: string }).client_id;
+		const { verifier, challenge } = await generatePkcePair();
+		const authRes = res();
+		await h.handleAuthorize(
+			req({
+				query: {
+					client_id: clientId,
+					redirect_uri: CLIENT_REDIRECT,
+					response_type: 'code',
+					code_challenge: challenge,
+					code_challenge_method: 'S256',
+				},
+			}) as never,
+			authRes as never,
+		);
+		const brokerState = new URL(authRes.redirectedTo as string).searchParams.get('state')!;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonOk({
+					access_token: jwt.sign({ sub: 'revoke-user' }, 'x'),
+					refresh_token: 'RT',
+					expires_in: 3600,
+				}),
+			),
+		);
+		const cbRes = res();
+		await h.handleCallback(
+			req({ query: { code: 'c', state: brokerState } }) as never,
+			cbRes as never,
+		);
+		const ourCode = new URL(cbRes.redirectedTo as string).searchParams.get('code')!;
+		const tokRes = res();
+		await h.handleToken(
+			req({
+				body: {
+					grant_type: 'authorization_code',
+					code: ourCode,
+					redirect_uri: CLIENT_REDIRECT,
+					client_id: clientId,
+					code_verifier: verifier,
+				},
+			}) as never,
+			tokRes as never,
+		);
+		const ourToken = (tokRes.jsonBody as { access_token: string }).access_token;
+		expect(await SessionContext.instance.getTokensForUser('revoke-user')).not.toBeNull();
+
+		// Capture the upstream Creatio revocation call.
+		const calls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url: string, init: { body?: string }) => {
+				calls.push(`${url}|${init?.body ?? ''}`);
+				return new Response('', { status: 200 });
+			}),
+		);
+		const revRes = res();
+		await h.handleRevoke(req({ body: { token: ourToken } }) as never, revRes as never);
+		expect(revRes.statusCode).toBe(200);
+		// Upstream revocation hit /connect/revocation with the stored Creatio refresh token.
+		expect(calls.some((c) => c.includes('/connect/revocation') && c.includes('RT'))).toBe(true);
+		// Local Creatio tokens purged; the issued client token no longer maps to a held session.
+		expect(await SessionContext.instance.getTokensForUser('revoke-user')).toBeNull();
+		const next = vi.fn();
+		const guardRes = res();
+		await h.mcpAuth()(
+			req({ headers: { authorization: `Bearer ${ourToken}` } }) as never,
+			guardRes as never,
+			next,
+		);
+		expect(next).not.toHaveBeenCalled();
+		expect(guardRes.statusCode).toBe(401);
+
+		// An unknown token is still answered 200 (no token-scanning oracle).
+		const unknownRes = res();
+		await h.handleRevoke(
+			req({ body: { token: 'not-a-real-token' } }) as never,
+			unknownRes as never,
+		);
+		expect(unknownRes.statusCode).toBe(200);
+	});
+
 	it('token exchange fails for a wrong PKCE verifier', async () => {
 		const h = makeHandlers();
 		const regRes = res();

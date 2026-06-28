@@ -24,6 +24,7 @@ function authServerMetadata(req: Request) {
 		authorization_endpoint: `${base}/authorize`,
 		token_endpoint: `${base}/token`,
 		registration_endpoint: `${base}/register`,
+		revocation_endpoint: `${base}/revoke`,
 		response_types_supported: ['code'],
 		grant_types_supported: ['authorization_code', 'refresh_token'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
@@ -241,5 +242,28 @@ export class BrokerHandlers {
 			return;
 		}
 		res.json(result);
+	}
+
+	/**
+	 * RFC 7009 token revocation / logout: invalidate the user's brokered session. Resolve the user
+	 * from the presented token, revoke their Creatio token upstream (best-effort), and purge the
+	 * server-side Creatio tokens + our issued refresh tokens. Always answers 200 — even for an
+	 * unknown token — so it is not a token-validity oracle.
+	 */
+	public async handleRevoke(req: Request, res: Response): Promise<void> {
+		const token = String((req.body ?? {}).token ?? '');
+		if (token) {
+			const userKey = this._oauth.resolveUserFromToken(token, tokenAudience(req));
+			if (userKey) {
+				const stored = await this._session.getTokensForUser(userKey);
+				if (stored?.refreshToken) {
+					await this._creatio.revoke(stored.refreshToken);
+				}
+				await this._session.deleteTokensForUser(userKey);
+				this._oauth.purgeRefreshTokensForUser(userKey);
+				log.info('broker.revoke', { userKey });
+			}
+		}
+		res.status(200).json({});
 	}
 }

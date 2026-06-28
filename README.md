@@ -159,6 +159,11 @@ CREATIO_MCP_REDIS_URL=redis://your-redis:6379
 # CREATIO_MCP_TOKEN_ENC_KEY=...   # optional; encryption key, else derived from CREATIO_MCP_JWT_SECRET
 ```
 
+**Logout / revocation.** The broker exposes an **RFC 7009** `POST /revoke` endpoint (advertised as
+`revocation_endpoint` in the AS metadata): presenting an issued token revokes the user's Creatio
+token upstream (`/connect/revocation`, best-effort) and purges the server-side Creatio tokens and
+issued refresh tokens. It always answers `200` (no token-validity oracle).
+
 Register the Creatio app in System Designer → _OAuth 2.0 applications_ → _On behalf of a user_, and
 add the MCP callback (`http://localhost:3000/oauth/callback` for a local run) to its redirect URIs.
 

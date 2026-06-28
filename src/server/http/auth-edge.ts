@@ -72,6 +72,7 @@ class BrokerAuthEdge implements AuthEdge {
 			h.handleCallback(q, s),
 		);
 		app.post('/token', rateLimit(BrokerAuthEdge.RL_TOKEN), (q, s) => h.handleToken(q, s));
+		app.post('/revoke', rateLimit(BrokerAuthEdge.RL_TOKEN), (q, s) => h.handleRevoke(q, s));
 	}
 
 	public cleanup(): void {

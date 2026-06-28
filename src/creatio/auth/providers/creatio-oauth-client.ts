@@ -4,6 +4,7 @@ import { BrokerAuthConfig } from '../../client-config';
 import {
 	AUTHORIZE_ENDPOINT,
 	PKCE_S256,
+	REVOCATION_ENDPOINT,
 	TOKEN_ENDPOINT,
 	computeTokenExpiryMs,
 	resolveIdentityBase,
@@ -115,5 +116,24 @@ export class CreatioOAuthClient {
 		const tokens = await this._postToken(body, 'refresh');
 		// Rotating refresh tokens: keep the previous one if Creatio did not return a new one.
 		return tokens.refreshToken ? tokens : { ...tokens, refreshToken };
+	}
+
+	/** Revoke a user's Creatio token (RFC 7009) on logout. Best-effort: a failure must not block the
+	 *  local logout (we still purge our own state), so this never throws. */
+	public async revoke(token: string): Promise<void> {
+		const body = this._baseBody();
+		body.set('token', token);
+		try {
+			const res = await fetch(this._identityBase + REVOCATION_ENDPOINT, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: body.toString(),
+			});
+			if (!res.ok) {
+				log.warn('broker.creatio.revoke_failed', { status: res.status });
+			}
+		} catch (err) {
+			log.warn('broker.creatio.revoke_error', { error: String(err) });
+		}
 	}
 }

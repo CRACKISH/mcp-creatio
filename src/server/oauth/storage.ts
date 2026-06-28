@@ -172,6 +172,15 @@ export class OAuthStorage {
 		this._refreshTokens.delete(token);
 	}
 
+	/** Drop every refresh token issued for a user (logout / revoke). */
+	public deleteRefreshTokensForUser(userKey: string): void {
+		for (const [token, data] of this._refreshTokens) {
+			if (data.userKey === userKey) {
+				this._refreshTokens.delete(token);
+			}
+		}
+	}
+
 	public cleanup(): void {
 		const now = Date.now();
 		this._evictExpired(this._authorizationCodes, now);

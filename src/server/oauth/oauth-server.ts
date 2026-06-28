@@ -203,6 +203,21 @@ export class OAuthServer {
 		return this._tokenManager.validateAccessToken(token, aud)?.userKey ?? null;
 	}
 
+	/** RFC 7009: resolve the user a presented token belongs to — our access JWT, or an issued
+	 *  refresh token. Returns `null` for an unknown/invalid token (caller still answers 200). */
+	public resolveUserFromToken(token: string, aud: TokenAudience): string | null {
+		const decoded = this._tokenManager.validateAccessToken(token, aud);
+		if (decoded) {
+			return decoded.userKey;
+		}
+		return this._storage.getRefreshToken(token)?.userKey ?? null;
+	}
+
+	/** Invalidate every refresh token we issued for a user (logout / revoke). */
+	public purgeRefreshTokensForUser(userKey: string): void {
+		this._storage.deleteRefreshTokensForUser(userKey);
+	}
+
 	public cleanup(): void {
 		this._storage.cleanup();
 	}
