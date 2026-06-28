@@ -384,7 +384,7 @@ If adding new auth provider:
 > derived from the JWT secret) with native per-key TTL → stateless, restart-durable, multi-instance.
 > Behind a TLS-terminating proxy set `CREATIO_MCP_PUBLIC_URL` so `iss`/`aud`/redirects/discovery use
 > the external origin (`resolvePublicOrigin`), not the internal hop. Logout = **RFC 7009** `POST
-> /revoke` (`revocation_endpoint`): revokes the Creatio token upstream (`/connect/revocation`,
+/revoke` (`revocation_endpoint`): revokes the Creatio token upstream (`/connect/revocation`,
 > best-effort) + purges the server-side + issued-refresh tokens; always answers 200.
 >
 > In **`delegated`/`gateway`** the MCP stores nothing and does **not** cryptographically verify the
