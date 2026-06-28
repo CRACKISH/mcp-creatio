@@ -4,6 +4,42 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.5]
+
+Per-tenant tool isolation for multi-tenant (`gateway`) deployments, plus a reusable live-regression
+harness. Live-verified across all five auth modes against two real Creatio instances; 583 tests,
+94.7% line coverage.
+
+### Added
+
+- **Per-tenant dynamic-tool isolation (`gateway` mode)** — a single MCP deployment serving many
+  Creatio instances now keeps each tenant's tool surface separate, keyed by the effective base URL
+  (`X-Creatio-Base-Url`, else `CREATIO_BASE_URL`). Optional capabilities are **probed per tenant** and
+  the tools they expose — DataForge, Global Search, and the dynamically discovered per-instance
+  published tools — register only for the tenant they were found on. A new `TenantToolRegistry`
+  (`src/server/mcp/tenant-tool-registry.ts`) holds the per-tenant capability verdicts, dynamic tools,
+  and live session servers, with idle-TTL + LRU eviction that never drops a tenant with a live
+  session. Single-tenant modes (everything except `gateway` with an override) map to one bucket, so
+  their behavior is unchanged.
+- **Reusable live-regression harness** (`scripts/live-regression.mjs`) — config-driven end-to-end
+  smoke against a real Creatio over MCP: drives stdio + every HTTP auth mode (incl. broker DCR + PKCE
+  with a local callback catcher), asserts the per-instance tool surface, and runs an opt-in full CRUD
+  lifecycle (create → read-back → update → delete → verify-gone). Local credentials live in a
+  gitignored `scripts/live-regression.local.json`; `*.example.json` is the committed schema. Not part
+  of `npm test`.
+
+### Fixed
+
+- **Cross-tenant capability bleed** — previously the optional-capability probe (DataForge / Global
+  Search / published tools) ran once per process from the first caller and applied that verdict to
+  every tenant, so on a heterogeneous `gateway` deployment one instance's tools or `describe-entity`
+  routing could surface for another. The probe and tool registration are now per-tenant.
+
+### Changed
+
+- `Server.createSessionServer` / `ensureCapabilitiesProbed` take the request's base-URL override and
+  bind the session + probe to that tenant; `_describeEntity` resolves DataForge readiness per tenant.
+
 ## [0.6.4]
 
 Output-edge secret redaction + a content-validated schema cache that auto-invalidates when the
@@ -218,6 +254,7 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.6.5]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.5
 [0.6.4]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.4
 [0.6.3]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.3
 [0.6.2]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.2
