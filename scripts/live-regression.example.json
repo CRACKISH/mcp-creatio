@@ -1,0 +1,67 @@
+{
+	"_comment": "Copy to scripts/live-regression.local.json (gitignored) and fill in real values. Run: node scripts/live-regression.mjs [config] [--only <label>]. Build first (npm run build).",
+	"targets": [
+		{
+			"label": "stdio-legacy",
+			"kind": "stdio",
+			"baseUrl": "https://your-instance.creatio.com",
+			"login": "Supervisor",
+			"password": "Supervisor",
+			"env": { "NODE_TLS_REJECT_UNAUTHORIZED": "0", "CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true" },
+			"crud": true,
+			"crudEntity": "Contact"
+		},
+		{
+			"label": "http-client-credentials",
+			"kind": "http",
+			"mode": "client_credentials",
+			"port": 3000,
+			"serverEnv": {
+				"CREATIO_MCP_AUTH_MODE": "client_credentials",
+				"CREATIO_BASE_URL": "https://your-instance.creatio.com",
+				"CREATIO_CLIENT_ID": "<server-to-server oauth app id>",
+				"CREATIO_CLIENT_SECRET": "<server-to-server oauth app secret>",
+				"CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true",
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
+			},
+			"expect": { "dataforge": true, "published": true },
+			"crud": true
+		},
+		{
+			"label": "http-gateway-tenant-A",
+			"kind": "http",
+			"mode": "gateway",
+			"port": 3000,
+			"serverEnv": {
+				"CREATIO_MCP_AUTH_MODE": "gateway",
+				"CREATIO_BASE_URL": "https://tenant-a.creatio.com",
+				"CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true",
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
+			},
+			"baseUrlOverride": "https://tenant-a.creatio.com",
+			"clientCredentials": {
+				"tokenUrl": "https://tenant-a.creatio.com/0/connect/token",
+				"clientId": "<oauth app id>",
+				"clientSecret": "<oauth app secret>"
+			},
+			"expect": { "dataforge": true },
+			"crud": true
+		},
+		{
+			"label": "http-broker",
+			"kind": "http",
+			"mode": "broker",
+			"port": 3000,
+			"serverEnv": {
+				"CREATIO_MCP_AUTH_MODE": "broker",
+				"CREATIO_BASE_URL": "https://your-instance.creatio.com",
+				"CREATIO_CLIENT_ID": "<authorization_code public+PKCE oauth app id>",
+				"CREATIO_MCP_JWT_SECRET": "change-me-at-least-32-characters-long",
+				"CREATIO_MCP_PUBLIC_URL": "http://localhost:3000",
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
+			},
+			"broker": { "callbackPort": 9876, "waitMs": 240000 },
+			"crud": true
+		}
+	]
+}

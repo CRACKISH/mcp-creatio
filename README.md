@@ -239,6 +239,16 @@ curl -sS http://localhost:3000/mcp \
 > the MCP. (Injecting other credential shapes, e.g. cookie/basic per tenant, is intentionally out of
 > scope for now.)
 
+> **Per-tenant tool isolation.** A single MCP deployment serving many instances keeps each tenant's
+> tool surface separate, keyed by the effective base URL (`X-Creatio-Base-Url`, else `CREATIO_BASE_URL`).
+> Optional capabilities are **probed per tenant** and the tools they expose (DataForge, Global Search,
+> and any dynamically discovered per-instance tools) are registered only for the tenant they were
+> discovered on. Tenant A's tools or DataForge verdict never leak into tenant B's session, even though
+> both share one process. The
+> per-tenant state is pooled with idle-TTL + LRU eviction, so memory stays bounded as the number of
+> distinct instances grows. Single-tenant modes (everything except `gateway` with an override) all map
+> to one bucket, so their behavior is unchanged.
+
 ### `client_credentials` / `legacy`
 
 ```bash

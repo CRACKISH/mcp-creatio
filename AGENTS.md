@@ -50,11 +50,22 @@ Two entry points, one `Server` core:
 - **stdio** — `src/cli.ts` (the npm `bin` `mcp-creatio`; `npm run start:stdio`) → `StdioServerTransport`.
   For a local client (Claude Desktop) that spawns the process. CLI args map onto the same env vars.
 
-> **One `McpServer` per session (multi-user invariant).** `Server.createSessionServer()` builds a
-> fresh `McpServer` bound to each transport — a single `McpServer` connects to only one transport,
-> so a shared instance would reject the 2nd concurrent session's `connect()`. The tool/descriptor
-> maps are user-agnostic (identity is read from the per-request `AsyncLocalStorage` context at call
-> time) and shared across sessions. `stopAll()` closes them on shutdown.
+> **One `McpServer` per session (multi-user invariant).** `Server.createSessionServer(baseUrlOverride?)`
+> builds a fresh `McpServer` bound to each transport — a single `McpServer` connects to only one
+> transport, so a shared instance would reject the 2nd concurrent session's `connect()`. The STATIC
+> tool/descriptor maps are user-agnostic (identity is read from the per-request `AsyncLocalStorage`
+> context at call time) and shared across sessions. `stopAll()` closes them on shutdown.
+>
+> **Per-tenant tool isolation (multi-tenant invariant).** Optional-capability verdicts and the
+> dynamic tools they register (DataForge, Global Search, published tools) are held PER TENANT in
+> `src/server/mcp/tenant-tool-registry.ts` (`TenantToolRegistry` → `TenantToolState`), keyed by the
+> effective Creatio base URL — the gateway `X-Creatio-Base-Url` override, else `CREATIO_BASE_URL`
+> (sentinel `DEFAULT_TENANT_KEY` for all single-tenant modes, so their behavior is unchanged). The
+> probe runs once PER TENANT and a discovered tool is registered only into that tenant's live session
+> servers, so tenant A's capabilities/published tools never leak to tenant B on a shared `gateway`
+> deployment. The registry pools state with idle-TTL + LRU eviction and never evicts a tenant that
+> still has a live session. `createSessionServer` / `ensureCapabilitiesProbed` / `_describeEntity`
+> resolve the tenant from the request context; `releaseSessionServer`/`stopAll` go through the registry.
 
 The **Docker** image (multi-stage, `node:24-alpine`, runs the built `dist/` — not `ts-node`)
 serves **HTTP by default**; set `MCP_TRANSPORT=stdio` (run with `docker run -i`) to switch. The
@@ -138,7 +149,8 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 | ---------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Tool registration            | `src/server/mcp/server.ts`                                              | Add/remove tool handlers; keep descriptors in separate file. Composition root that also runs tool preparers.                                                                                                                                                                                           |
 | Tool schemas & text guidance | `src/server/mcp/tools-data.ts`                                          | Use `zod` schemas; detailed descriptions help AI reasoning.                                                                                                                                                                                                                                            |
-| Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*`         | `ToolPreparer` strategy: probe once (in the first request's context), register tools only when the capability is available. DataForge is the reference impl.                                                                                                                                           |
+| Env-gated capabilities       | `src/server/mcp/tool-preparer.ts`, `src/server/mcp/dataforge/*`         | `ToolPreparer` strategy: probe per tenant (in the request context), register tools only when the capability is available. DataForge is the reference impl.                                                                                                                                             |
+| Per-tenant tool isolation    | `src/server/mcp/tenant-tool-registry.ts`                                | `TenantToolRegistry`/`TenantToolState`: per-tenant capability verdicts + dynamic tools + live session servers, keyed by effective base URL, with idle-TTL + LRU. See the multi-tenant invariant in §2.                                                                                                 |
 | Query contract               | `src/creatio/contracts/query.ts`                                        | Neutral `ReadQuery`/`FilterNode`/`ReadResult`; the seam both CRUD backends translate from.                                                                                                                                                                                                             |
 | Filters logic                | `src/server/mcp/filters.ts`                                             | `buildFilterNode` compiles the tool `{all,any}` arg into the neutral `FilterNode` AST (+ `parseOrderBy`). NO dialect here.                                                                                                                                                                             |
 | Backend translators          | `src/creatio/services/{odata,dataservice}/*`                            | `ODataQueryTranslator` / `DataServiceFilterTranslator`+builder turn `FilterNode` into each dialect.                                                                                                                                                                                                    |
@@ -181,7 +193,7 @@ Contracts live in `src/server/mcp/tool-preparer.ts`:
 How it wires up:
 
 1. `Server` builds the capability's client + preparer in its constructor and pushes the preparer into `_preparers` — UNLESS the capability is force-disabled via `ServerConfig` (`disableDataForge` / `disableGlobalSearch`, fed from env `CREATIO_MCP_DISABLE_DATAFORGE` / `CREATIO_MCP_DISABLE_GLOBAL_SEARCH`). A disabled capability is never added to `_preparers`, so it is neither probed (no network / no token spend) nor registered — even on an environment where it IS available. `_isDataForgeReady()` then stays false, so `describe-entity` falls back to the active CRUD backend.
-2. `ensureCapabilitiesProbed()` runs `_prepareTools()` once, lazily, from INSIDE the first request's `runWithContext` — so the probe's Creatio calls carry the caller's identity (broker mode has no user otherwise). It is **non-blocking** (fire-and-forget, so the MCP handshake isn't delayed) and **self-healing**: a preparer that returns cleanly records its verdict in `_capabilities` and is never re-probed; one that THROWS (e.g. identity not usable yet) records nothing, so a later authenticated connect retries it. Newly-registered tools are pushed into every live session server (the SDK emits `tools/list_changed`).
+2. `ensureCapabilitiesProbed(baseUrlOverride?)` runs `_prepareTools(state)` once **per tenant**, lazily, from INSIDE the first request's `runWithContext` — so the probe's Creatio calls carry the caller's identity (broker mode has no user otherwise) and the verdict is keyed to the caller's instance. It is **non-blocking** (fire-and-forget, so the MCP handshake isn't delayed) and **self-healing**: a preparer that returns cleanly records its verdict in the tenant's `capabilities` map and is never re-probed; one that THROWS (e.g. identity not usable yet) records nothing, so a later authenticated connect retries it. Newly-registered tools are pushed into that tenant's live session servers (the SDK emits `tools/list_changed`). See the per-tenant isolation invariant in §2.
 3. Core tools can branch on a capability via `_capabilities` (e.g. `describe-entity` routes through DataForge when ready, otherwise falls back to OData — see below).
 
 Capability clients share the narrow REST/sys-setting contracts and the
@@ -288,6 +300,33 @@ Tests live **outside `src/`** so the `tsc` build stays clean. Name files `*.test
 - Prefer driving real code through the harness over asserting on mocks-of-mocks. Service-provider tests use a **real** `CreatioHttpClient`; only `fetch` is stubbed.
 - Cover the unhappy paths explicitly (4xx/5xx, parse failure, expired, missing token/identity) — that is where the bugs are.
 - Process entry points (`cli.ts`, `index.ts`) are excluded from coverage; unit-test their pure helpers instead.
+
+### Live-regression harness (reusable — `scripts/live-regression.mjs`)
+
+The fastest way to smoke a real Creatio after a server change. It drives the compiled build over
+MCP (spawns `dist/cli.js` for stdio, starts `dist/index.js` for HTTP), waits for the capability
+probe to settle, asserts the tool surface (base / DataForge / Global Search / published), runs a
+read smoke, and — when `crud:true` — a full **create → read-back → update → delete → verify-gone**
+lifecycle on a throwaway record. NOT part of `npm test` (needs real creds + network).
+
+```bash
+npm run build
+cp scripts/live-regression.example.json scripts/live-regression.local.json   # then fill in creds
+node scripts/live-regression.mjs                       # run every target
+node scripts/live-regression.mjs --only http-broker    # one target
+```
+
+Targets are described in a JSON config (`scripts/live-regression.local.json` is **gitignored** —
+keep real credentials there; `*.example.json` is the committed schema). One target per
+`kind`×`mode`: `stdio` (legacy), and `http` with `mode` = `legacy` | `client_credentials` |
+`delegated` | `gateway` | `broker`. `delegated`/`gateway` mint a Bearer via `clientCredentials`
+(or take a literal `bearer`); `gateway` sets `baseUrlOverride` (and run two targets with different
+overrides to prove per-tenant isolation in one process). `broker` does DCR + PKCE + a local
+callback catcher and **prints the authorize URL, then waits** — open it and log in (the interactive
+consent is the point of broker mode). Use `expect` (`{dataforge, published, baseOnly}`) to assert
+the per-instance capability surface. Add `NODE_TLS_REJECT_UNAUTHORIZED=0` to a target's env when the
+instance has a weak dev cert (it must also be in the broker `serverEnv`, since the server itself
+calls Creatio's token endpoint).
 
 ### Verifying the auth modes live (manual, against a real Creatio)
 
