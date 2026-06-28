@@ -29,6 +29,10 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 
 ### Added
 
+- **`broker` auth mode** — the MCP acts as its own OAuth 2.1 authorization server for clients (DCR +
+  `/authorize` + `/token`) and brokers the user login to Creatio via authorization_code + PKCE,
+  holding the user's Creatio tokens server-side. The "connect → authorize → work as me" UX for
+  standalone direct clients (Claude Desktop / ChatGPT). Selected via `CREATIO_MCP_AUTH_MODE=broker`.
 - **Pluggable broker token store** — `CREATIO_MCP_TOKEN_STORE=memory` (default) | `redis`. The
   Redis store (`CREATIO_MCP_REDIS_URL`) encrypts tokens at rest (AES-256-GCM;
   `CREATIO_MCP_TOKEN_ENC_KEY` or derived from the JWT secret) with native TTL → stateless,
@@ -41,6 +45,12 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 
 ### Changed
 
+- **Unified env scheme** — two prefixes, `CREATIO_*` (reach + auth Creatio) and `CREATIO_MCP_*`
+  (MCP behavior), with a single declarative back-compat alias table (legacy names still work with a
+  one-time deprecation notice). Single `CREATIO_MCP_AUTH_MODE` selector (explicit or inferred:
+  legacy → client_credentials → delegated).
+- **Per-session `McpServer`** — each transport/session gets its own `McpServer` (a shared singleton
+  rejected a second concurrent session's `connect()` with "Already connected to a transport").
 - **Performance** — tuned global undici keep-alive dispatcher for outbound Creatio calls;
   single-flight token refresh (no thundering herd); O(1) `describe-entity` via metadata indexes;
   compact (non-pretty) tool output; capability-probe negative-cache.
@@ -53,6 +63,11 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 
 - Coverage raised to **94.5% lines** (537 tests). Added the broker full-stack API suite
   (supertest) and an opt-in real-Redis integration test (auto-skips without Redis).
+
+### CI
+
+- Auto-create a **GitHub Release** from the CHANGELOG section on a `v*` tag push (+ a manual
+  backfill path), alongside the existing Docker multi-arch publish.
 
 ## [0.6.2]
 
