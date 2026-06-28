@@ -2,7 +2,13 @@ import { getCreatioClientConfig } from './config-builder';
 import { HTTP_MCP_PORT } from './consts';
 import { AuthProviderType, CreatioEngineManager, CreatioServiceContext } from './creatio';
 import log from './log';
-import { HttpServer, Server, SessionKeepAlive, keepAliveIntervalMs } from './server';
+import {
+	HttpServer,
+	Server,
+	SessionKeepAlive,
+	installHttpAgent,
+	keepAliveIntervalMs,
+} from './server';
 import { envBool } from './utils';
 
 let _httpInstance: HttpServer | undefined;
@@ -15,6 +21,7 @@ function isSingleSessionMode(kind: AuthProviderType): boolean {
 }
 
 async function main() {
+	installHttpAgent();
 	log.appStart({ env: { node: process.version, HTTP_MCP_PORT } });
 	// Auth mode is resolved in config-builder: explicit CREATIO_MCP_AUTH_MODE, else inferred
 	// (legacy/client_credentials from creds, otherwise delegated for this multi-user HTTP server).

@@ -2,7 +2,7 @@ import log from '../../../log';
 import { CreatioClientConfig, OAuth2AuthConfig } from '../../client-config';
 import { TOKEN_BODY_SNIPPET_MAX, TOKEN_ENDPOINT } from '../auth';
 
-import { BaseOAuth2Provider } from './base-oauth2-provider';
+import { BaseOAuth2Provider, FetchedToken } from './base-oauth2-provider';
 
 export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
 	private readonly _config: CreatioClientConfig;
@@ -14,11 +14,7 @@ export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
 		this._config = config;
 	}
 
-	protected async ensureAccessToken(): Promise<string | undefined> {
-		const now = Date.now();
-		if (this.accessToken && this.accessTokenExpiryMs && now < this.accessTokenExpiryMs) {
-			return this.accessToken;
-		}
+	protected async fetchToken(): Promise<FetchedToken | undefined> {
 		const url = `${this.getIdentityBase()}${TOKEN_ENDPOINT}`;
 		const body = new URLSearchParams();
 		body.set('grant_type', 'client_credentials');
@@ -77,11 +73,10 @@ export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
 				);
 				throw new Error('oauth2_no_access_token');
 			}
-			this.accessToken = String(tokenResponse.access_token);
-			const expiresIn = Number(tokenResponse.expires_in) || 3600;
-			this.accessTokenExpiryMs = this.computeExpiryMs(expiresIn, 1);
+			const accessToken = String(tokenResponse.access_token);
+			const expiresInSeconds = Number(tokenResponse.expires_in) || 3600;
 			log.creatioAuthOk(this._config.baseUrl, 'oauth2');
-			return this.accessToken;
+			return { accessToken, expiresInSeconds };
 		} catch (e: any) {
 			log.error('oauth.token.exception', { error: String(e?.message ?? e) });
 			log.creatioAuthFailed(this._config.baseUrl, String(e?.message ?? e), 'oauth2');

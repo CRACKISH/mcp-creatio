@@ -109,6 +109,10 @@ export class Server {
 	private readonly _publishedToolsPreparer: CrtMcpPublishingToolPreparer;
 	private readonly _preparers: ToolPreparer[];
 	private readonly _capabilities = new Map<string, boolean>();
+	// After a preparer's probe THROWS (no verdict recorded), back off before re-probing it, so a
+	// persistently-failing capability doesn't fire its network probe on every new session connect.
+	private static readonly PROBE_RETRY_COOLDOWN_MS = 30_000;
+	private readonly _probeCooldownUntil = new Map<string, number>();
 
 	public get authProvider(): ICreatioAuthProvider {
 		return this._engines.authProvider;
@@ -172,7 +176,9 @@ export class Server {
 				content: [
 					{
 						type: 'text',
-						text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+						// Compact (not pretty-printed): this is a machine/LLM transport, so the 2-space
+						// indentation only inflated byte/token size and serialization cost.
+						text: typeof result === 'string' ? result : JSON.stringify(result),
 					},
 				],
 			};
@@ -235,16 +241,25 @@ export class Server {
 	 */
 	private async _prepareTools(): Promise<boolean> {
 		const registrar = this._toolRegistrar();
+		const now = Date.now();
 		for (const preparer of this._preparers) {
 			if (this._capabilities.has(preparer.name)) {
 				continue; // definitive verdict already recorded — don't re-probe or re-register
+			}
+			if (now < (this._probeCooldownUntil.get(preparer.name) ?? 0)) {
+				continue; // recently failed — back off rather than re-probe on every connect
 			}
 			try {
 				const enabled = await preparer.prepare(registrar);
 				this._capabilities.set(preparer.name, enabled);
 				log.info('mcp.prepare', { preparer: preparer.name, enabled });
 			} catch (err) {
-				// No verdict — leave unrecorded so a later authenticated connect retries.
+				// No verdict — leave unrecorded so a later authenticated connect retries, but not
+				// before the cooldown elapses.
+				this._probeCooldownUntil.set(
+					preparer.name,
+					Date.now() + Server.PROBE_RETRY_COOLDOWN_MS,
+				);
 				log.warn('mcp.prepare.failed', { preparer: preparer.name, error: String(err) });
 			}
 		}

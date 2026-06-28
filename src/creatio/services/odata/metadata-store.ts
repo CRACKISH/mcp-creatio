@@ -14,6 +14,10 @@ export class ODataMetadataStore {
 	private _metadataFetchedAt = 0;
 	private _entitySetsCache?: string[];
 	private _entitySetsFetchedAt = 0;
+	// Built once per parsed-metadata document so describeEntity is O(1) instead of two O(N) scans
+	// over the entire (hundreds-to-thousands of types) Creatio EDMX on every call.
+	private _entityTypeBySet: Map<string, string> | undefined;
+	private _typeNodeByName: Map<string, any> | undefined;
 
 	constructor(client: CreatioHttpClient) {
 		this._client = client;
@@ -39,6 +43,8 @@ export class ODataMetadataStore {
 		const xmlContent = await this._client.fetchText(metadataUrl, async () => ({ headers }));
 		this._metadataXml = xmlContent;
 		this._metadataParsed = undefined; // force re-parse against the refreshed document
+		this._entityTypeBySet = undefined; // and rebuild the lookup indexes
+		this._typeNodeByName = undefined;
 		this._metadataFetchedAt = Date.now();
 		return this._metadataXml;
 	}
@@ -89,50 +95,40 @@ export class ODataMetadataStore {
 		return null;
 	}
 
-	private async _getEntitySetsFromMetadata(): Promise<string[]> {
+	/** Build (once per parsed document) the entitySet→entityType and typeName→typeNode lookups.
+	 *  Always goes through {@link _getParsedMetadata} first so the TTL refresh runs (and nulls the
+	 *  indexes on a refetch); only the index build itself is cached. */
+	private async _ensureIndexes(): Promise<void> {
 		const metadata = await this._getParsedMetadata();
+		if (this._entityTypeBySet && this._typeNodeByName) {
+			return;
+		}
 		const schemas = this._extractSchemas(metadata);
-		const entitySets: string[] = [];
+		const bySet = new Map<string, string>();
+		const byType = new Map<string, any>();
 		for (const schema of schemas) {
-			const containers = this._arrayify<any>(schema.EntityContainer);
-			for (const container of containers) {
-				const sets = this._arrayify<any>(container.EntitySet);
-				for (const set of sets) {
+			for (const container of this._arrayify<any>(schema.EntityContainer)) {
+				for (const set of this._arrayify<any>(container.EntitySet)) {
 					const name = set?.['@_Name'];
 					if (name) {
-						entitySets.push(String(name));
+						bySet.set(String(name), String(set?.['@_EntityType'] ?? ''));
 					}
 				}
 			}
-		}
-		return Array.from(new Set(entitySets));
-	}
-
-	private _findEntityType(schemas: any[], entitySet: string): string {
-		for (const schema of schemas) {
-			const containers = this._arrayify<any>(schema.EntityContainer);
-			for (const container of containers) {
-				const sets = this._arrayify<any>(container.EntitySet);
-				for (const set of sets) {
-					if (set?.['@_Name'] === entitySet) {
-						return String(set?.['@_EntityType'] ?? '');
-					}
+			for (const type of this._arrayify<any>(schema.EntityType)) {
+				const name = type?.['@_Name'];
+				if (name) {
+					byType.set(String(name), type);
 				}
 			}
 		}
-		return '';
+		this._entityTypeBySet = bySet;
+		this._typeNodeByName = byType;
 	}
 
-	private _findEntityTypeNode(schemas: any[], typeName: string): any {
-		for (const schema of schemas) {
-			const types = this._arrayify<any>(schema.EntityType);
-			for (const type of types) {
-				if (type?.['@_Name'] === typeName) {
-					return type;
-				}
-			}
-		}
-		return undefined;
+	private async _getEntitySetsFromMetadata(): Promise<string[]> {
+		await this._ensureIndexes();
+		return Array.from(this._entityTypeBySet!.keys());
 	}
 
 	private _parseEntityProperties(entityTypeNode: any): {
@@ -174,16 +170,15 @@ export class ODataMetadataStore {
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {
-		const metadata = await this._getParsedMetadata();
-		const schemas = this._extractSchemas(metadata);
-		const fullType = this._findEntityType(schemas, entitySet);
+		await this._ensureIndexes();
+		const fullType = this._entityTypeBySet!.get(entitySet) ?? '';
 		if (!fullType) {
 			const error = `entity_not_found:${entitySet}`;
 			log.error('creatio.metadata.describe_entity.error', { entitySet, error });
 			throw new Error(error);
 		}
 		const typeName = fullType.split('.').pop()!;
-		const entityTypeNode = this._findEntityTypeNode(schemas, typeName);
+		const entityTypeNode = this._typeNodeByName!.get(typeName);
 		if (!entityTypeNode) {
 			const error = `entity_type_not_found:${typeName}`;
 			log.error('creatio.metadata.describe_entity.error', { entitySet, error });

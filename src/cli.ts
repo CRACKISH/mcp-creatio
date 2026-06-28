@@ -5,7 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getCreatioClientConfig } from './config-builder';
 import { AuthProviderType, CreatioEngineManager, CreatioServiceContext } from './creatio';
 import log from './log';
-import { Server, SessionKeepAlive, keepAliveIntervalMs } from './server';
+import { Server, SessionKeepAlive, installHttpAgent, keepAliveIntervalMs } from './server';
 import { envBool } from './utils';
 
 type CliOptions = Record<string, string>;
@@ -130,6 +130,7 @@ async function main(): Promise<void> {
 	}
 
 	log.useStderrOnlyLogs();
+	installHttpAgent();
 	applyCliEnv(opts);
 	const cfg = getCreatioClientConfig();
 

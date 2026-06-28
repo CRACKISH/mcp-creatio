@@ -69,7 +69,9 @@ describe('OAuth2Provider (client credentials)', () => {
 			},
 		} as never);
 		await provider.getHeaders('application/json', true);
-		expect(String(fetchMock.mock.calls[0]![0])).toBe('https://id.creatio.local/0/connect/token');
+		expect(String(fetchMock.mock.calls[0]![0])).toBe(
+			'https://id.creatio.local/0/connect/token',
+		);
 	});
 
 	it('refresh() forces a new token fetch', async () => {
@@ -79,5 +81,25 @@ describe('OAuth2Provider (client credentials)', () => {
 		await provider.getHeaders('application/json', true);
 		await provider.refresh();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('single-flights concurrent token fetches (no thundering herd on expiry)', async () => {
+		let resolveFetch: (r: Response) => void = () => {};
+		const fetchMock = vi.fn(
+			() =>
+				new Promise<Response>((resolve) => {
+					resolveFetch = resolve;
+				}),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const provider = new OAuth2Provider(ccConfig() as never);
+		// 5 concurrent callers all find no token and race to fetch — must collapse to ONE call.
+		const all = Promise.all(
+			Array.from({ length: 5 }, () => provider.getHeaders('application/json', true)),
+		);
+		resolveFetch(jsonOk({ access_token: 'CC', expires_in: 3600 }));
+		const results = await all;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(results.every((h) => h.Authorization === 'Bearer CC')).toBe(true);
 	});
 });
