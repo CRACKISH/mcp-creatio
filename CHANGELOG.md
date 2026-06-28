@@ -4,6 +4,56 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.3]
+
+Security/perf/architecture remediation (from a full re-review) plus broker production-readiness.
+Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line coverage.
+
+### Security
+
+- **Broker access tokens are audience-bound** — `aud` (the `/mcp` resource) + `iss` (origin) are
+  set and verified on every `/mcp` call, so a token minted by one deployment is rejected by another
+  sharing `CREATIO_MCP_JWT_SECRET` (token redirection / confused-deputy). `client_id` is bound and
+  enforced on refresh.
+- **`refresh_token` grant** (rotating, single-use, client-bound, gated on the broker still holding
+  the user's Creatio tokens) — replaces a previously non-redeemable refresh token; standalone
+  clients no longer re-consent hourly.
+- **`CREATIO_MCP_JWT_SECRET` hardening** — minimum 32 chars enforced; **required in production**
+  (fail-closed); ephemeral-with-warning only outside production.
+- **SSRF guard** for the gateway `X-Creatio-Base-Url` override — `CREATIO_MCP_ALLOWED_BASE_URLS`
+  allowlist; cloud-metadata link-local addresses always blocked.
+- **OData identifier-injection guard**, **log redaction** of `code`/`state`/`token` query params,
+  and **bounded DCR client store** (TTL + cap).
+- **RFC 7009 `POST /revoke`** (logout) — revokes the Creatio token upstream
+  (`/connect/revocation`, best-effort) and purges server-side + issued-refresh tokens; always `200`.
+
+### Added
+
+- **Pluggable broker token store** — `CREATIO_MCP_TOKEN_STORE=memory` (default) | `redis`. The
+  Redis store (`CREATIO_MCP_REDIS_URL`) encrypts tokens at rest (AES-256-GCM;
+  `CREATIO_MCP_TOKEN_ENC_KEY` or derived from the JWT secret) with native TTL → stateless,
+  restart-durable, horizontally-scalable broker.
+- **`CREATIO_MCP_PUBLIC_URL`** — pins issuer/audience/redirects/discovery to the external origin
+  behind a TLS-terminating proxy.
+- **Proactive session keep-alive** (`CREATIO_MCP_KEEPALIVE_SECONDS`, default `300`s, `0` disables)
+  for `legacy`/`client_credentials`; reactive reconnect now also recovers from a login-page bounce,
+  not only `401`.
+
+### Changed
+
+- **Performance** — tuned global undici keep-alive dispatcher for outbound Creatio calls;
+  single-flight token refresh (no thundering herd); O(1) `describe-entity` via metadata indexes;
+  compact (non-pretty) tool output; capability-probe negative-cache.
+- **Architecture/DRY** — `createAuthEdge` factory (auth-strategy out of `HttpServer`);
+  `httpServer.ts` → `http-server.ts`; shared identifier/probe/expiry helpers; OData read +
+  `getCurrentUserInfo` onto the shared `request()` helper; mutation audit now records outcome.
+- **Lint** — `@typescript-eslint/member-ordering` rule codifies the class-member convention.
+
+### Tests
+
+- Coverage raised to **94.5% lines** (537 tests). Added the broker full-stack API suite
+  (supertest) and an opt-in real-Redis integration test (auto-skips without Redis).
+
 ## [0.6.2]
 
 ### Added
