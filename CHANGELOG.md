@@ -4,6 +4,53 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.4]
+
+Output-edge secret redaction + a content-validated schema cache that auto-invalidates when the
+Creatio data model changes (and is multi-tenant-safe). Schema-freshness live-verified vs a real
+Creatio; 570 tests, 94.6% line coverage.
+
+### Security
+
+- **Central secret redaction** — a single `redactSecrets` layer scrubs credential-looking values
+  (`Bearer`/`Basic`/`Authorization`, and `client_secret`/`password`/`access_token`/`refresh_token`/
+  `BPMCSRF`-style params) from **both** tool results relayed to the client **and** log lines. This
+  turns the long-standing "never leak secrets/tokens" invariant from a convention into an enforced
+  choke point. Errors thrown from tool handlers are scrubbed too, while preserving the `Error`
+  type/stack (no silent swallowing).
+
+### Added
+
+- **Content-validated schema cache** — schema/metadata caches (`describe-entity`, `list-entities`,
+  DataService write-coercion, OData `$metadata`) now validate against Creatio's own client-cache
+  hash stamp (`GET /api/ClientCache/Hashes` — the `runtime-entity-schema` bucket + `cacheVersion`,
+  the same signal the Freedom UI uses). When the data model changes at runtime (add/alter/remove an
+  entity or column) the cache self-heals within ~60s instead of serving a stale schema for up to 30
+  minutes — fixing silently-wrong writes after a configuration change. Degrades gracefully to a
+  coarse time-bucketed refresh when the endpoint is unavailable.
+- **Per-tenant schema-cache isolation** — schema/metadata caches are keyed by Creatio base URL, so a
+  `gateway`-mode deployment serving multiple instances (via `X-Creatio-Base-Url`) never serves one
+  tenant's schema or metadata to another.
+
+### Changed
+
+- **Keep-alive reuse** — the single-session keep-alive tick (`legacy`/`client_credentials`) now also
+  refreshes the schema-freshness snapshot, so its periodic ping doubles as a cache-freshness check
+  rather than a bare round-trip.
+
+### Docs
+
+- README: concrete `delegated` / `gateway` setup examples showing what to inject and where (the
+  `Authorization: Bearer …` header, plus `X-Creatio-Base-Url` for multi-tenant routing), and that
+  the gateway injects a Bearer token only.
+
+### Tests
+
+- **570 tests, 94.6% line coverage.** New suites: secret redaction (+ error scrubbing at the tool
+  boundary and the log line), ClientCache hash client, schema-freshness gate (TTL, per-base-url
+  keying, degraded fallback), schema-freshness integration across both CRUD backends, and the
+  keep-alive warm passthrough. The schema-freshness path was live-verified against a real Creatio.
+
 ## [0.6.3]
 
 Security/perf/architecture remediation (from a full re-review) plus broker production-readiness.
@@ -171,6 +218,7 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.6.4]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.4
 [0.6.3]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.3
 [0.6.2]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.2
 [0.6.1]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.1
