@@ -20,9 +20,9 @@ export abstract class BaseProvider<
 		this.config = config;
 	}
 
-	// Core capability — every concrete provider must implement these. Optional capabilities
-	// (revoke, interactive authorize/finish) live on the IRevocable/IInteractive interfaces and
-	// are added only by the providers that support them, instead of throwing stubs here (ISP/LSP).
+	// The whole provider capability: build auth headers + refresh on 401. There is no
+	// token-issuing / interactive / revoke surface on a provider — external clients authenticate
+	// against Creatio Identity directly, and broker mode drives the OAuth dance in src/server/oauth/.
 	public abstract getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>>;
 
 	public abstract refresh(): Promise<void>;
