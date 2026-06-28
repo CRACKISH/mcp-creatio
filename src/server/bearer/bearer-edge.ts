@@ -1,5 +1,8 @@
 import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
+import log from '../../log';
+import { env } from '../../utils';
 
+import { isAllowedBaseUrl, parseAllowedBaseUrls } from './base-url-guard';
 import { inspectBearer, isExpired } from './bearer-token';
 
 import type { Express, NextFunction, Request, Response } from 'express';
@@ -26,16 +29,23 @@ export function buildProtectedResourceMetadata(resource: string, identityBase: s
  *   that authorization server via RFC 9728, challenges unauthenticated requests, and fails fast on
  *   an obviously-expired JWT.
  *
- * In both modes Creatio remains the ultimate authority — it independently rejects invalid tokens on
- * the API call — so the runtime is a straight token passthrough; only discovery/trust differ here.
+ * Both modes are FULLY-TRUSTED-ENVIRONMENT deployments: gateway trusts the Control-Plane in front of
+ * it; delegated trusts the client + the network it runs on. The MCP does NOT cryptographically
+ * verify the Bearer here — Creatio remains the ultimate authority and independently rejects invalid
+ * tokens on the API call — so the runtime is a straight token passthrough; only discovery/trust
+ * differ. The `userKey` derived from the token is therefore an UNVERIFIED, session/logging-only
+ * identity, not an authenticated principal. For an untrusted, direct external client that needs the
+ * MCP itself to verify identity, use `broker` mode (the MCP is its own audience-bound OAuth 2.1 AS).
  */
 export class BearerEdge {
 	private readonly _config: BearerAuthConfig;
 	private readonly _baseUrl: string;
+	private readonly _allowedBaseUrls: string[];
 
 	constructor(config: BearerAuthConfig, baseUrl: string) {
 		this._config = config;
 		this._baseUrl = baseUrl;
+		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
 	}
 
 	private get _isDelegated(): boolean {
@@ -68,9 +78,19 @@ export class BearerEdge {
 			const token = header.slice(7);
 
 			if (!this._isDelegated) {
-				// gateway: a per-request instance override is honored only here (from the trusted gateway).
+				// gateway: a per-request instance override is honored only here (from the trusted
+				// gateway). Still validate it — the override decides where the Bearer is sent, so a
+				// bad value is an SSRF / token-redirection lever even from a trusted source (CWE-918).
 				const baseOverride = req.headers[BASE_URL_OVERRIDE_HEADER];
 				if (typeof baseOverride === 'string' && baseOverride) {
+					if (!isAllowedBaseUrl(baseOverride, this._allowedBaseUrls)) {
+						log.warn('bearer.base_url_override.rejected', { override: baseOverride });
+						res.status(400).json({
+							error: 'invalid_request',
+							error_description: 'Disallowed X-Creatio-Base-Url override.',
+						});
+						return;
+					}
 					(req as Request & { baseUrlOverride?: string }).baseUrlOverride = baseOverride;
 				}
 				return this._accept(req, token, next);

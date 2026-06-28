@@ -33,7 +33,6 @@ export interface OAuthAccessToken {
 	expires_in: number;
 	refresh_token?: string;
 	scope?: string;
-	userKey: string;
 }
 
 export interface OAuthError {

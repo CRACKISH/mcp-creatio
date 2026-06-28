@@ -11,7 +11,11 @@ const VARS = [
 	'CREATIO_MCP_JWT_SECRET',
 	'CREATIO_LOGIN',
 	'CREATIO_PASSWORD',
+	'NODE_ENV',
 ];
+
+// A secret that clears the 32-char HS256 entropy floor.
+const STRONG_SECRET = 'a-stable-broker-secret-of-sufficient-length-0123456789';
 
 function clean() {
 	for (const v of VARS) {
@@ -53,13 +57,29 @@ describe('CREATIO_MCP_AUTH_MODE — unified auth resolver', () => {
 		clean();
 		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'broker');
 		vi.stubEnv('CREATIO_CLIENT_ID', 'app-1');
-		vi.stubEnv('CREATIO_MCP_JWT_SECRET', 'sign-me');
+		vi.stubEnv('CREATIO_MCP_JWT_SECRET', STRONG_SECRET);
 		const auth = getCreatioClientConfig().auth;
 		expect(auth).toMatchObject({
 			kind: AuthProviderType.Broker,
 			clientId: 'app-1',
-			jwtSecret: 'sign-me',
+			jwtSecret: STRONG_SECRET,
 		});
+	});
+
+	it('broker rejects a JWT secret weaker than 32 chars (HS256 entropy floor)', () => {
+		clean();
+		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'broker');
+		vi.stubEnv('CREATIO_CLIENT_ID', 'app-1');
+		vi.stubEnv('CREATIO_MCP_JWT_SECRET', 'too-short');
+		expect(() => getCreatioClientConfig()).toThrow(/too weak/);
+	});
+
+	it('broker fails closed in production when no JWT secret is set', () => {
+		clean();
+		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'broker');
+		vi.stubEnv('CREATIO_CLIENT_ID', 'app-1');
+		vi.stubEnv('NODE_ENV', 'production');
+		expect(() => getCreatioClientConfig()).toThrow(/required in production/);
 	});
 
 	it('broker JWT secret is optional — an ephemeral one is generated when unset', () => {

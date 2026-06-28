@@ -31,7 +31,9 @@ const BASE = 'https://t.creatio.local';
 
 describe('buildProtectedResourceMetadata (RFC 9728)', () => {
 	it('advertises Creatio Identity as the authorization server', () => {
-		expect(buildProtectedResourceMetadata('https://mcp.local/mcp', 'https://t.local/0')).toEqual({
+		expect(
+			buildProtectedResourceMetadata('https://mcp.local/mcp', 'https://t.local/0'),
+		).toEqual({
 			resource: 'https://mcp.local/mcp',
 			authorization_servers: ['https://t.local/0'],
 			scopes_supported: ['offline_access'],
@@ -77,6 +79,18 @@ describe('BearerEdge.mcpAuth — gateway mode', () => {
 		expect(req.bearerToken).toBe('GW-TOKEN');
 		expect(req.userKey).toBeTruthy();
 		expect(req.baseUrlOverride).toBe('https://other.local');
+	});
+
+	it('rejects an SSRF-y X-Creatio-Base-Url override (cloud metadata IP) with 400', () => {
+		const req = mockReq({
+			authorization: 'Bearer GW-TOKEN',
+			'x-creatio-base-url': 'http://169.254.169.254/latest/meta-data',
+		});
+		const res = mockRes();
+		const next = vi.fn();
+		new BearerEdge(gateway(), BASE).mcpAuth()(req as never, res as never, next);
+		expect(next).not.toHaveBeenCalled();
+		expect(res.statusCode).toBe(400);
 	});
 });
 

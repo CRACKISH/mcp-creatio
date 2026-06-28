@@ -3,13 +3,19 @@ import jwt from 'jsonwebtoken';
 /**
  * Lightweight, crypto-free inspection of an incoming Bearer token.
  *
- * In the stateless per-request model the Bearer is a Creatio access token. Creatio remains the
- * cryptographic authority (it rejects bad/expired tokens with 401), so the MCP only needs a stable
- * per-request identity (for session mapping/logging) and a cheap obviously-expired guard. Strict
- * signature checking is the separate, opt-in {@link JwksTokenValidator}.
+ * In the stateless per-request model (delegated/gateway — both fully-trusted deployments) the Bearer
+ * is a Creatio access token. Creatio remains the cryptographic authority: it rejects bad/expired
+ * tokens with 401 on the actual API call. The MCP does NOT verify the signature here — it only needs
+ * a stable per-request identity (for session mapping / logging) and a cheap obviously-expired guard.
+ *
+ * SECURITY NOTE: the `userKey` returned here is therefore UNVERIFIED — it is read from an unsigned
+ * decode of a token the MCP does not trust. Use it only as a session/logging key, never as proof of
+ * an authenticated principal. (An untrusted direct client that needs the MCP to verify identity must
+ * use `broker` mode, where the MCP issues and verifies its own audience-bound tokens.)
  */
 export interface DecodedBearer {
-	/** A stable identity for the token: `sub` claim when present, else a short fingerprint. */
+	/** An UNVERIFIED stable identity for the token: `sub` claim when present, else a short
+	 *  fingerprint. Suitable for session keying/logging only — not an authenticated principal. */
 	userKey: string;
 	/** Expiry (epoch seconds) if the token is a JWT with `exp`. */
 	expSeconds?: number;

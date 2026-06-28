@@ -22,11 +22,18 @@ function authServerMetadata(req: Request) {
 		token_endpoint: `${base}/token`,
 		registration_endpoint: `${base}/register`,
 		response_types_supported: ['code'],
-		grant_types_supported: ['authorization_code'],
+		grant_types_supported: ['authorization_code', 'refresh_token'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
 		code_challenge_methods_supported: ['S256'],
 		scopes_supported: ['offline_access'],
 	};
+}
+
+/** The `iss`/`aud` the tokens this server issues are bound to: its own origin and `/mcp` resource.
+ *  Derived from the (proxy-aware) request so issue and validate always agree for this deployment. */
+function tokenAudience(req: Request): { issuer: string; audience: string } {
+	const base = origin(req);
+	return { issuer: base, audience: `${base}/mcp` };
 }
 
 /**
@@ -74,7 +81,7 @@ export class BrokerHandlers {
 		return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
 			const header = req.headers.authorization;
 			const userKey = header?.startsWith('Bearer ')
-				? this._oauth.validateAccessToken(header.slice(7))
+				? this._oauth.validateAccessToken(header.slice(7), tokenAudience(req))
 				: null;
 			if (!userKey) {
 				this._challenge(
@@ -206,7 +213,14 @@ export class BrokerHandlers {
 	}
 
 	public async handleToken(req: Request, res: Response): Promise<void> {
-		const result = await this._oauth.exchangeCodeForToken(req.body ?? {});
+		const body = req.body ?? {};
+		const aud = tokenAudience(req);
+		const sessionStillHeld = (userKey: string): Promise<boolean> =>
+			this._session.getTokensForUser(userKey).then(Boolean);
+		const result =
+			body.grant_type === 'refresh_token'
+				? await this._oauth.exchangeRefreshToken(body, aud, sessionStillHeld)
+				: await this._oauth.exchangeCodeForToken(body, aud);
 		if ('error' in result) {
 			res.status(400).json(result);
 			return;

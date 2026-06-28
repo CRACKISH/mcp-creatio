@@ -51,13 +51,22 @@ export class OAuthValidators {
 	}
 
 	public static validateTokenRequest(params: OAuthTokenRequest): OAuthError | null {
-		if (params.grant_type !== 'authorization_code') {
-			return { error: 'unsupported_grant_type' };
+		if (params.grant_type === 'authorization_code') {
+			if (!params.code || !params.code_verifier) {
+				return {
+					error: 'invalid_request',
+					error_description: 'Missing code or code_verifier',
+				};
+			}
+			return null;
 		}
-		if (!params.code || !params.code_verifier) {
-			return { error: 'invalid_request', error_description: 'Missing code or code_verifier' };
+		if (params.grant_type === 'refresh_token') {
+			if (!params.refresh_token) {
+				return { error: 'invalid_request', error_description: 'Missing refresh_token' };
+			}
+			return null;
 		}
-		return null;
+		return { error: 'unsupported_grant_type' };
 	}
 
 	public static validateClientRegistration(redirect_uris: unknown): string | null {

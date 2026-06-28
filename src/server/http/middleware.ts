@@ -8,6 +8,37 @@ import { RateLimiter } from './rate-limiter';
 import type { RateLimitOptions } from './rate-limiter';
 import type { NextFunction, Request, Response } from 'express';
 
+/** Single-use / credential query params that must never reach the logs (CWE-532) — the OAuth
+ *  `/authorize` and `/oauth/callback` URLs carry `code`/`state`/verifier in the query string. */
+const SENSITIVE_QUERY_PARAMS = new Set([
+	'code',
+	'state',
+	'token',
+	'access_token',
+	'refresh_token',
+	'id_token',
+	'code_verifier',
+	'client_secret',
+]);
+
+/** Redact sensitive query-string values from a URL before it is logged, preserving the path + the
+ *  non-sensitive params (which are useful for debugging). Robust to relative URLs. */
+export function redactUrl(url: string): string {
+	const qIndex = url.indexOf('?');
+	if (qIndex === -1) {
+		return url;
+	}
+	const path = url.slice(0, qIndex);
+	const params = new URLSearchParams(url.slice(qIndex + 1));
+	for (const key of params.keys()) {
+		if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+			params.set(key, '***');
+		}
+	}
+	const query = params.toString();
+	return query ? `${path}?${query}` : path;
+}
+
 export class HttpMiddleware {
 	/**
 	 * Per-route fixed-window rate limit, keyed by the real connection IP (req.ip /
@@ -69,7 +100,8 @@ export class HttpMiddleware {
 			const ip = getClientIp(req);
 			const userAgent = req.headers['user-agent'];
 			const correlationId = (req as any).correlationId;
-			log.httpRequest(req.method, req.url, {
+			const safeUrl = redactUrl(req.url);
+			log.httpRequest(req.method, safeUrl, {
 				ip,
 				userAgent,
 				correlationId,
@@ -78,7 +110,7 @@ export class HttpMiddleware {
 			});
 			res.on('finish', () => {
 				const duration = Date.now() - startTime;
-				log.httpResponse(req.method, req.url, res.statusCode, duration, {
+				log.httpResponse(req.method, safeUrl, res.statusCode, duration, {
 					ip,
 					correlationId,
 					contentLength: res.getHeader('content-length'),

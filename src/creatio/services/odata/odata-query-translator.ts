@@ -25,6 +25,19 @@ export class ODataQueryTranslator {
 		return /(^|\/)Id$/.test(field) || /Id$/i.test(field);
 	}
 
+	// A column path is an identifier, optionally navigation-dotted with `/` (e.g. `Contact/Name`).
+	// Filter/select/orderby field names are concatenated into the `$filter`/`$select`/`$orderby`
+	// expressions, so reject anything else to deny OData expression injection via a crafted column
+	// name (CWE-943) — filter *values* are already escaped/typed; this guards the *identifiers*.
+	private static readonly SAFE_PATH = /^[A-Za-z_][A-Za-z0-9_]*(\/[A-Za-z_][A-Za-z0-9_]*)*$/;
+
+	private _assertPath(field: string): string {
+		if (!ODataQueryTranslator.SAFE_PATH.test(field)) {
+			throw new Error(`unsafe_odata_identifier:${field}`);
+		}
+		return field;
+	}
+
 	// ISO-8601 date / date-time. OData v4 expresses Edm.Date and Edm.DateTimeOffset literals
 	// UNQUOTED (e.g. `2026-06-01`, `2026-06-01T00:00:00Z`); quoting them 400s with
 	// "incompatible types Edm.DateTimeOffset and Edm.String".
@@ -70,7 +83,7 @@ export class ODataQueryTranslator {
 	}
 
 	private _condition(node: FilterCondition): string | undefined {
-		const field = String(node.field);
+		const field = this._assertPath(String(node.field));
 		const { op } = node;
 		if (op === 'isNull') {
 			return `${field} eq null`;
@@ -94,6 +107,7 @@ export class ODataQueryTranslator {
 		if (!node.values.length) {
 			return undefined;
 		}
+		this._assertPath(String(node.field));
 		const parts = node.values.map((v) => {
 			const f = this._lookupNavField(node.field, v);
 			return `${f} eq ${this._literalFor(f, v)}`;
@@ -139,7 +153,7 @@ export class ODataQueryTranslator {
 		if (!query.order || query.order.length === 0) {
 			return undefined;
 		}
-		return query.order.map((o) => `${o.field} ${o.dir}`).join(', ');
+		return query.order.map((o) => `${this._assertPath(o.field)} ${o.dir}`).join(', ');
 	}
 
 	/** Build the encoded OData query-string params for a read. */
@@ -150,7 +164,8 @@ export class ODataQueryTranslator {
 			params.push(`$filter=${encodeURIComponent(filter)}`);
 		}
 		if (query.columns && query.columns.length > 0) {
-			params.push(`$select=${encodeURIComponent(query.columns.join(','))}`);
+			const columns = query.columns.map((c) => this._assertPath(c));
+			params.push(`$select=${encodeURIComponent(columns.join(','))}`);
 		}
 		const expand = query.odata?.expand;
 		if (expand && expand.length > 0) {

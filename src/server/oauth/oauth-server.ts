@@ -4,7 +4,7 @@ import log from '../../log';
 
 import { OAuthClientManager } from './client-manager';
 import { OAuthStorage } from './storage';
-import { OAuthTokenManager } from './token-manager';
+import { OAuthTokenManager, TokenAudience } from './token-manager';
 import { OAuthValidators } from './validators';
 
 import type {
@@ -14,6 +14,13 @@ import type {
 	OAuthError,
 	OAuthTokenRequest,
 } from './types';
+
+/** Predicate the broker supplies so a refresh is rejected once it no longer holds the user's
+ *  Creatio tokens (a restart) — the client then transparently re-runs the full flow. */
+type SessionStillHeld = (userKey: string) => Promise<boolean>;
+
+const ACCESS_TOKEN_TTL_SECONDS = 3600;
+const ISSUED_SCOPE = 'offline_access';
 
 export class OAuthServer {
 	private readonly _storage = new OAuthStorage();
@@ -106,6 +113,7 @@ export class OAuthServer {
 
 	public async exchangeCodeForToken(
 		params: OAuthTokenRequest,
+		aud: TokenAudience,
 	): Promise<OAuthAccessToken | OAuthError> {
 		log.info('oauth.token.exchange_start', {
 			grant_type: params.grant_type,
@@ -132,21 +140,67 @@ export class OAuthServer {
 			}
 			return codeValidationError;
 		}
-		const tokenResponse = this._tokenManager.createTokenResponse(
-			authCode.userKey,
-			params.client_id,
-		);
 		this._storage.deleteAuthorizationCode(params.code!);
 		log.info('oauth.token.issued', { client_id: params.client_id, userKey: authCode.userKey });
-		return tokenResponse;
+		return this._issueTokens(authCode.userKey, params.client_id, aud);
 	}
 
-	public validateAccessToken(token: string): string | null {
-		return this._tokenManager.validateAccessToken(token);
+	/**
+	 * `refresh_token` grant: rotate the refresh token and mint a fresh access token WITHOUT a browser
+	 * round-trip — bound to the same client (a stolen token can't be redeemed by another) and gated on
+	 * the broker still holding this user's Creatio tokens, so a client never re-consents every hour.
+	 */
+	public async exchangeRefreshToken(
+		params: OAuthTokenRequest,
+		aud: TokenAudience,
+		sessionStillHeld: SessionStillHeld,
+	): Promise<OAuthAccessToken | OAuthError> {
+		const validationError = OAuthValidators.validateTokenRequest(params);
+		if (validationError) {
+			return validationError;
+		}
+		const data = this._storage.getRefreshToken(params.refresh_token!);
+		if (!data) {
+			return {
+				error: 'invalid_grant',
+				error_description: 'Invalid or expired refresh token',
+			};
+		}
+		if (data.client_id !== params.client_id) {
+			// Token presented by a different client than it was issued to — reuse/theft signal.
+			this._storage.deleteRefreshToken(params.refresh_token!);
+			return { error: 'invalid_grant', error_description: 'Client mismatch' };
+		}
+		if (!(await sessionStillHeld(data.userKey))) {
+			this._storage.deleteRefreshToken(params.refresh_token!);
+			return {
+				error: 'invalid_grant',
+				error_description: 'Session expired; re-authorization required',
+			};
+		}
+		// Rotate: the presented refresh token is single-use.
+		this._storage.deleteRefreshToken(params.refresh_token!);
+		log.info('oauth.token.refreshed', { client_id: data.client_id, userKey: data.userKey });
+		return this._issueTokens(data.userKey, data.client_id, aud);
 	}
 
-	public getClient(client_id: string): OAuthClient | undefined {
-		return this._storage.getClient(client_id);
+	/** Mint an access token + a freshly-stored (rotating) refresh token as a standard OAuth response. */
+	private _issueTokens(userKey: string, client_id: string, aud: TokenAudience): OAuthAccessToken {
+		const access_token = this._tokenManager.generateAccessToken(userKey, client_id, aud);
+		const refresh_token = this._tokenManager.generateRefreshToken();
+		this._storage.storeRefreshToken(refresh_token, userKey, client_id);
+		return {
+			access_token,
+			token_type: 'Bearer',
+			expires_in: ACCESS_TOKEN_TTL_SECONDS,
+			refresh_token,
+			scope: ISSUED_SCOPE,
+		};
+	}
+
+	/** Verify a client-presented access token against this deployment's `iss`/`aud`; returns userKey. */
+	public validateAccessToken(token: string, aud: TokenAudience): string | null {
+		return this._tokenManager.validateAccessToken(token, aud)?.userKey ?? null;
 	}
 
 	public cleanup(): void {
