@@ -49,9 +49,12 @@ async function main() {
 	_httpInstance = http;
 	await http.start(HTTP_MCP_PORT);
 	if (isSingleSessionMode(cfg.auth.kind)) {
-		_keepAlive = new SessionKeepAlive(keepAliveIntervalMs(), () =>
-			engines.user.getCurrentUserInfo(),
-		);
+		_keepAlive = new SessionKeepAlive(keepAliveIntervalMs(), async () => {
+			await engines.user.getCurrentUserInfo();
+			// Reuse the periodic ping to also refresh the schema-freshness snapshot (not a wasted
+			// round-trip): the next schema read starts from a warm, validated cache.
+			await engines.warmSchemaCache();
+		});
 		_keepAlive.start();
 	}
 }

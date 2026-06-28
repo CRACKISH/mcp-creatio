@@ -155,9 +155,12 @@ async function main(): Promise<void> {
 	});
 	// Proactive keep-alive applies only to the single-session modes (legacy / client_credentials),
 	// which is exactly what stdio runs; it is opt-in via CREATIO_MCP_KEEPALIVE_SECONDS.
-	const keepAlive = new SessionKeepAlive(keepAliveIntervalMs(), () =>
-		engines.user.getCurrentUserInfo(),
-	);
+	const keepAlive = new SessionKeepAlive(keepAliveIntervalMs(), async () => {
+		await engines.user.getCurrentUserInfo();
+		// Reuse the periodic ping to also refresh the schema-freshness snapshot, so it isn't a
+		// wasted round-trip — the next schema read starts from a warm, validated cache.
+		await engines.warmSchemaCache();
+	});
 	keepAlive.start();
 	const state: RuntimeState = { server, keepAlive };
 

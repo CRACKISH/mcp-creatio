@@ -87,6 +87,12 @@ export class CreatioEngineManager {
 		return this._registry.require<UserEngine>(EngineType.User);
 	}
 
+	/** Proactively refresh the schema-freshness snapshot (no-op when the context doesn't support
+	 *  it). Lets the single-session keep-alive tick double as a cache-freshness check. */
+	public async warmSchemaCache(): Promise<void> {
+		await this._context.warmSchemaCache?.();
+	}
+
 	constructor(context: CreatioProviderContext, options?: EngineManagerOptions) {
 		this._context = context;
 		this._options = options;

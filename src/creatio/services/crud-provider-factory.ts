@@ -5,10 +5,14 @@ import { DataServiceCrudProvider } from './dataservice/data-service-crud-provide
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './odata/metadata-store';
 import { ODataCrudProvider } from './odata/odata-crud-provider';
+import { SchemaFreshnessGate } from './schema-freshness-gate';
 
 export interface CrudProviderDeps {
 	client: CreatioHttpClient;
 	metadataStore: ODataMetadataStore;
+	/** Shared schema-freshness gate (content-validated cache). Optional: omitted in tests, where
+	 *  schema caches stay purely TTL-driven. */
+	freshness?: SchemaFreshnessGate;
 }
 
 /**
@@ -23,7 +27,10 @@ export function createCrudProvider(
 ): CrudProvider {
 	switch (backend ?? 'dataservice') {
 		case 'dataservice':
-			return new DataServiceCrudProvider(deps.client);
+			return new DataServiceCrudProvider(
+				deps.client,
+				deps.freshness ? { freshness: deps.freshness } : {},
+			);
 		case 'odata':
 			return new ODataCrudProvider(deps.client, deps.metadataStore);
 		default:

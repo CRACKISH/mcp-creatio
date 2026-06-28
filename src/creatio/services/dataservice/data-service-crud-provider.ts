@@ -11,6 +11,7 @@ import {
 } from '../../contracts';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
+import { SchemaFreshnessGate } from '../schema-freshness-gate';
 
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
@@ -54,12 +55,15 @@ export class DataServiceCrudProvider implements CrudProvider {
 			queryBuilder?: DataServiceQueryBuilder;
 			filters?: DataServiceFilterTranslator;
 			schema?: DataServiceSchemaProvider;
+			freshness?: SchemaFreshnessGate;
 		} = {},
 	) {
 		this._transport = deps.transport ?? new DataServiceTransport(client);
 		this._queryBuilder = deps.queryBuilder ?? new DataServiceQueryBuilder();
 		this._filters = deps.filters ?? new DataServiceFilterTranslator();
-		this._schema = deps.schema ?? new DataServiceSchemaProvider(this._transport);
+		this._schema =
+			deps.schema ??
+			new DataServiceSchemaProvider(this._transport, undefined, undefined, deps.freshness);
 	}
 
 	private _rows(body: any): any[] {

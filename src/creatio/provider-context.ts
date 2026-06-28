@@ -18,4 +18,7 @@ export interface CreatioProviderContext {
 	process: ProcessProvider;
 	sysSettings: SysSettingsProvider;
 	user: UserProvider;
+	/** Optional: proactively refresh the schema-freshness snapshot (implemented by
+	 *  {@link CreatioServiceContext}; absent on test fakes). */
+	warmSchemaCache?(): Promise<void>;
 }

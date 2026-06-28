@@ -175,6 +175,29 @@ the client logs in directly against Creatio. Needs no server-side credentials. T
 through unverified (Creatio is the authority) — a **trusted-environment** mode (see the trust note
 above).
 
+**What the client sends.** The MCP **client** attaches the Creatio access token as a Bearer header
+on every `/mcp` request. In a client that supports static headers:
+
+```jsonc
+{
+	"creatio": {
+		"type": "http",
+		"url": "http://localhost:3000/mcp",
+		"headers": { "Authorization": "Bearer <CREATIO_ACCESS_TOKEN>" },
+	},
+}
+```
+
+Server side, just select the mode (no credentials needed):
+
+```bash
+CREATIO_MCP_AUTH_MODE=delegated
+CREATIO_BASE_URL=https://your-creatio.com
+```
+
+A request with **no** `Authorization` header gets `401` with a `WWW-Authenticate` challenge pointing
+at Creatio Identity (RFC 9728), so a compliant client knows where to log in.
+
 ### `gateway`
 
 A trusted fronting service (Creatio.ai Control-Plane) injects the Bearer; the MCP trusts and uses
@@ -183,6 +206,38 @@ it. The optional `X-Creatio-Base-Url` header routes a request to a specific Crea
 is sent, it is validated: set **`CREATIO_MCP_ALLOWED_BASE_URLS`** (comma-separated origins) to
 restrict it to your tenants. When unset, any `http(s)` host is accepted (trusting the gateway) except
 the cloud-metadata link-local address, which is always blocked (SSRF guard).
+
+**Who sends what.** Unlike `delegated`, the end client talks to the **gateway**, not to the MCP — so
+the **gateway** is what injects the per-request headers. On each forwarded `/mcp` call it sends:
+
+```http
+POST /mcp HTTP/1.1
+Authorization: Bearer <CREATIO_ACCESS_TOKEN>     # required — the tenant's Creatio token
+X-Creatio-Base-Url: https://tenant-a.creatio.com  # optional — pick the tenant's instance (multi-tenant)
+```
+
+Server side:
+
+```bash
+CREATIO_MCP_AUTH_MODE=gateway
+CREATIO_BASE_URL=https://default-creatio.com                          # fallback when no X-Creatio-Base-Url
+CREATIO_MCP_ALLOWED_BASE_URLS=https://tenant-a.creatio.com,https://tenant-b.creatio.com  # SSRF allowlist
+```
+
+Smoke-test it directly with `curl` (mint a token out-of-band first):
+
+```bash
+curl -sS http://localhost:3000/mcp \
+  -H "Authorization: Bearer $CREATIO_ACCESS_TOKEN" \
+  -H "X-Creatio-Base-Url: https://tenant-a.creatio.com" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-current-user-info","arguments":{}}}'
+```
+
+> **Only the Bearer token is injected** — not arbitrary credentials. The gateway owns auth: it should
+> exchange whatever it holds (SSO, cookie, etc.) into a Creatio OAuth access token **before** calling
+> the MCP. (Injecting other credential shapes, e.g. cookie/basic per tenant, is intentionally out of
+> scope for now.)
 
 ### `client_credentials` / `legacy`
 

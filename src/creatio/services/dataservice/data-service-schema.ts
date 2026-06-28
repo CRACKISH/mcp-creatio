@@ -1,5 +1,7 @@
 import { EntitySchemaDescription } from '../../contracts';
 
+import { SchemaFreshnessGate } from '../schema-freshness-gate';
+
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { DataServiceQueryBuilder } from './data-service-query-builder';
 import { DataServiceTransport } from './data-service-transport';
@@ -37,21 +39,31 @@ export class DataServiceSchemaProvider {
 	private readonly _transport: DataServiceTransport;
 	private readonly _queryBuilder: DataServiceQueryBuilder;
 	private readonly _filters: DataServiceFilterTranslator;
-	private readonly _schemaCache = new Map<string, { schema: RuntimeSchema; at: number }>();
+	private readonly _freshness: SchemaFreshnessGate | undefined;
+	// Keyed by `${baseUrl}::${name}` so a multi-tenant gateway never serves tenant A's schema to B.
+	// Each entry is stamped with the freshness version at fetch time; a version mismatch (the data
+	// model changed) treats it as a miss. The TTL is a coarse backstop (and the sole freshness gate
+	// when no SchemaFreshnessGate is wired — then `version` is constant and behaviour is unchanged).
+	private readonly _schemaCache = new Map<string, { schema: RuntimeSchema; version: string; at: number }>();
 
 	constructor(
 		transport: DataServiceTransport,
 		queryBuilder = new DataServiceQueryBuilder(),
 		filters = new DataServiceFilterTranslator(),
+		freshness?: SchemaFreshnessGate,
 	) {
 		this._transport = transport;
 		this._queryBuilder = queryBuilder;
 		this._filters = filters;
+		this._freshness = freshness;
 	}
 
 	private async _getRuntimeSchema(name: string): Promise<RuntimeSchema> {
-		const cached = this._schemaCache.get(name);
-		if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+		const baseUrl = this._transport.baseUrl;
+		const version = this._freshness ? await this._freshness.getSchemaVersion(baseUrl) : '';
+		const key = `${baseUrl}::${name}`;
+		const cached = this._schemaCache.get(key);
+		if (cached && cached.version === version && Date.now() - cached.at < CACHE_TTL_MS) {
 			return cached.schema;
 		}
 		const body = await this._transport.post(
@@ -63,7 +75,7 @@ export class DataServiceSchemaProvider {
 		if (!schema || !schema.name) {
 			throw new Error(`entity_not_found:${name}`);
 		}
-		this._schemaCache.set(name, { schema, at: Date.now() });
+		this._schemaCache.set(key, { schema, version, at: Date.now() });
 		return schema;
 	}
 

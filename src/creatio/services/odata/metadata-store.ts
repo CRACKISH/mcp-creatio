@@ -3,28 +3,47 @@ import { XMLParser } from 'fast-xml-parser';
 import log from '../../../log';
 import { EntitySchemaDescription } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
+import { SchemaFreshnessGate } from '../schema-freshness-gate';
 
 import { odataRoot } from './odata-routes';
 
 export class ODataMetadataStore {
 	private static readonly METADATA_TTL_MS = 30 * 60 * 1000;
 	private readonly _client: CreatioHttpClient;
+	private readonly _freshness: SchemaFreshnessGate | undefined;
 	private _metadataXml?: string;
 	private _metadataParsed?: any;
 	private _metadataFetchedAt = 0;
 	private _entitySetsCache?: string[];
 	private _entitySetsFetchedAt = 0;
+	// The base URL + freshness version the cached document/list were fetched under. A change in
+	// either (a different tenant via the gateway override, or a data-model change) invalidates the
+	// single-slot cache. Single-slot is intentional: per-tenant pooling is the multitenancy epic;
+	// here correctness (never serve another tenant's / a stale model's metadata) is what matters.
+	private _metadataBaseUrl?: string;
+	private _metadataVersion?: string;
+	private _entitySetsBaseUrl?: string;
+	private _entitySetsVersion?: string;
 	// Built once per parsed-metadata document so describeEntity is O(1) instead of two O(N) scans
 	// over the entire (hundreds-to-thousands of types) Creatio EDMX on every call.
 	private _entityTypeBySet: Map<string, string> | undefined;
 	private _typeNodeByName: Map<string, any> | undefined;
 
-	constructor(client: CreatioHttpClient) {
+	constructor(client: CreatioHttpClient, freshness?: SchemaFreshnessGate) {
 		this._client = client;
+		this._freshness = freshness;
 	}
 
 	private _isFresh(fetchedAt: number): boolean {
 		return Date.now() - fetchedAt < ODataMetadataStore.METADATA_TTL_MS;
+	}
+
+	/** Freshness version for the current request's base URL (empty when no gate is wired, which
+	 *  keeps the cache purely TTL-driven — the prior behaviour). */
+	private async _version(): Promise<string> {
+		return this._freshness
+			? this._freshness.getSchemaVersion(this._client.normalizedBaseUrl)
+			: '';
 	}
 
 	private _arrayify<T>(value: T | T[] | undefined | null): T[] {
@@ -35,16 +54,25 @@ export class ODataMetadataStore {
 	}
 
 	private async _getMetadataXml(): Promise<string> {
-		if (this._metadataXml && this._isFresh(this._metadataFetchedAt)) {
+		const baseUrl = this._client.normalizedBaseUrl;
+		const version = await this._version();
+		if (
+			this._metadataXml &&
+			this._metadataBaseUrl === baseUrl &&
+			this._metadataVersion === version &&
+			this._isFresh(this._metadataFetchedAt)
+		) {
 			return this._metadataXml;
 		}
 		const headers = await this._client.getXmlHeaders();
-		const metadataUrl = `${odataRoot(this._client.normalizedBaseUrl)}/$metadata`;
+		const metadataUrl = `${odataRoot(baseUrl)}/$metadata`;
 		const xmlContent = await this._client.fetchText(metadataUrl, async () => ({ headers }));
 		this._metadataXml = xmlContent;
 		this._metadataParsed = undefined; // force re-parse against the refreshed document
 		this._entityTypeBySet = undefined; // and rebuild the lookup indexes
 		this._typeNodeByName = undefined;
+		this._metadataBaseUrl = baseUrl;
+		this._metadataVersion = version;
 		this._metadataFetchedAt = Date.now();
 		return this._metadataXml;
 	}
@@ -159,12 +187,21 @@ export class ODataMetadataStore {
 	}
 
 	public async listEntitySets(): Promise<string[]> {
-		if (this._entitySetsCache && this._isFresh(this._entitySetsFetchedAt)) {
+		const baseUrl = this._client.normalizedBaseUrl;
+		const version = await this._version();
+		if (
+			this._entitySetsCache &&
+			this._entitySetsBaseUrl === baseUrl &&
+			this._entitySetsVersion === version &&
+			this._isFresh(this._entitySetsFetchedAt)
+		) {
 			return this._entitySetsCache;
 		}
 		const serviceSets = await this._tryGetEntitySetsFromService();
 		const result = serviceSets ?? (await this._getEntitySetsFromMetadata());
 		this._entitySetsCache = result;
+		this._entitySetsBaseUrl = baseUrl;
+		this._entitySetsVersion = version;
 		this._entitySetsFetchedAt = Date.now();
 		return result;
 	}

@@ -29,6 +29,12 @@ export class DataServiceTransport {
 		}
 	}
 
+	/** The Creatio instance base for the current request (honors the gateway per-request override).
+	 *  Used to key schema caches per tenant. */
+	public get baseUrl(): string {
+		return this._client.normalizedBaseUrl;
+	}
+
 	public endpoint(operation: string): string {
 		return `${this._client.normalizedBaseUrl}/0/DataService/json/SyncReply/${operation}`;
 	}
