@@ -44,9 +44,17 @@ function odataHarness() {
 		async getJsonHeaders() {
 			return {};
 		},
-		async fetchJson(url: string) {
+		logSuccess() {},
+		async request(_op: string, url: string, _build: unknown, onSuccess: any) {
 			captured.url = url;
-			return { value: [] };
+			const response = {
+				status: 200,
+				ok: true,
+				async json() {
+					return { value: [] };
+				},
+			};
+			return onSuccess(response, 0);
 		},
 	};
 	const provider = new ODataCrudProvider(client as never, {} as never);
@@ -91,11 +99,13 @@ describe('OData backend — read filter translation (full stack)', () => {
 	});
 
 	it('by date — ISO literal emitted UNQUOTED (OData v4 requires it; live 400 otherwise)', async () => {
-		expect(await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }] })).toBe(
-			'CreatedOn ge 2026-01-01',
-		);
 		expect(
-			await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }] }),
+			await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }] }),
+		).toBe('CreatedOn ge 2026-01-01');
+		expect(
+			await filterFor({
+				all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }],
+			}),
 		).toBe('CreatedOn ge 2026-06-01T00:00:00Z');
 	});
 
@@ -177,7 +187,13 @@ function dataServiceHarness() {
 		async fetchWithAuth(_url: string, initFactory: () => Promise<any>) {
 			const init = await initFactory();
 			captured.body = JSON.parse(init.body);
-			return { ok: true, status: 200, async json() { return { rows: [] }; } } as never;
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return { rows: [] };
+				},
+			} as never;
 		},
 		async request(_op: string, _url: string, build: () => Promise<any>, onSuccess: any) {
 			return onSuccess(await build(), 1);
@@ -211,22 +227,33 @@ describe('DataService backend — read filter translation (full stack)', () => {
 	it('by number -> Integer, with the right comparison', async () => {
 		const f = await filtersFor({ all: [{ field: 'Amount', op: 'gt', value: 100 }] });
 		expect(f.comparisonType).toBe(FilterComparisonType.Greater);
-		expect(f.rightExpression.parameter).toEqual({ dataValueType: DataValueType.Integer, value: 100 });
+		expect(f.rightExpression.parameter).toEqual({
+			dataValueType: DataValueType.Integer,
+			value: 100,
+		});
 	});
 
 	it('by boolean -> Boolean', async () => {
 		const f = await filtersFor({ all: [{ field: 'IsActive', op: 'eq', value: true }] });
-		expect(f.rightExpression.parameter).toEqual({ dataValueType: DataValueType.Boolean, value: true });
+		expect(f.rightExpression.parameter).toEqual({
+			dataValueType: DataValueType.Boolean,
+			value: true,
+		});
 	});
 
 	it('by primary-key GUID -> Guid', async () => {
 		const f = await filtersFor({ all: [{ field: 'Id', op: 'eq', value: GUID }] });
 		expect(f.leftExpression.columnPath).toBe('Id');
-		expect(f.rightExpression.parameter).toEqual({ dataValueType: DataValueType.Guid, value: GUID });
+		expect(f.rightExpression.parameter).toEqual({
+			dataValueType: DataValueType.Guid,
+			value: GUID,
+		});
 	});
 
 	it('by date -> DateTime', async () => {
-		const f = await filtersFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }] });
+		const f = await filtersFor({
+			all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }],
+		});
 		expect(f.comparisonType).toBe(FilterComparisonType.GreaterOrEqual);
 		expect(f.rightExpression.parameter.dataValueType).toBe(DataValueType.DateTime);
 	});
@@ -244,15 +271,18 @@ describe('DataService backend — read filter translation (full stack)', () => {
 	});
 
 	it('text functions map to Contain / StartWith / EndWith', async () => {
-		expect((await filtersFor({ all: [{ field: 'Name', op: 'contains', value: 'Ac' }] })).comparisonType).toBe(
-			FilterComparisonType.Contain,
-		);
-		expect((await filtersFor({ all: [{ field: 'Name', op: 'startswith', value: 'Ac' }] })).comparisonType).toBe(
-			FilterComparisonType.StartWith,
-		);
-		expect((await filtersFor({ all: [{ field: 'Name', op: 'endswith', value: 'me' }] })).comparisonType).toBe(
-			FilterComparisonType.EndWith,
-		);
+		expect(
+			(await filtersFor({ all: [{ field: 'Name', op: 'contains', value: 'Ac' }] }))
+				.comparisonType,
+		).toBe(FilterComparisonType.Contain);
+		expect(
+			(await filtersFor({ all: [{ field: 'Name', op: 'startswith', value: 'Ac' }] }))
+				.comparisonType,
+		).toBe(FilterComparisonType.StartWith);
+		expect(
+			(await filtersFor({ all: [{ field: 'Name', op: 'endswith', value: 'me' }] }))
+				.comparisonType,
+		).toBe(FilterComparisonType.EndWith);
 	});
 
 	it('in-list -> OR group of equalities (each FK navigated)', async () => {
@@ -286,7 +316,13 @@ describe('DataService backend — read filter translation (full stack)', () => {
 
 	it('carries columns / order / paging onto the SelectQuery', async () => {
 		const { read, captured } = dataServiceHarness();
-		await read({ entity: 'Order', select: ['Id', 'Amount'], orderBy: 'Amount desc', top: 25, skip: 50 });
+		await read({
+			entity: 'Order',
+			select: ['Id', 'Amount'],
+			orderBy: 'Amount desc',
+			top: 25,
+			skip: 50,
+		});
 		const q = captured.body;
 		expect(Object.keys(q.columns.items)).toEqual(['Id', 'Amount']);
 		expect(q.columns.items.Amount.orderDirection).toBe(2); // Descending
@@ -310,12 +346,25 @@ describe('write path — full stack', () => {
 		const captured: { url?: string; init?: any } = {};
 		const client = {
 			normalizedBaseUrl: 'https://t',
-			async getJsonHeaders() { return {}; },
-			async getPostHeaders() { return { 'Content-Type': 'application/json' }; },
+			async getJsonHeaders() {
+				return {};
+			},
+			async getPostHeaders() {
+				return { 'Content-Type': 'application/json' };
+			},
 			async fetchWithAuth(url: string, initFactory: () => Promise<any>) {
 				captured.url = url;
 				captured.init = await initFactory();
-				return { ok: true, status: 201, async json() { return { Id: 'new' }; }, async text() { return ''; } } as never;
+				return {
+					ok: true,
+					status: 201,
+					async json() {
+						return { Id: 'new' };
+					},
+					async text() {
+						return '';
+					},
+				} as never;
 			},
 			async request(_op: string, _url: string, build: () => Promise<any>, onSuccess: any) {
 				return onSuccess(await build(), 1);
@@ -338,17 +387,33 @@ describe('write path — full stack', () => {
 	it('DataService: update sends UpdateQuery with ColumnValues + id Filters', async () => {
 		const calls: Array<{ url: string; body: any }> = [];
 		const responses = [
-			{ success: true, schema: { name: 'Contact', columns: { Items: { Name: { name: 'Name', dataValueType: DataValueType.Text } } } } },
+			{
+				success: true,
+				schema: {
+					name: 'Contact',
+					columns: {
+						Items: { Name: { name: 'Name', dataValueType: DataValueType.Text } },
+					},
+				},
+			},
 			{ success: true, rowsAffected: 1 },
 		];
 		let i = 0;
 		const client = {
 			normalizedBaseUrl: 'https://t',
-			async createPostRequest(body: unknown) { return { method: 'POST', body: JSON.stringify(body) }; },
+			async createPostRequest(body: unknown) {
+				return { method: 'POST', body: JSON.stringify(body) };
+			},
 			async fetchWithAuth(url: string, initFactory: () => Promise<any>) {
 				const init = await initFactory();
 				calls.push({ url, body: JSON.parse(init.body) });
-				return { ok: true, status: 200, async json() { return responses[i++] ?? {}; } } as never;
+				return {
+					ok: true,
+					status: 200,
+					async json() {
+						return responses[i++] ?? {};
+					},
+				} as never;
 			},
 			async request(_op: string, _url: string, build: () => Promise<any>, onSuccess: any) {
 				return onSuccess(await build(), 1);
@@ -363,7 +428,10 @@ describe('write path — full stack', () => {
 		await handlers.get('update')!({ entity: 'Contact', id: GUID, data: { Name: 'Y' } });
 		const update = calls[1].body;
 		expect(update.url ?? calls[1].url).toContain('/UpdateQuery');
-		expect(update.columnValues.items.Name.parameter).toEqual({ dataValueType: DataValueType.Text, value: 'Y' });
+		expect(update.columnValues.items.Name.parameter).toEqual({
+			dataValueType: DataValueType.Text,
+			value: 'Y',
+		});
 		expect(update.filters.leftExpression.columnPath).toBe('Id');
 		expect(update.filters.rightExpression.parameter.value).toBe(GUID);
 	});
@@ -393,7 +461,9 @@ describe('DataService backend — null-checks & date encoding (full stack)', () 
 	});
 
 	it('date filter -> GreaterOrEqual with a quoted, Z-less DateTime parameter', async () => {
-		const f = await filtersFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }] });
+		const f = await filtersFor({
+			all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }],
+		});
 		expect(f.comparisonType).toBe(FilterComparisonType.GreaterOrEqual);
 		expect(f.rightExpression.parameter.dataValueType).toBe(DataValueType.DateTime);
 		expect(f.rightExpression.parameter.value).toBe('"2026-06-01T00:00:00"');
@@ -402,6 +472,9 @@ describe('DataService backend — null-checks & date encoding (full stack)', () 
 	it('numeric comparison uses the corrected Greater wire value', async () => {
 		const f = await filtersFor({ all: [{ field: 'Completeness', op: 'gt', value: 50 }] });
 		expect(f.comparisonType).toBe(FilterComparisonType.Greater); // 7, not the old 5
-		expect(f.rightExpression.parameter).toEqual({ dataValueType: DataValueType.Integer, value: 50 });
+		expect(f.rightExpression.parameter).toEqual({
+			dataValueType: DataValueType.Integer,
+			value: 50,
+		});
 	});
 });

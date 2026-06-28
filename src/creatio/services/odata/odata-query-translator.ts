@@ -1,4 +1,5 @@
 import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../../contracts';
+import { isGuid, isIsoDateLike } from '../identifiers';
 import { lookupIdPath } from '../lookup-path';
 
 /**
@@ -14,15 +15,10 @@ import { lookupIdPath } from '../lookup-path';
  *   embedded quotes doubled.
  */
 export class ODataQueryTranslator {
-	private static readonly GUID =
-		/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
-	private _isGuid(value: unknown): value is string {
-		return typeof value === 'string' && ODataQueryTranslator.GUID.test(value);
-	}
-
+	// A field whose name ends in `Id` (the scalar key `Id`, a lookup FK `XxxId`, or a nav `Xxx/Id`)
+	// — such a column is GUID-typed, so a GUID literal against it is emitted bare (see _literalFor).
 	private _isIdish(field: string): boolean {
-		return /(^|\/)Id$/.test(field) || /Id$/i.test(field);
+		return /Id$/i.test(field);
 	}
 
 	// A column path is an identifier, optionally navigation-dotted with `/` (e.g. `Contact/Name`).
@@ -37,12 +33,6 @@ export class ODataQueryTranslator {
 		}
 		return field;
 	}
-
-	// ISO-8601 date / date-time. OData v4 expresses Edm.Date and Edm.DateTimeOffset literals
-	// UNQUOTED (e.g. `2026-06-01`, `2026-06-01T00:00:00Z`); quoting them 400s with
-	// "incompatible types Edm.DateTimeOffset and Edm.String".
-	private static readonly ISO_DATETIME =
-		/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
 	private _escapeStr(value: string): string {
 		return value.replace(/'/g, "''");
@@ -65,10 +55,12 @@ export class ODataQueryTranslator {
 			const v = String(value);
 			// Bare (unquoted) GUID for any Id-typed path — the scalar key `Id`, a lookup FK
 			// `XxxId`, or a navigation `Xxx/Id`. Other strings (incl. `Xxx/Name`) are quoted.
-			if (this._isGuid(v) && this._isIdish(field)) {
+			if (isGuid(v) && this._isIdish(field)) {
 				return v;
 			}
-			if (temporal && ODataQueryTranslator.ISO_DATETIME.test(v)) {
+			// OData v4 expresses Edm.Date / Edm.DateTimeOffset literals UNQUOTED (quoting them 400s
+			// with "incompatible types Edm.DateTimeOffset and Edm.String").
+			if (temporal && isIsoDateLike(v)) {
 				return v;
 			}
 			return `'${this._escapeStr(v)}'`;
@@ -79,7 +71,7 @@ export class ODataQueryTranslator {
 	/** Navigate a lookup compared to a GUID to its `Id` path (`ContactId`/`Owner`/`Contact/Type`
 	 *  -> `…/Id`); non-GUID values and already-`Id` paths are left untouched. */
 	private _lookupNavField(field: string, value: unknown): string {
-		return this._isGuid(value) ? lookupIdPath(field, '/') : field;
+		return isGuid(value) ? lookupIdPath(field, '/') : field;
 	}
 
 	private _condition(node: FilterCondition): string | undefined {

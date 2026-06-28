@@ -69,8 +69,6 @@ describe('LegacyProvider', () => {
 			'fetch',
 			vi.fn(async () => new Response('', { status: 200 })),
 		);
-		await expect(makeProvider().getHeaders(JSON_ACCEPT, true)).rejects.toThrow(
-			/no_set_cookie/,
-		);
+		await expect(makeProvider().getHeaders(JSON_ACCEPT, true)).rejects.toThrow(/no_set_cookie/);
 	});
 });

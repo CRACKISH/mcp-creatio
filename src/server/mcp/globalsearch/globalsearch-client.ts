@@ -1,5 +1,4 @@
-import log from '../../../log';
-import { ConfigurationCaller, SysSettingReader, hasNonEmptySetting } from '../creatio-rest';
+import { ConfigurationCaller, SysSettingReader, probeSettingEnabled } from '../creatio-rest';
 
 /**
  * Global Search access layer.
@@ -47,14 +46,8 @@ export class GlobalSearchClient {
 	 * feature; a configured URL is the cheap operator-facing signal used to decide
 	 * whether to expose the tool. Probe failures degrade to "disabled".
 	 */
-	public async isEnabled(): Promise<boolean> {
-		try {
-			const response = await this._sysSettings.queryValues([SEARCH_URL_SETTING]);
-			return hasNonEmptySetting(response, SEARCH_URL_SETTING);
-		} catch (err) {
-			log.warn('globalsearch.probe.failed', { error: String(err) });
-			return false;
-		}
+	public isEnabled(): Promise<boolean> {
+		return probeSettingEnabled(this._sysSettings, SEARCH_URL_SETTING, 'globalsearch');
 	}
 
 	/**

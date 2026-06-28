@@ -40,7 +40,12 @@ export function makeFakeContext(authType: AuthProviderType = AuthProviderType.Le
 			listEntitySets: vi.fn().mockResolvedValue(['Contact', 'Account']),
 			describeEntity: vi
 				.fn()
-				.mockResolvedValue({ entitySet: 'Contact', entityType: 'Contact', key: ['Id'], properties: [] }),
+				.mockResolvedValue({
+					entitySet: 'Contact',
+					entityType: 'Contact',
+					key: ['Id'],
+					properties: [],
+				}),
 			read: vi.fn().mockResolvedValue({ items: [{ Id: '1' }] }),
 			create: vi.fn().mockResolvedValue({ id: 'new-id' }),
 			update: vi.fn().mockResolvedValue('updated'),

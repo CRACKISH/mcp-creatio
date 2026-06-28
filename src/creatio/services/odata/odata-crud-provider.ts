@@ -1,4 +1,3 @@
-import log from '../../../log';
 import {
 	CrudCapabilities,
 	CrudDeleteParams,
@@ -11,6 +10,7 @@ import {
 } from '../../contracts';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
+import { GUID_RE } from '../identifiers';
 
 import { ODataMetadataStore } from './metadata-store';
 import { ODataQueryTranslator } from './odata-query-translator';
@@ -49,10 +49,8 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	private _formatEntityKey(id: string): string {
-		const GUID_PATTERN =
-			/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-		const NUMERIC_PATTERN = /^\d+$/;
-		if (NUMERIC_PATTERN.test(id) || GUID_PATTERN.test(id)) {
+		// A numeric or GUID key is a bare literal; any other string key is quoted (quotes doubled).
+		if (/^\d+$/.test(id) || GUID_RE.test(id)) {
 			return id;
 		}
 		return `'${id.replace(/'/g, "''")}'`;
@@ -89,43 +87,39 @@ export class ODataCrudProvider implements CrudProvider {
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		const { entity, count } = query;
-		const startTime = Date.now();
 		const queryParams = this._translator.buildQueryParams(query);
 		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
-		const headers = await this._client.getJsonHeaders();
-		try {
-			const body = await this._client.fetchJson(url, async () => ({ headers }));
-			const value = this._extractODataValue(body);
-			const items = Array.isArray(value) ? value : value != null ? [value] : [];
-			const duration = Date.now() - startTime;
-			// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
-			const total =
-				body && typeof body === 'object' && '@odata.count' in body
-					? Number((body as Record<string, unknown>)['@odata.count'])
-					: undefined;
-			log.info('creatio.crud.read.success', {
-				entity,
-				select: query.columns?.join(','),
-				expand: query.odata?.expand?.join(','),
-				top: query.top,
-				skip: query.skip,
-				count,
-				resultCount: items.length,
-				total,
-				duration,
-			});
-			// Surface the server-side total only when a count was requested and present.
-			return count && total !== undefined ? { items, totalCount: total } : { items };
-		} catch (error: any) {
-			const duration = Date.now() - startTime;
-			log.error('creatio.crud.read.error', {
-				entity,
-				url,
-				error: String(error?.message ?? error),
-				duration,
-			});
-			throw error;
-		}
+		return this._client.request(
+			'read',
+			url,
+			async () => {
+				const headers = await this._client.getJsonHeaders();
+				return this._client.fetchWithAuth(url, async () => ({ headers }));
+			},
+			async (response, duration) => {
+				const body: any = await response.json().catch(() => ({}));
+				const value = this._extractODataValue(body);
+				const items = Array.isArray(value) ? value : value != null ? [value] : [];
+				// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
+				const total =
+					body && typeof body === 'object' && '@odata.count' in body
+						? Number((body as Record<string, unknown>)['@odata.count'])
+						: undefined;
+				this._client.logSuccess('read', response.status, duration, {
+					entity,
+					select: query.columns?.join(','),
+					expand: query.odata?.expand?.join(','),
+					top: query.top,
+					skip: query.skip,
+					count,
+					resultCount: items.length,
+					total,
+				});
+				// Surface the server-side total only when a count was requested and present.
+				return count && total !== undefined ? { items, totalCount: total } : { items };
+			},
+			{ errorPrefix: 'creatio_read_failed', logContext: { entity } },
+		);
 	}
 
 	public async update({ entity, id, data }: CrudUpdateParams) {

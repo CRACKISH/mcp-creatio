@@ -20,7 +20,13 @@ function makeClient(responses: any[]) {
 			const init = await initFactory();
 			calls.push({ url, body: JSON.parse(init.body) });
 			const body = responses[i++] ?? {};
-			return { ok: true, status: 200, async json() { return body; } } as never;
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return body;
+				},
+			} as never;
 		},
 		async request(_op: string, _url: string, build: () => Promise<any>, onSuccess: any) {
 			return onSuccess(await build(), 1);
@@ -71,7 +77,10 @@ describe('toParameterDataValueType (extended column type -> base parameter type)
 describe('DataServiceQueryBuilder select normalization + paging', () => {
 	it('aliases by the requested name and normalizes lookup-FK column paths', () => {
 		const provider = new DataServiceCrudProvider({} as never);
-		const q = provider.buildSelectQuery({ entity: 'Contact', columns: ['Id', 'TypeId', 'Type', 'Type/Name'] });
+		const q = provider.buildSelectQuery({
+			entity: 'Contact',
+			columns: ['Id', 'TypeId', 'Type', 'Type/Name'],
+		});
 		expect(Object.keys(q.columns.items)).toEqual(['Id', 'TypeId', 'Type', 'Type/Name']);
 		expect(q.columns.items.Id.expression.columnPath).toBe('Id');
 		expect(q.columns.items.TypeId.expression.columnPath).toBe('Type.Id'); // scalar FK -> Id path
@@ -107,7 +116,14 @@ describe('DataServiceCrudProvider.read fixes', () => {
 describe('DataServiceCrudProvider.listEntitySets dedupes by name', () => {
 	it('collapses duplicate Names from the workspace view', async () => {
 		const { client } = makeClient([
-			{ rows: [{ Name: 'Account' }, { Name: 'MktgActivity' }, { Name: 'MktgActivity' }, { Name: 'Contact' }] },
+			{
+				rows: [
+					{ Name: 'Account' },
+					{ Name: 'MktgActivity' },
+					{ Name: 'MktgActivity' },
+					{ Name: 'Contact' },
+				],
+			},
 		]);
 		const provider = new DataServiceCrudProvider(client as never);
 		expect(await provider.listEntitySets()).toEqual(['Account', 'MktgActivity', 'Contact']);

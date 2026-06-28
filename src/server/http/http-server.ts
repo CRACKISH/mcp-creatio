@@ -3,26 +3,19 @@ import { Socket } from 'node:net';
 
 import express from 'express';
 
-import { AuthProviderType, CreatioOAuthClient } from '../../creatio/';
 import log from '../../log';
 import { SessionContext } from '../../sessions';
-import { BearerEdge } from '../bearer';
-import { OAuthServer } from '../oauth';
 
-import { BrokerHandlers } from './broker-handlers';
+import { AuthEdge, createAuthEdge } from './auth-edge';
 import { McpHandlers } from './mcp-handlers';
 import { HttpMiddleware } from './middleware';
 
-import type { BearerAuthConfig, BrokerAuthConfig, CreatioClientConfig } from '../../creatio/';
+import type { CreatioClientConfig } from '../../creatio/';
 import type { Server } from '../mcp';
 
 export class HttpServer {
 	private static readonly BODY_LIMIT = '10mb';
 	private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-	// Per-route fixed-window limits (per IP) for the unauthenticated broker OAuth surface.
-	private static readonly RATE_LIMIT_AUTH_FLOW = { windowMs: 60_000, max: 60 };
-	private static readonly RATE_LIMIT_TOKEN = { windowMs: 60_000, max: 30 };
-	private static readonly RATE_LIMIT_REGISTER = { windowMs: 60_000, max: 10 };
 	private readonly _server: Server;
 	private readonly _app = express();
 	private readonly _connections = new Set<Socket>();
@@ -31,9 +24,7 @@ export class HttpServer {
 	private readonly _sessionContext = SessionContext.instance;
 	private readonly _middleware = new HttpMiddleware();
 	private readonly _mcpHandlers: McpHandlers;
-	private readonly _bearerEdge: BearerEdge | undefined;
-	private readonly _broker: BrokerHandlers | undefined;
-	private readonly _brokerOAuth: OAuthServer | undefined;
+	private readonly _authEdge: AuthEdge | undefined;
 
 	public get app(): express.Express {
 		return this._app;
@@ -42,18 +33,7 @@ export class HttpServer {
 	constructor(server: Server, config?: CreatioClientConfig) {
 		this._server = server;
 		this._mcpHandlers = new McpHandlers(this._server);
-		const auth = config?.auth;
-		if (auth?.kind === AuthProviderType.OAuth2Bearer) {
-			this._bearerEdge = new BearerEdge(auth as BearerAuthConfig, config!.baseUrl);
-		} else if (auth?.kind === AuthProviderType.Broker) {
-			const brokerAuth = auth as BrokerAuthConfig;
-			this._brokerOAuth = new OAuthServer(brokerAuth.jwtSecret);
-			this._broker = new BrokerHandlers(
-				this._brokerOAuth,
-				new CreatioOAuthClient(config!.baseUrl, brokerAuth),
-				this._sessionContext,
-			);
-		}
+		this._authEdge = createAuthEdge(config, this._sessionContext);
 		this._setupMiddleware();
 		this._setupRoutes();
 	}
@@ -63,51 +43,23 @@ export class HttpServer {
 		this._app.use(this._middleware.requestLogging());
 		this._app.use(express.json({ limit: HttpServer.BODY_LIMIT }));
 		this._app.use(express.urlencoded({ extended: true, limit: HttpServer.BODY_LIMIT }));
-		if (this._bearerEdge) {
-			// Stateless per-request auth: every /mcp call must carry a Creatio access token.
-			this._app.use('/mcp', this._bearerEdge.mcpAuth());
-		} else if (this._broker) {
-			// Broker mode: /mcp requires a token THIS server issued.
-			this._app.use('/mcp', this._broker.mcpAuth());
+		// Guard /mcp with the configured auth strategy (delegated/gateway bearer, or the broker's
+		// own issued token); no edge means a single-identity config with nothing to authenticate.
+		if (this._authEdge) {
+			this._app.use('/mcp', this._authEdge.mcpAuth());
 		}
 		this._app.use(this._middleware.errorHandler());
 	}
 
 	private _setupRoutes(): void {
 		this._setupMCPEndpoints();
-		if (this._bearerEdge) {
-			this._bearerEdge.registerRoutes(this._app);
-		} else if (this._broker) {
-			this._setupBrokerEndpoints(this._broker);
-		}
+		this._authEdge?.registerRoutes(this._app, (o) => this._middleware.rateLimit(o));
 	}
 
 	private _setupMCPEndpoints(): void {
 		this._app.post('/mcp', (req, res) => this._mcpHandlers.handleMcpPost(req, res));
 		this._app.get('/mcp', (req, res) => this._mcpHandlers.handleSessionRequest(req, res));
 		this._app.delete('/mcp', (req, res) => this._mcpHandlers.handleSessionRequest(req, res));
-	}
-
-	private _setupBrokerEndpoints(broker: BrokerHandlers): void {
-		const rl = (o: { windowMs: number; max: number }) => this._middleware.rateLimit(o);
-		this._app.get('/.well-known/oauth-authorization-server', (q, s) =>
-			broker.handleMetadata(q, s),
-		);
-		this._app.get('/.well-known/oauth-protected-resource', (q, s) =>
-			broker.handleProtectedResourceMetadata(q, s),
-		);
-		this._app.post('/register', rl(HttpServer.RATE_LIMIT_REGISTER), (q, s) =>
-			broker.handleRegister(q, s),
-		);
-		this._app.get('/authorize', rl(HttpServer.RATE_LIMIT_AUTH_FLOW), (q, s) =>
-			broker.handleAuthorize(q, s),
-		);
-		this._app.get('/oauth/callback', rl(HttpServer.RATE_LIMIT_AUTH_FLOW), (q, s) =>
-			broker.handleCallback(q, s),
-		);
-		this._app.post('/token', rl(HttpServer.RATE_LIMIT_TOKEN), (q, s) =>
-			broker.handleToken(q, s),
-		);
 	}
 
 	public start(port: number) {
@@ -126,13 +78,13 @@ export class HttpServer {
 				this._connections.add(socket);
 				socket.once('close', () => this._connections.delete(socket));
 			});
-			// Broker mode keeps transient state (codes, pending auths, user tokens) — evict expired
-			// entries periodically so the maps stay bounded. Unref'd so it never holds the loop open.
-			if (this._brokerOAuth) {
-				this._cleanupTimer = setInterval(() => {
-					this._brokerOAuth!.cleanup();
-					this._sessionContext.evictStaleTokens();
-				}, HttpServer.CLEANUP_INTERVAL_MS);
+			// Some edges (broker) keep transient state to evict periodically so the maps stay
+			// bounded. Unref'd so it never holds the loop open.
+			if (this._authEdge?.cleanup) {
+				this._cleanupTimer = setInterval(
+					() => this._authEdge!.cleanup!(),
+					HttpServer.CLEANUP_INTERVAL_MS,
+				);
 				this._cleanupTimer.unref();
 			}
 		});

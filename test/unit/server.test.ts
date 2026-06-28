@@ -174,7 +174,10 @@ describe('Server tool handlers (read path)', () => {
 	it('omits OData-only read params (filter/expand) when the backend lacks the capability', async () => {
 		const context = makeFakeContext();
 		// A DataService-like backend: no raw $filter, no $expand.
-		(context.crud as { capabilities: unknown }).capabilities = { rawFilter: false, expand: false };
+		(context.crud as { capabilities: unknown }).capabilities = {
+			rawFilter: false,
+			expand: false,
+		};
 		const engines = new CreatioEngineManager(context as never);
 		const server = new Server(engines, { readonlyMode: false });
 		const handlers = (server as unknown as { _handlers: Map<string, ToolHandler> })._handlers;
@@ -579,7 +582,9 @@ describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)',
 			expect(handlers.has(name)).toBe(false);
 		}
 		// describe-entity must not route through DataForge, and no probe traffic is sent.
-		expect((server as unknown as { _isDataForgeReady(): boolean })._isDataForgeReady()).toBe(false);
+		expect((server as unknown as { _isDataForgeReady(): boolean })._isDataForgeReady()).toBe(
+			false,
+		);
 		expect(context.sysSettings.queryValues).not.toHaveBeenCalledWith(['DataForgeServiceUrl']);
 	});
 

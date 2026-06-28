@@ -1,5 +1,5 @@
 import { OAuth2AuthConfig } from '../../client-config';
-import { EXPIRES_MARGIN_SECONDS, buildHeaders, resolveIdentityBase } from '../auth';
+import { buildHeaders, computeTokenExpiryMs, resolveIdentityBase } from '../auth';
 
 import { BaseProvider } from './base-provider';
 
@@ -25,10 +25,6 @@ export abstract class BaseOAuth2Provider<
 
 	/** Raw token acquisition (the network call only); returns undefined on failure. */
 	protected abstract fetchToken(): Promise<FetchedToken | undefined>;
-
-	protected computeExpiryMs(expiresInSeconds: number, minSeconds: number = 1): number {
-		return Date.now() + Math.max(minSeconds, expiresInSeconds - EXPIRES_MARGIN_SECONDS) * 1000;
-	}
 
 	protected getIdentityBase(): string {
 		return resolveIdentityBase(this.config.baseUrl, this.authConfig.idBaseUrl);
@@ -65,7 +61,7 @@ export abstract class BaseOAuth2Provider<
 			return undefined;
 		}
 		this.accessToken = fetched.accessToken;
-		this.accessTokenExpiryMs = this.computeExpiryMs(fetched.expiresInSeconds, 1);
+		this.accessTokenExpiryMs = computeTokenExpiryMs(fetched.expiresInSeconds);
 		return this.accessToken;
 	}
 

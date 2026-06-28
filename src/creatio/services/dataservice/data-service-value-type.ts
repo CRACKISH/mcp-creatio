@@ -1,15 +1,12 @@
+import { ISO_DATETIME_RE, isGuid } from '../identifiers';
+
 import { DataValueType } from './data-service-types';
 
 /** Resolves the {@link DataValueType} for a column value (schema-aware or heuristic). */
 export type ValueTypeResolver = (field: string, value: unknown) => DataValueType;
 
-const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-// Strict ISO-8601 date / datetime (so arbitrary text is never misread as a date).
-const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
-
-export function isGuid(value: unknown): value is string {
-	return typeof value === 'string' && GUID.test(value);
-}
+// Re-exported so existing DataService consumers keep a single import site.
+export { isGuid };
 
 /**
  * Best-effort {@link DataValueType} for a value when authoritative entity metadata is not
@@ -35,7 +32,7 @@ export function inferDataValueType(field: string, value: unknown): DataValueType
 		if (isGuid(value)) {
 			return DataValueType.Guid;
 		}
-		if (ISO_DATETIME.test(value)) {
+		if (ISO_DATETIME_RE.test(value)) {
 			return DataValueType.DateTime;
 		}
 	}

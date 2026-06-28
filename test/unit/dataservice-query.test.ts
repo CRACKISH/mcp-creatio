@@ -26,7 +26,13 @@ function makeClient(responses: any[]) {
 			const init = await initFactory();
 			calls.push({ url, body: JSON.parse(init.body) });
 			const body = responses[i++] ?? {};
-			return { ok: true, status: 200, async json() { return body; } } as never;
+			return {
+				ok: true,
+				status: 200,
+				async json() {
+					return body;
+				},
+			} as never;
 		},
 		async request(_op: string, _url: string, buildRequest: () => Promise<any>, onSuccess: any) {
 			return onSuccess(await buildRequest(), 1);
@@ -44,7 +50,9 @@ describe('inferDataValueType (heuristic fallback)', () => {
 		expect(inferDataValueType('Count', 5)).toBe(DataValueType.Integer);
 		expect(inferDataValueType('Amount', 5.5)).toBe(DataValueType.Float);
 		expect(inferDataValueType('ContactId', GUID)).toBe(DataValueType.Guid);
-		expect(inferDataValueType('CreatedOn', '2026-06-27T00:00:00Z')).toBe(DataValueType.DateTime);
+		expect(inferDataValueType('CreatedOn', '2026-06-27T00:00:00Z')).toBe(
+			DataValueType.DateTime,
+		);
 		expect(inferDataValueType('Name', 'Bob')).toBe(DataValueType.Text);
 	});
 });
@@ -112,7 +120,12 @@ describe('DataServiceFilterTranslator', () => {
 	});
 
 	it('types a GUID right-side parameter as Guid and a contains as Text', () => {
-		const eq = t.translate('X', { kind: 'condition', field: 'ContactId', op: 'eq', value: GUID })!;
+		const eq = t.translate('X', {
+			kind: 'condition',
+			field: 'ContactId',
+			op: 'eq',
+			value: GUID,
+		})!;
 		expect(eq.rightExpression).toMatchObject({
 			parameter: { dataValueType: DataValueType.Guid, value: GUID },
 		});
@@ -158,17 +171,32 @@ describe('DataServiceFilterTranslator', () => {
 	});
 
 	it('normalizes OData-style field paths to DataService column paths', () => {
-		const nav = t.translate('X', { kind: 'condition', field: 'Contact/Name', op: 'eq', value: 'Bob' })!;
+		const nav = t.translate('X', {
+			kind: 'condition',
+			field: 'Contact/Name',
+			op: 'eq',
+			value: 'Bob',
+		})!;
 		expect(nav.leftExpression).toMatchObject({ columnPath: 'Contact.Name' });
 		// scalar lookup FK compared to a GUID -> navigate to the lookup primary key
-		const fk = t.translate('X', { kind: 'condition', field: 'ContactId', op: 'eq', value: GUID })!;
+		const fk = t.translate('X', {
+			kind: 'condition',
+			field: 'ContactId',
+			op: 'eq',
+			value: GUID,
+		})!;
 		expect(fk.leftExpression).toMatchObject({ columnPath: 'Contact.Id' });
 	});
 
 	it('uses an injected schema-aware resolver for parameter typing', () => {
 		const resolver = () => DataValueType.Lookup;
 		const lt = new DataServiceFilterTranslator(resolver);
-		const f = lt.translate('X', { kind: 'condition', field: 'Contact', op: 'eq', value: GUID })!;
+		const f = lt.translate('X', {
+			kind: 'condition',
+			field: 'Contact',
+			op: 'eq',
+			value: GUID,
+		})!;
 		expect(f.rightExpression).toMatchObject({
 			parameter: { dataValueType: DataValueType.Lookup },
 		});
@@ -193,10 +221,16 @@ describe('DataServiceCrudProvider.read (transport)', () => {
 		const provider = new DataServiceCrudProvider(client as never);
 		await provider.read({
 			entity: 'Opportunity',
-			filter: { kind: 'group', logic: 'and', items: [{ kind: 'condition', field: 'ContactId', op: 'eq', value: GUID2 }] },
+			filter: {
+				kind: 'group',
+				logic: 'and',
+				items: [{ kind: 'condition', field: 'ContactId', op: 'eq', value: GUID2 }],
+			},
 		});
 		expect(calls[0].body.filters.rootSchemaName).toBe('Opportunity');
-		expect(calls[0].body.filters.rightExpression.parameter.dataValueType).toBe(DataValueType.Guid);
+		expect(calls[0].body.filters.rightExpression.parameter.dataValueType).toBe(
+			DataValueType.Guid,
+		);
 	});
 
 	it('issues a second COUNT aggregation query when count is requested', async () => {
@@ -229,7 +263,12 @@ describe('DataServiceCrudProvider schema (RuntimeEntitySchemaRequest / VwSysSche
 			primaryColumnUId: 'pk',
 			columns: {
 				Items: {
-					Id: { uId: 'pk', name: 'Id', dataValueType: DataValueType.Guid, isRequired: true },
+					Id: {
+						uId: 'pk',
+						name: 'Id',
+						dataValueType: DataValueType.Guid,
+						isRequired: true,
+					},
 					Name: { name: 'Name', dataValueType: DataValueType.Text, isRequired: false },
 					Account: {
 						name: 'Account',
@@ -243,7 +282,12 @@ describe('DataServiceCrudProvider schema (RuntimeEntitySchemaRequest / VwSysSche
 
 	it('lists entity sets via a DISTINCT VwSysSchemaInWorkspace SelectQuery', async () => {
 		const { client, calls } = makeClient([
-			{ rows: [{ Name: 'Account', Caption: 'Accounts' }, { Name: 'Contact', Caption: 'Contacts' }] },
+			{
+				rows: [
+					{ Name: 'Account', Caption: 'Accounts' },
+					{ Name: 'Contact', Caption: 'Contacts' },
+				],
+			},
 		]);
 		const provider = new DataServiceCrudProvider(client as never);
 		const names = await provider.listEntitySets();
@@ -282,9 +326,15 @@ describe('DataServiceCrudProvider write (Insert/Update/Delete + coercion)', () =
 	};
 
 	it('insert types ColumnValues from metadata (Lookup written by id -> Guid)', async () => {
-		const { client, calls } = makeClient([schemaResponse, { success: true, id: 'new-id', rowsAffected: 1 }]);
+		const { client, calls } = makeClient([
+			schemaResponse,
+			{ success: true, id: 'new-id', rowsAffected: 1 },
+		]);
 		const provider = new DataServiceCrudProvider(client as never);
-		const res = await provider.create({ entity: 'Contact', data: { Name: 'Bob', Account: GUID3 } });
+		const res = await provider.create({
+			entity: 'Contact',
+			data: { Name: 'Bob', Account: GUID3 },
+		});
 		expect(res).toEqual({ id: 'new-id', success: true, rowsAffected: 1 });
 		const insert = calls[1].body;
 		expect(insert.rootSchemaName).toBe('Contact');

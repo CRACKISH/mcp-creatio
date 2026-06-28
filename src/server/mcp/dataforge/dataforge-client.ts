@@ -3,7 +3,7 @@ import {
 	ConfigurationCallResult,
 	ConfigurationCaller,
 	SysSettingReader,
-	hasNonEmptySetting,
+	probeSettingEnabled,
 } from '../creatio-rest';
 
 // Re-export the shared contracts so existing importers/tests of this module keep working.
@@ -63,14 +63,8 @@ export class DataForgeClient {
 	 * `DataForgeServiceUrl`, mirroring the server-side `IsDataForgeEnabled` check.
 	 * Probe failures are treated as "disabled" so callers degrade gracefully.
 	 */
-	public async isEnabled(): Promise<boolean> {
-		try {
-			const response = await this._sysSettings.queryValues([SERVICE_URL_SETTING]);
-			return hasNonEmptySetting(response, SERVICE_URL_SETTING);
-		} catch (err) {
-			log.warn('dataforge.probe.failed', { error: String(err) });
-			return false;
-		}
+	public isEnabled(): Promise<boolean> {
+		return probeSettingEnabled(this._sysSettings, SERVICE_URL_SETTING, 'dataforge');
 	}
 
 	public getSimilarTableNames(q: SimilarTablesQuery): Promise<ConfigurationCallResult> {

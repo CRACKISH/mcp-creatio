@@ -2,7 +2,7 @@ import { CreatioOAuthClient } from '../../creatio';
 import log from '../../log';
 import { SessionContext } from '../../sessions';
 import { generatePkcePair } from '../../utils';
-import { inspectBearer } from '../bearer';
+import { buildProtectedResourceMetadata, inspectBearer } from '../bearer';
 import { OAuthServer, OAuthValidators } from '../oauth';
 
 import type { NextFunction, Request, Response } from 'express';
@@ -62,12 +62,7 @@ export class BrokerHandlers {
 	/** RFC 9728: in broker mode WE are the authorization server, so it points back at this origin. */
 	public handleProtectedResourceMetadata(req: Request, res: Response): void {
 		const base = origin(req);
-		res.json({
-			resource: `${base}/mcp`,
-			authorization_servers: [base],
-			scopes_supported: ['offline_access'],
-			bearer_methods_supported: ['header'],
-		});
+		res.json(buildProtectedResourceMetadata(`${base}/mcp`, base));
 	}
 
 	/**

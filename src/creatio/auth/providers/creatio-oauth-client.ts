@@ -3,9 +3,9 @@ import { UserTokens } from '../../../sessions';
 import { BrokerAuthConfig } from '../../client-config';
 import {
 	AUTHORIZE_ENDPOINT,
-	EXPIRES_MARGIN_SECONDS,
 	PKCE_S256,
 	TOKEN_ENDPOINT,
+	computeTokenExpiryMs,
 	resolveIdentityBase,
 } from '../auth';
 
@@ -112,7 +112,7 @@ export class CreatioOAuthClient {
 		const lifetime = Number(json.expires_in) || DEFAULT_TOKEN_LIFETIME_SECONDS;
 		return {
 			accessToken: String(json.access_token),
-			accessTokenExpiryMs: Date.now() + Math.max(1, lifetime - EXPIRES_MARGIN_SECONDS) * 1000,
+			accessTokenExpiryMs: computeTokenExpiryMs(lifetime),
 			...(json.refresh_token ? { refreshToken: String(json.refresh_token) } : {}),
 		};
 	}
