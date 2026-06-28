@@ -85,4 +85,25 @@ describe('BrokerProvider — serves stored per-user Creatio tokens', () => {
 			new BrokerProvider(config()).getHeaders('application/json', true),
 		).rejects.toThrow(/broker_no_user/);
 	});
+
+	it('refresh() rotates the stored refresh token for the current user', async () => {
+		resetSessionContext();
+		await SessionContext.instance.setTokensForUser('u1', {
+			accessToken: 'old',
+			accessTokenExpiryMs: Date.now() + 3_600_000,
+			refreshToken: 'RT',
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonOk({ access_token: 'fresh', refresh_token: 'RT2', expires_in: 3600 }),
+			),
+		);
+		await runWithContext({ userKey: 'u1' }, () => new BrokerProvider(config()).refresh());
+		expect((await SessionContext.instance.getTokensForUser('u1'))?.refreshToken).toBe('RT2');
+	});
+
+	it('refresh() is a no-op without a user context', async () => {
+		await expect(new BrokerProvider(config()).refresh()).resolves.toBeUndefined();
+	});
 });

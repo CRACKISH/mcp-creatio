@@ -371,11 +371,21 @@ If adding new auth provider:
 > **Token model by mode.** In **`broker`** the MCP IS its own OAuth 2.1 authorization server for
 > clients (`src/server/oauth/` + `http/broker-handlers.ts`): it does DCR + `/authorize` + `/token`
 > (`authorization_code` **and** rotating `refresh_token` grants), brokers the login to Creatio via
-> authorization_code+PKCE, and holds each user's Creatio tokens server-side in `SessionContext`
-> (in-memory; lost on restart — a `401 invalid_token` then makes the client re-authorize). The tokens
-> it issues are **audience-bound** (`aud`=`/mcp`, `iss`=origin; verified on every `/mcp` call) so a
-> token from one deployment is rejected by another sharing the secret; the signing secret
-> (`CREATIO_MCP_JWT_SECRET`) must be ≥32 chars and is required in production.
+> authorization_code+PKCE, and holds each user's Creatio tokens server-side via a `TokenStore`
+> (`src/sessions/token-store.ts`). The tokens it issues are **audience-bound** (`aud`=`/mcp`,
+> `iss`=origin; verified on every `/mcp` call) so a token from one deployment is rejected by another
+> sharing the secret; the signing secret (`CREATIO_MCP_JWT_SECRET`) must be ≥32 chars and is required
+> in production.
+>
+> **Broker token store + prod.** Default `InMemoryTokenStore` (lost on restart — a `401 invalid_token`
+> then makes the client re-authorize; single instance only). For production set
+> `CREATIO_MCP_TOKEN_STORE=redis` + `CREATIO_MCP_REDIS_URL`: `RedisTokenStore` (lazy `redis` dep)
+> encrypts tokens at rest (AES-256-GCM, `token-crypto.ts`; key from `CREATIO_MCP_TOKEN_ENC_KEY` else
+> derived from the JWT secret) with native per-key TTL → stateless, restart-durable, multi-instance.
+> Behind a TLS-terminating proxy set `CREATIO_MCP_PUBLIC_URL` so `iss`/`aud`/redirects/discovery use
+> the external origin (`resolvePublicOrigin`), not the internal hop. Logout = **RFC 7009** `POST
+> /revoke` (`revocation_endpoint`): revokes the Creatio token upstream (`/connect/revocation`,
+> best-effort) + purges the server-side + issued-refresh tokens; always answers 200.
 >
 > In **`delegated`/`gateway`** the MCP stores nothing and does **not** cryptographically verify the
 > Bearer — both are **fully-trusted-environment** modes (Creatio is the authority; the request's
