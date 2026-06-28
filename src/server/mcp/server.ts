@@ -7,7 +7,7 @@ import {
 	SysSettingDefinitionUpdate,
 } from '../../creatio';
 import log from '../../log';
-import { envBool, withValidation } from '../../utils';
+import { envBool, redactError, redactSecrets, withValidation } from '../../utils';
 import { NAME, VERSION } from '../../version';
 
 import { CrtMcpPublishingClient } from './crtmcp/crt-mcp-client';
@@ -161,7 +161,13 @@ export class Server {
 
 	private _normalizeToToolHandler(handler: ToolHandler) {
 		return async (args: any) => {
-			const result = await handler(args);
+			// Outward boundary to the LLM client: scrub any credential that leaked into the error
+			// message (AGENTS invariant #7) while preserving the Error type/stack, then rethrow so
+			// the MCP layer relays it (we never silently swallow — invariant #4). `.catch` keeps
+			// `result` typed exactly as the handler's return (the callback only throws).
+			const result = await handler(args).catch((err: unknown) => {
+				throw redactError(err);
+			});
 			// Pass through only a genuine MCP envelope (`content` is an array of blocks) — e.g.
 			// the published-tools proxy returns an upstream tools/call result already shaped.
 			// Raw domain data (incl. server payloads that happen to have a scalar/object
@@ -179,7 +185,9 @@ export class Server {
 						type: 'text',
 						// Compact (not pretty-printed): this is a machine/LLM transport, so the 2-space
 						// indentation only inflated byte/token size and serialization cost.
-						text: typeof result === 'string' ? result : JSON.stringify(result),
+						// Scrubbed at this outward edge so a token that slipped into a result field is
+						// never relayed to the client.
+						text: redactSecrets(typeof result === 'string' ? result : JSON.stringify(result)),
 					},
 				],
 			};

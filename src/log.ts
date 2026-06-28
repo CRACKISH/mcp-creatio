@@ -1,4 +1,5 @@
 import { env } from './utils/env';
+import { redactSecrets } from './utils/redact';
 
 export type LogLevel = 'info' | 'warn' | 'error';
 export type LogVerbosity = LogLevel | 'silent';
@@ -66,7 +67,9 @@ function output(level: LogLevel, msg: string, meta?: Record<string, any>) {
 	if (meta && Object.keys(meta).length) {
 		entry.meta = meta;
 	}
-	const line = JSON.stringify(entry);
+	// Final outward choke point: scrub any credential-looking substrings (tokens, secrets, auth
+	// headers) that may have slipped into msg/meta before they reach stdout/stderr or a log sink.
+	const line = redactSecrets(JSON.stringify(entry));
 	if (_stderrOnly) {
 		process.stderr.write(line + '\n');
 		return;

@@ -78,6 +78,21 @@ describe('log level gating', () => {
 		expect(log.getCorrelationId).toBeTypeOf('function');
 	});
 
+	it('scrubs credential-looking values out of the serialized log line', () => {
+		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+		log.error('creatio.auth.failed', {
+			authorization: 'Bearer eyJleak.kkk.zzz',
+			client_secret: 'sh-99',
+		});
+		const line = err.mock.calls[0]![0] as string;
+		expect(line).not.toContain('eyJleak.kkk.zzz');
+		expect(line).not.toContain('sh-99');
+		expect(line).toContain('[REDACTED]');
+		// still valid JSON after scrubbing
+		expect(() => JSON.parse(line)).not.toThrow();
+	});
+
 	it('routes to stderr when stderr-only mode is enabled', () => {
 		vi.stubEnv('CREATIO_MCP_LOG_LEVEL', 'info');
 		const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

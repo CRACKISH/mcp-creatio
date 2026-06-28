@@ -506,6 +506,37 @@ describe('Server result normalization', () => {
 		const stringWrapped = await normalize(async () => 'hello' as never)({});
 		expect(stringWrapped.content[0]!.text).toBe('hello');
 	});
+
+	it('scrubs credential-looking values out of a tool result before relaying it', async () => {
+		const { server } = buildServer();
+		const normalize = (
+			server as unknown as {
+				_normalizeToToolHandler: (h: ToolHandler) => (a: unknown) => Promise<{
+					content: { type: string; text: string }[];
+				}>;
+			}
+		)._normalizeToToolHandler.bind(server);
+		const out = await normalize(
+			async () => ({ note: 'token is Bearer eyJleak.kkk.zzz', client_secret: 'sh-99' }) as never,
+		)({});
+		expect(out.content[0]!.text).not.toContain('eyJleak.kkk.zzz');
+		expect(out.content[0]!.text).not.toContain('sh-99');
+		expect(out.content[0]!.text).toContain('[REDACTED]');
+	});
+
+	it('redacts a thrown error message at the boundary while still surfacing the error', async () => {
+		const { server } = buildServer();
+		const normalize = (
+			server as unknown as {
+				_normalizeToToolHandler: (h: ToolHandler) => (a: unknown) => Promise<unknown>;
+			}
+		)._normalizeToToolHandler.bind(server);
+		const failing = normalize(async () => {
+			throw new Error('upstream 401: Authorization: Bearer eyJsecret.aaa.bbb');
+		});
+		await expect(failing({})).rejects.toThrow(/\[REDACTED\]/);
+		await expect(failing({})).rejects.not.toThrow(/eyJsecret/);
+	});
 });
 
 describe('Server MCP lifecycle', () => {
