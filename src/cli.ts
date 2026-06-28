@@ -5,13 +5,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { getCreatioClientConfig } from './config-builder';
 import { AuthProviderType, CreatioEngineManager, CreatioServiceContext } from './creatio';
 import log from './log';
-import { Server } from './server';
+import { Server, SessionKeepAlive, keepAliveIntervalMs } from './server';
 import { envBool } from './utils';
 
 type CliOptions = Record<string, string>;
 
 interface RuntimeState {
 	server?: Server;
+	keepAlive?: SessionKeepAlive;
 }
 
 export function printHelp(): void {
@@ -114,6 +115,7 @@ async function shutdown(signal: string, state: RuntimeState): Promise<void> {
 	shuttingDown = true;
 	log.appStop({ reason: signal || 'shutdown' });
 	try {
+		state.keepAlive?.stop();
 		await state.server?.stopAll();
 	} catch (err) {
 		log.error('shutdown.error', { error: String(err) });
@@ -150,7 +152,13 @@ async function main(): Promise<void> {
 		disableDataForge: envBool('CREATIO_MCP_DISABLE_DATAFORGE', false),
 		disableGlobalSearch: envBool('CREATIO_MCP_DISABLE_GLOBAL_SEARCH', false),
 	});
-	const state: RuntimeState = { server };
+	// Proactive keep-alive applies only to the single-session modes (legacy / client_credentials),
+	// which is exactly what stdio runs; it is opt-in via CREATIO_MCP_KEEPALIVE_SECONDS.
+	const keepAlive = new SessionKeepAlive(keepAliveIntervalMs(), () =>
+		engines.user.getCurrentUserInfo(),
+	);
+	keepAlive.start();
+	const state: RuntimeState = { server, keepAlive };
 
 	process.on('SIGINT', () => {
 		void shutdown('SIGINT', state).finally(() => process.exit(0));
