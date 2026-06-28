@@ -8,18 +8,23 @@ afterEach(() => {
 });
 
 describe('keepAliveIntervalMs', () => {
-	it('is disabled (0) when unset or non-positive', () => {
+	it('defaults to 5 minutes when unset', () => {
 		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', '');
-		expect(keepAliveIntervalMs()).toBe(0);
+		expect(keepAliveIntervalMs()).toBe(300_000);
+	});
+
+	it('is disabled (0) on an explicit 0 / non-positive / invalid value', () => {
 		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', '0');
+		expect(keepAliveIntervalMs()).toBe(0);
+		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', '-5');
 		expect(keepAliveIntervalMs()).toBe(0);
 		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', 'nope');
 		expect(keepAliveIntervalMs()).toBe(0);
 	});
 
-	it('converts seconds to ms', () => {
-		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', '300');
-		expect(keepAliveIntervalMs()).toBe(300_000);
+	it('converts an explicit interval (seconds) to ms', () => {
+		vi.stubEnv('CREATIO_MCP_KEEPALIVE_SECONDS', '120');
+		expect(keepAliveIntervalMs()).toBe(120_000);
 	});
 });
 

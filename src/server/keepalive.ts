@@ -42,11 +42,20 @@ export class SessionKeepAlive {
 	}
 }
 
+/** Default keep-alive cadence — 5 min, comfortably below Creatio's idle-session timeout
+ *  (commonly 20–30 min) so a long-idle single-session deployment never pays a re-login. */
+const DEFAULT_KEEPALIVE_SECONDS = 300;
+
 /**
- * Keep-alive interval in ms from `CREATIO_MCP_KEEPALIVE_SECONDS` (0 / unset = disabled). Keep it
- * comfortably below the Creatio session idle timeout (commonly 20–30 min).
+ * Keep-alive interval in ms from `CREATIO_MCP_KEEPALIVE_SECONDS`. Unset ⇒ the 5-min default;
+ * an explicit `0` (or any non-positive / invalid value) disables it. Only consulted for the
+ * single-session modes (legacy / client_credentials).
  */
 export function keepAliveIntervalMs(): number {
-	const raw = Number(env('CREATIO_MCP_KEEPALIVE_SECONDS'));
+	const rawEnv = env('CREATIO_MCP_KEEPALIVE_SECONDS');
+	if (rawEnv === undefined || rawEnv === '') {
+		return DEFAULT_KEEPALIVE_SECONDS * 1000;
+	}
+	const raw = Number(rawEnv);
 	return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) * 1000 : 0;
 }

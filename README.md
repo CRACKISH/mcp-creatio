@@ -223,7 +223,7 @@ nothing works without it; the rest depend on the auth method and the features yo
 | `CREATIO_MCP_TRANSPORT`         | Docker only: `http` (default) or `stdio`                                                                                                                                                 |
 | `CREATIO_MCP_PORT`              | HTTP listen port (default `3000`; `PORT` also accepted)                                                                                                                                  |
 | `CREATIO_MCP_LOG_LEVEL`         | Log verbosity: `silent` (default), `error`, `warn`, `info`                                                                                                                               |
-| `CREATIO_MCP_KEEPALIVE_SECONDS` | _Optional_ — proactive session keep-alive interval for `legacy` / `client_credentials` (0/unset = off). Keep below the Creatio idle-session timeout to avoid first-call re-login latency |
+| `CREATIO_MCP_KEEPALIVE_SECONDS` | _Optional_ — proactive session keep-alive interval (seconds) for `legacy` / `client_credentials`, to avoid first-call re-login latency after an idle period. **Defaults to `300` (5 min)**; set `0` to disable. Keep it below the Creatio idle-session timeout |
 
 > **Disabling optional capabilities.** DataForge and Global Search are auto-detected at startup and
 > registered only when supported. Set `CREATIO_MCP_DISABLE_DATAFORGE=true` /

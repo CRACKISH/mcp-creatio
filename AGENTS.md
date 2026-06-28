@@ -385,6 +385,13 @@ If adding new auth provider:
 > override is validated against `CREATIO_MCP_ALLOWED_BASE_URLS` (and always blocks cloud-metadata IPs)
 > since it controls where the Bearer is sent. For an untrusted direct external client, use `broker`.
 
+> **Session keep-alive (single-session modes only).** `legacy`/`client_credentials` hold one shared
+> Creatio session; a long idle period lets Creatio drop the forms cookie. Reactive reconnect (the
+> HTTP client retries on `401` AND on a login-page→HTML bounce) keeps it correct; `SessionKeepAlive`
+> (`src/server/keepalive.ts`) additionally pings `get-current-user-info` on an interval to avoid the
+> first-call re-login latency. `CREATIO_MCP_KEEPALIVE_SECONDS` controls it — **default 300s (5 min)**,
+> `0` disables. NOT used for broker/delegated/gateway (per-user / per-request, no shared session).
+
 ## 14. Prompts Extension
 
 - Add new prompt object in `prompts-data.ts` (`name`, `title`, `description`, `argsSchema`, `callback`).
