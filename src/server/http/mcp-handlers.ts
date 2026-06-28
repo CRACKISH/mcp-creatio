@@ -26,6 +26,9 @@ export class McpHandlers {
 	public async handleMcpPost(req: Request, res: Response): Promise<void> {
 		const sessionId = getSessionIdFromRequest(req);
 		const bearerUserKey = (req as any).userKey;
+		// Gateway multi-tenant routing key — selects which tenant the session server and capability
+		// probe bind to (absent in single-tenant modes ⇒ the default tenant).
+		const baseUrlOverride = (req as any).baseUrlOverride as string | undefined;
 		let transport: StreamableHTTPServerTransport | undefined;
 		const remoteIp = getClientIp(req);
 		if (sessionId && this._sessionContext.hasSession(sessionId)) {
@@ -52,9 +55,9 @@ export class McpHandlers {
 				},
 			});
 			// Each session gets its own McpServer (a single McpServer connects to one transport
-			// only). Release it when the transport closes so we don't leak servers or register
-			// late-probed tools into dead sessions.
-			const mcp = this._server.createSessionServer();
+			// only), bound to the request's tenant. Release it when the transport closes so we
+			// don't leak servers or register late-probed tools into dead sessions.
+			const mcp = this._server.createSessionServer(baseUrlOverride);
 			transport.onclose = () => {
 				this._server.releaseSessionServer(mcp);
 				if (transport?.sessionId) {
@@ -74,11 +77,10 @@ export class McpHandlers {
 		const session = this._sessionContext.getSession(sessionId);
 		const userKey = bearerUserKey || session?.userKey;
 		const bearerToken = (req as any).bearerToken as string | undefined;
-		const baseUrlOverride = (req as any).baseUrlOverride as string | undefined;
 		await runWithContext({ userKey, sessionId, bearerToken, baseUrlOverride }, async () => {
-			// Kick the one-time capability probe from inside the request context so its Creatio
+			// Kick the per-tenant capability probe from inside the request context so its Creatio
 			// calls carry this caller's identity (broker mode has no user otherwise). Non-blocking.
-			this._server.ensureCapabilitiesProbed();
+			this._server.ensureCapabilitiesProbed(baseUrlOverride);
 			return transport!.handleRequest(req, res, req.body);
 		});
 	}

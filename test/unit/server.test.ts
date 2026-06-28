@@ -314,26 +314,71 @@ function enableGlobalSearch(context: ServerContext) {
 	});
 }
 
-async function prepare(server: ReturnType<typeof buildServer>['server']) {
-	await (server as unknown as { _prepareTools: () => Promise<void> })._prepareTools();
+const DEFAULT_TENANT = '__default__';
+
+interface TenantState {
+	capabilities: Map<string, boolean>;
+	dynamicTools: Map<string, { descriptor: unknown; handler: ToolHandler }>;
+	sessionServers: Set<unknown>;
+	probeComplete: boolean;
+	probeInFlight: boolean;
+}
+
+function tenantState(
+	server: ReturnType<typeof buildServer>['server'],
+	key: string = DEFAULT_TENANT,
+): TenantState {
+	return (
+		server as unknown as { _registry: { getState(k: string): TenantState } }
+	)._registry.getState(key);
+}
+
+// Capability/dynamic tools now live per-tenant (not in the shared `_handlers` map).
+function dynamicTools(
+	server: ReturnType<typeof buildServer>['server'],
+	key: string = DEFAULT_TENANT,
+): Map<string, { descriptor: unknown; handler: ToolHandler }> {
+	return tenantState(server, key).dynamicTools;
+}
+
+async function prepare(
+	server: ReturnType<typeof buildServer>['server'],
+	key: string = DEFAULT_TENANT,
+) {
+	await (
+		server as unknown as { _prepareTools(state: TenantState): Promise<boolean> }
+	)._prepareTools(tenantState(server, key));
+}
+
+async function callDynamic(
+	server: ReturnType<typeof buildServer>['server'],
+	name: string,
+	payload: unknown,
+	key: string = DEFAULT_TENANT,
+) {
+	const tool = dynamicTools(server, key).get(name);
+	if (!tool) {
+		throw new Error(`dynamic tool not registered: ${name}`);
+	}
+	return (tool.handler as ToolHandler)(payload);
 }
 
 describe('DataForge tool preparation', () => {
 	it('registers DataForge tools only after a successful probe', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableDataForge(context);
 		await prepare(server);
 		for (const name of DATAFORGE_TOOLS) {
-			expect(handlers.has(name)).toBe(true);
+			expect(dynamicTools(server).has(name)).toBe(true);
 		}
 		expect(context.sysSettings.queryValues).toHaveBeenCalledWith(['DataForgeServiceUrl']);
 	});
 
 	it('keeps DataForge tools unregistered when the service URL is empty', async () => {
-		const { server, handlers } = buildServer();
+		const { server } = buildServer();
 		await prepare(server); // default fake has no DataForgeServiceUrl
 		for (const name of DATAFORGE_TOOLS) {
-			expect(handlers.has(name)).toBe(false);
+			expect(dynamicTools(server).has(name)).toBe(false);
 		}
 	});
 
@@ -341,15 +386,15 @@ describe('DataForge tool preparation', () => {
 		const { server, context, handlers } = buildServer(true);
 		enableDataForge(context);
 		await prepare(server);
-		expect(handlers.has('dataforge-similar-tables')).toBe(true);
+		expect(dynamicTools(server).has('dataforge-similar-tables')).toBe(true);
 		expect(handlers.has('create')).toBe(false);
 	});
 
 	it('similar-tables tool wraps the query under request for the read service', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableDataForge(context);
 		await prepare(server);
-		await callTool(handlers, 'dataforge-similar-tables', { query: 'tickets', limit: 5 });
+		await callDynamic(server, 'dataforge-similar-tables', { query: 'tickets', limit: 5 });
 		expect(context.configuration.call).toHaveBeenCalledWith(
 			expect.objectContaining({
 				service: 'DataForgeSchemaReadService',
@@ -361,15 +406,15 @@ describe('DataForge tool preparation', () => {
 	});
 
 	it('every read tool maps to its DataForge service method', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableDataForge(context);
 		await prepare(server);
-		await callTool(handlers, 'dataforge-table-details', { query: 'orders' });
-		await callTool(handlers, 'dataforge-table-relationships', {
+		await callDynamic(server, 'dataforge-table-details', { query: 'orders' });
+		await callDynamic(server, 'dataforge-table-relationships', {
 			sourceTable: 'Contact',
 			targetTable: 'Account',
 		});
-		await callTool(handlers, 'dataforge-lookup-values', { query: 'vip' });
+		await callDynamic(server, 'dataforge-lookup-values', { query: 'vip' });
 		const methods = context.configuration.call.mock.calls.map((c: any[]) => c[0].method);
 		expect(methods).toEqual(
 			expect.arrayContaining(['GetTableDetails', 'GetTableRelationships', 'GetLookupValues']),
@@ -377,10 +422,10 @@ describe('DataForge tool preparation', () => {
 	});
 
 	it('status tool calls the maintenance service', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableDataForge(context);
 		await prepare(server);
-		await callTool(handlers, 'dataforge-status', {});
+		await callDynamic(server, 'dataforge-status', {});
 		expect(context.configuration.call).toHaveBeenCalledWith(
 			expect.objectContaining({
 				service: 'DataForgeMaintenanceService',
@@ -392,29 +437,29 @@ describe('DataForge tool preparation', () => {
 
 describe('Global Search tool preparation', () => {
 	it('is not registered before preparation', () => {
-		const { handlers } = buildServer();
-		expect(handlers.has('global-search')).toBe(false);
+		const { server } = buildServer();
+		expect(dynamicTools(server).has('global-search')).toBe(false);
 	});
 
 	it('registers global-search only when GlobalSearchUrl is set', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableGlobalSearch(context);
 		await prepare(server);
-		expect(handlers.has('global-search')).toBe(true);
+		expect(dynamicTools(server).has('global-search')).toBe(true);
 		expect(context.sysSettings.queryValues).toHaveBeenCalledWith(['GlobalSearchUrl']);
 	});
 
 	it('stays unregistered when GlobalSearchUrl is empty', async () => {
-		const { server, handlers } = buildServer();
+		const { server } = buildServer();
 		await prepare(server); // default fake has no GlobalSearchUrl
-		expect(handlers.has('global-search')).toBe(false);
+		expect(dynamicTools(server).has('global-search')).toBe(false);
 	});
 
 	it('search tool posts a flat body to GlobalSearchService.Search', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableGlobalSearch(context);
 		await prepare(server);
-		await callTool(handlers, 'global-search', {
+		await callDynamic(server, 'global-search', {
 			query: 'andrew',
 			entities: ['Contact'],
 			limit: 10,
@@ -436,18 +481,20 @@ describe('Global Search tool preparation', () => {
 	});
 
 	it('is registered in readonly mode (read-only capability)', async () => {
-		const { server, context, handlers } = buildServer(true);
+		const { server, context } = buildServer(true);
 		enableGlobalSearch(context);
 		await prepare(server);
-		expect(handlers.has('global-search')).toBe(true);
+		expect(dynamicTools(server).has('global-search')).toBe(true);
 	});
 });
 
 describe('Published-tools capability (hidden, off by default)', () => {
 	it('does not register any published (pub-*) tools when ENABLE_PUBLISHED_TOOLS is unset', async () => {
-		const { server, handlers } = buildServer();
+		const { server } = buildServer();
 		await prepare(server);
-		expect([...handlers.keys()].some((name) => name.startsWith('pub-'))).toBe(false);
+		expect([...dynamicTools(server).keys()].some((name) => name.startsWith('pub-'))).toBe(
+			false,
+		);
 	});
 });
 
@@ -517,7 +564,8 @@ describe('Server result normalization', () => {
 			}
 		)._normalizeToToolHandler.bind(server);
 		const out = await normalize(
-			async () => ({ note: 'token is Bearer eyJleak.kkk.zzz', client_secret: 'sh-99' }) as never,
+			async () =>
+				({ note: 'token is Bearer eyJleak.kkk.zzz', client_secret: 'sh-99' }) as never,
 		)({});
 		expect(out.content[0]!.text).not.toContain('eyJleak.kkk.zzz');
 		expect(out.content[0]!.text).not.toContain('sh-99');
@@ -555,8 +603,8 @@ describe('Server MCP lifecycle', () => {
 
 	it('releaseSessionServer untracks (and closes) a single session server', async () => {
 		const { server } = buildServer();
-		const tracked = (server as unknown as { _sessionServers: Set<unknown> })._sessionServers;
 		const mcp = server.createSessionServer();
+		const tracked = tenantState(server).sessionServers;
 		expect(tracked.has(mcp)).toBe(true);
 		server.releaseSessionServer(mcp);
 		expect(tracked.has(mcp)).toBe(false);
@@ -565,33 +613,29 @@ describe('Server MCP lifecycle', () => {
 
 	it('ensureCapabilitiesProbed runs the probe once and memoizes a complete verdict', async () => {
 		const { server } = buildServer();
-		const s = server as unknown as {
-			_probeComplete: boolean;
-			_probeInFlight: boolean;
-			_capabilities: Map<string, boolean>;
-		};
+		const state = tenantState(server); // the default tenant's per-tenant probe state
 		server.ensureCapabilitiesProbed();
-		expect(s._probeInFlight).toBe(true); // kicked off
-		for (let i = 0; i < 100 && s._probeInFlight; i++) {
+		expect(state.probeInFlight).toBe(true); // kicked off
+		for (let i = 0; i < 100 && state.probeInFlight; i++) {
 			await new Promise((r) => setTimeout(r, 5));
 		}
 		// Default fake context: every preparer returns a clean (disabled) verdict, so the probe is
 		// complete and memoized — a second call is a no-op and does not re-probe.
-		expect(s._probeComplete).toBe(true);
-		const verdicts = s._capabilities.size;
+		expect(state.probeComplete).toBe(true);
+		const verdicts = state.capabilities.size;
 		expect(verdicts).toBeGreaterThan(0);
 		server.ensureCapabilitiesProbed();
-		expect(s._probeInFlight).toBe(false);
-		expect(s._capabilities.size).toBe(verdicts);
+		expect(state.probeInFlight).toBe(false);
+		expect(state.capabilities.size).toBe(verdicts);
 	});
 
 	it('late capability registration pushes tools into an already-live session server', async () => {
-		const { server, context, handlers } = buildServer();
+		const { server, context } = buildServer();
 		enableDataForge(context); // the probe will now succeed
 		server.createSessionServer(); // a session is live BEFORE the probe runs
-		await (server as unknown as { _prepareTools: () => Promise<boolean> })._prepareTools();
-		// Registered into the shared maps AND pushed into the live session server (loop exercised).
-		expect(handlers.has('dataforge-status')).toBe(true);
+		await prepare(server);
+		// Registered into the tenant's dynamic-tool map AND pushed into its live session (loop run).
+		expect(dynamicTools(server).has('dataforge-status')).toBe(true);
 		await server.stopAll();
 	});
 });
@@ -606,11 +650,11 @@ describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)',
 	}
 
 	it('disableDataForge: does NOT probe or register DataForge tools (even if it would succeed)', async () => {
-		const { server, context, handlers } = buildServerWith({ disableDataForge: true });
+		const { server, context } = buildServerWith({ disableDataForge: true });
 		enableDataForge(context); // probe WOULD succeed if it ran
 		await prepare(server);
 		for (const name of DATAFORGE_TOOLS) {
-			expect(handlers.has(name)).toBe(false);
+			expect(dynamicTools(server).has(name)).toBe(false);
 		}
 		// describe-entity must not route through DataForge, and no probe traffic is sent.
 		expect((server as unknown as { _isDataForgeReady(): boolean })._isDataForgeReady()).toBe(
@@ -620,10 +664,10 @@ describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)',
 	});
 
 	it('disableGlobalSearch: does NOT probe or register the global-search tool', async () => {
-		const { server, context, handlers } = buildServerWith({ disableGlobalSearch: true });
+		const { server, context } = buildServerWith({ disableGlobalSearch: true });
 		enableGlobalSearch(context);
 		await prepare(server);
-		expect(handlers.has('global-search')).toBe(false);
+		expect(dynamicTools(server).has('global-search')).toBe(false);
 		expect(context.sysSettings.queryValues).not.toHaveBeenCalledWith(['GlobalSearchUrl']);
 	});
 
@@ -631,12 +675,12 @@ describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)',
 		const dfx = buildServerWith({});
 		enableDataForge(dfx.context);
 		await prepare(dfx.server);
-		expect(dfx.handlers.has('dataforge-status')).toBe(true);
+		expect(dynamicTools(dfx.server).has('dataforge-status')).toBe(true);
 
 		const gsx = buildServerWith({});
 		enableGlobalSearch(gsx.context);
 		await prepare(gsx.server);
-		expect(gsx.handlers.has('global-search')).toBe(true);
+		expect(dynamicTools(gsx.server).has('global-search')).toBe(true);
 	});
 
 	it('describe-entity routes to the CRUD backend (never DataForge) when DataForge is disabled', async () => {
@@ -648,5 +692,46 @@ describe('capability kill-switches (DISABLE_DATAFORGE / DISABLE_GLOBAL_SEARCH)',
 		};
 		expect(res.source).not.toBe('dataforge'); // came from the backend, not DataForge
 		expect(context.crud.describeEntity).toHaveBeenCalledWith('Contact');
+	});
+});
+
+describe('Per-tenant isolation (gateway multi-tenant)', () => {
+	const A = 'https://tenant-a.creatio.com';
+	const B = 'https://tenant-b.creatio.com';
+
+	it('keeps capability verdicts and dynamic tools separate per tenant', async () => {
+		const { server, context } = buildServer();
+		// Tenant A's instance has DataForge configured...
+		enableDataForge(context);
+		await prepare(server, A);
+		// ...tenant B's instance does NOT (heterogeneous tenants on one gateway deployment).
+		context.sysSettings.queryValues.mockResolvedValue({ success: true, values: {} });
+		await prepare(server, B);
+
+		expect(tenantState(server, A).capabilities.get('dataforge')).toBe(true);
+		expect(tenantState(server, B).capabilities.get('dataforge')).toBe(false);
+		expect(dynamicTools(server, A).has('dataforge-status')).toBe(true);
+		expect(dynamicTools(server, B).has('dataforge-status')).toBe(false);
+	});
+
+	it('a session sees only its own tenant dynamic tools, not another tenant’s', async () => {
+		const { server, context } = buildServer();
+		enableDataForge(context);
+		await prepare(server, A);
+		// B was never probed (or probed disabled) → its surface stays empty even though A's is rich.
+		const mcpA = server.createSessionServer(A);
+		const mcpB = server.createSessionServer(B);
+		expect(tenantState(server, A).sessionServers.has(mcpA)).toBe(true);
+		expect(tenantState(server, B).sessionServers.has(mcpB)).toBe(true);
+		expect(dynamicTools(server, A).has('dataforge-status')).toBe(true);
+		expect(dynamicTools(server, B).size).toBe(0);
+		await server.stopAll();
+	});
+
+	it('normalizes a trailing slash so the same instance maps to one tenant bucket', () => {
+		const { server } = buildServer();
+		const withSlash = server.createSessionServer('https://tenant-a.creatio.com/');
+		// The session lands in the normalized bucket (no trailing slash) — same as A.
+		expect(tenantState(server, A).sessionServers.has(withSlash)).toBe(true);
 	});
 });
