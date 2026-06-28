@@ -171,6 +171,7 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.6.3]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.3
 [0.6.2]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.2
 [0.6.1]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.1
 [0.6.0]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.0
