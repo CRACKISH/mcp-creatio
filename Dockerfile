@@ -23,7 +23,15 @@ COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Run as the unprivileged `node` user baked into the official image (never root in the cluster).
+USER node
+
 # Used in HTTP mode; ignored for stdio.
 EXPOSE 3000
+
+# Container-level liveness for plain Docker; Kubernetes uses its own probes against /healthz.
+# wget ships with the alpine base (busybox). Honors CREATIO_MCP_PORT.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+	CMD wget -q -O- "http://127.0.0.1:${CREATIO_MCP_PORT:-3000}/healthz" || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]

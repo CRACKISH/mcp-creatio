@@ -7,6 +7,7 @@ import log from '../../log';
 import { SessionContext } from '../../sessions';
 
 import { AuthEdge, createAuthEdge } from './auth-edge';
+import { HealthEndpoints } from './health';
 import { McpHandlers } from './mcp-handlers';
 import { HttpMiddleware } from './middleware';
 
@@ -23,6 +24,7 @@ export class HttpServer {
 	private _cleanupTimer: NodeJS.Timeout | undefined;
 	private readonly _sessionContext = SessionContext.instance;
 	private readonly _middleware = new HttpMiddleware();
+	private readonly _health = new HealthEndpoints();
 	private readonly _mcpHandlers: McpHandlers;
 	private readonly _authEdge: AuthEdge | undefined;
 
@@ -34,6 +36,9 @@ export class HttpServer {
 		this._server = server;
 		this._mcpHandlers = new McpHandlers(this._server);
 		this._authEdge = createAuthEdge(config, this._sessionContext);
+		// Health probes are registered first so they sit ahead of the auth + request-logging
+		// middleware: probes stay unauthenticated and never spam the request log at probe cadence.
+		this._health.register(this._app);
 		this._setupMiddleware();
 		this._setupRoutes();
 	}
@@ -65,6 +70,7 @@ export class HttpServer {
 	public start(port: number) {
 		return new Promise<void>((resolve, reject) => {
 			this._srv = this._app.listen(port, () => {
+				this._health.setReady(true);
 				log.httpStart(port);
 				resolve();
 			});
@@ -91,6 +97,9 @@ export class HttpServer {
 	}
 
 	public async stop() {
+		// Fail readiness immediately so the orchestrator drains traffic from this pod before we
+		// start closing connections below.
+		this._health.setReady(false);
 		if (this._cleanupTimer) {
 			clearInterval(this._cleanupTimer);
 			this._cleanupTimer = undefined;
