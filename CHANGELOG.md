@@ -4,6 +4,25 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.6]
+
+Kubernetes readiness: dedicated liveness/readiness HTTP probes and a hardened container image, so the
+HTTP server can be orchestrated with standard health checks. 586 tests.
+
+### Added
+
+- **Liveness/readiness endpoints** — `GET /healthz` (liveness) and `GET /readyz` (readiness) on the
+  HTTP server, registered ahead of the auth and request-logging middleware so probes are
+  unauthenticated and stay out of the request log. `/healthz` reports the process is up (name,
+  version, uptime); `/readyz` returns `200` once the listener is accepting connections and flips to
+  `503` at the start of graceful shutdown, so an orchestrator drains the instance before its
+  connections are torn down.
+
+### Changed
+
+- **Dockerfile hardened for orchestration** — the runtime image now runs as the unprivileged `node`
+  user and declares a container `HEALTHCHECK` against `/healthz`.
+
 ## [0.6.5]
 
 Per-tenant tool isolation for multi-tenant (`gateway`) deployments, plus a reusable live-regression
