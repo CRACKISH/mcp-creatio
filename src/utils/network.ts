@@ -37,6 +37,17 @@ export function parseSetCookie(setCookie: string[]): CookieKV[] {
 	return out;
 }
 
+/** Extract the BPMCSRF anti-forgery token from a raw `Cookie` header value (Creatio Forms auth). */
+export function extractBpmcsrf(cookieHeader: string): string | undefined {
+	for (const part of cookieHeader.split(';')) {
+		const trimmed = part.trim();
+		if (trimmed.startsWith('BPMCSRF=')) {
+			return trimmed.slice('BPMCSRF='.length);
+		}
+	}
+	return undefined;
+}
+
 export function getUserKeyFromRequest(req: express.Request): string | undefined {
 	const fromHeader = req.headers['x-user-key'];
 	if (typeof fromHeader === 'string' && fromHeader) {

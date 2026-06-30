@@ -14,17 +14,29 @@ function bearerConfig(mode: BearerAuthMode = BearerAuthMode.Delegated) {
 describe('OAuth2BearerProvider', () => {
 	it('passes the per-request Bearer token straight through to Creatio headers', async () => {
 		const provider = new OAuth2BearerProvider(bearerConfig() as never);
-		const headers = await runWithContext({ bearerToken: 'CREATIO-AT' }, () =>
+		const headers = await runWithContext({ credential: { kind: 'bearer', token: 'CREATIO-AT' } }, () =>
 			provider.getHeaders('application/json', true),
 		);
 		expect(headers.Authorization).toBe('Bearer CREATIO-AT');
 		expect(headers['Content-Type']).toBe('application/json');
 	});
 
-	it('throws bearer_token_required when no token is present in the request context', async () => {
+	it('formats a forwarded cookie session into Cookie + BPMCSRF + ForceUseSession headers', async () => {
+		const provider = new OAuth2BearerProvider(bearerConfig() as never);
+		const headers = await runWithContext(
+			{ credential: { kind: 'cookie', cookie: 'BPMCSRF=tok; .ASPXAUTH=sess', bpmcsrf: 'tok' } },
+			() => provider.getHeaders('application/json', true),
+		);
+		expect(headers.Cookie).toBe('BPMCSRF=tok; .ASPXAUTH=sess');
+		expect(headers.BPMCSRF).toBe('tok');
+		expect(headers.ForceUseSession).toBe('true');
+		expect(headers.Authorization).toBeUndefined();
+	});
+
+	it('throws credential_required when no credential is present in the request context', async () => {
 		const provider = new OAuth2BearerProvider(bearerConfig() as never);
 		await expect(provider.getHeaders('application/json', true)).rejects.toThrow(
-			/bearer_token_required/,
+			/credential_required/,
 		);
 	});
 

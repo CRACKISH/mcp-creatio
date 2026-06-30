@@ -9,6 +9,7 @@ import {
 	getClientIp,
 	getSessionIdFromRequest,
 	getUserKeyFromRequest,
+	InjectedCredential,
 	runWithContext,
 } from '../../utils';
 
@@ -76,8 +77,8 @@ export class McpHandlers {
 		}
 		const session = this._sessionContext.getSession(sessionId);
 		const userKey = bearerUserKey || session?.userKey;
-		const bearerToken = (req as any).bearerToken as string | undefined;
-		await runWithContext({ userKey, sessionId, bearerToken, baseUrlOverride }, async () => {
+		const credential = (req as any).credential as InjectedCredential | undefined;
+		await runWithContext({ userKey, sessionId, credential, baseUrlOverride }, async () => {
 			// Kick the per-tenant capability probe from inside the request context so its Creatio
 			// calls carry this caller's identity (broker mode has no user otherwise). Non-blocking.
 			this._server.ensureCapabilitiesProbed(baseUrlOverride);
@@ -102,9 +103,9 @@ export class McpHandlers {
 		// identity (CWE-639).
 		const userKey =
 			(req as any).userKey || session?.userKey || getUserKeyFromRequest(req as any);
-		const bearerToken = (req as any).bearerToken as string | undefined;
+		const credential = (req as any).credential as InjectedCredential | undefined;
 		const baseUrlOverride = (req as any).baseUrlOverride as string | undefined;
-		await runWithContext({ userKey, sessionId, bearerToken, baseUrlOverride }, async () =>
+		await runWithContext({ userKey, sessionId, credential, baseUrlOverride }, async () =>
 			transport.handleRequest(req, res),
 		);
 	}

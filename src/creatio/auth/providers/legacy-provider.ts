@@ -2,7 +2,7 @@ import log from '../../../log';
 import { JSON_ACCEPT } from '../../../types';
 import { parseSetCookie } from '../../../utils';
 import { LegacyAuthConfig } from '../../client-config';
-import { buildHeaders } from '../auth';
+import { buildCookieHeaders, buildHeaders } from '../auth';
 
 import { BaseProvider } from './base-provider';
 
@@ -69,13 +69,7 @@ export class LegacyProvider extends BaseProvider<LegacyAuthConfig> {
 
 	public async getHeaders(accept: string, isJson?: boolean): Promise<Record<string, string>> {
 		await this._ensureSession();
-		const h = buildHeaders(accept, Boolean(isJson));
-		h['ForceUseSession'] = 'true';
-		h['Cookie'] = this._cookieHeader!;
-		if (this._bpmCsrf) {
-			h['BPMCSRF'] = this._bpmCsrf;
-		}
-		return h;
+		return buildCookieHeaders(accept, Boolean(isJson), this._cookieHeader!, this._bpmCsrf);
 	}
 
 	public async refresh(): Promise<void> {

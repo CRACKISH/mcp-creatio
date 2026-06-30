@@ -76,7 +76,7 @@ describe('BearerEdge.mcpAuth — gateway mode', () => {
 		const next = vi.fn();
 		new BearerEdge(gateway(), BASE).mcpAuth()(req as never, res as never, next);
 		expect(next).toHaveBeenCalled();
-		expect(req.bearerToken).toBe('GW-TOKEN');
+		expect(req.credential).toEqual({ kind: 'bearer', token: 'GW-TOKEN' });
 		expect(req.userKey).toBeTruthy();
 		expect(req.baseUrlOverride).toBe('https://other.local');
 	});
@@ -94,6 +94,33 @@ describe('BearerEdge.mcpAuth — gateway mode', () => {
 	});
 });
 
+describe('BearerEdge.mcpAuth — cookie passthrough', () => {
+	it('gateway: accepts a forwarded cookie session (X-Creatio-Cookie), extracting BPMCSRF', () => {
+		const req = mockReq({ 'x-creatio-cookie': 'BPMCSRF=csrf-1; .ASPXAUTH=sess' });
+		const res = mockRes();
+		const next = vi.fn();
+		new BearerEdge(gateway(), BASE).mcpAuth()(req as never, res as never, next);
+		expect(next).toHaveBeenCalled();
+		expect(req.credential).toEqual({
+			kind: 'cookie',
+			cookie: 'BPMCSRF=csrf-1; .ASPXAUTH=sess',
+			bpmcsrf: 'csrf-1',
+		});
+	});
+
+	it('delegated: accepts a cookie and prefers an explicit X-Creatio-BPMCSRF header', () => {
+		const req = mockReq({
+			'x-creatio-cookie': 'BPMCSRF=from-cookie; .ASPXAUTH=sess',
+			'x-creatio-bpmcsrf': 'explicit',
+		});
+		const res = mockRes();
+		const next = vi.fn();
+		new BearerEdge(delegated(), BASE).mcpAuth()(req as never, res as never, next);
+		expect(next).toHaveBeenCalled();
+		expect((req.credential as { bpmcsrf?: string }).bpmcsrf).toBe('explicit');
+	});
+});
+
 describe('BearerEdge.mcpAuth — delegated mode', () => {
 	it('passes a non-expired JWT through, deriving userKey from sub', () => {
 		const token = jwt.sign({ sub: 'user-9' }, 'secret', { expiresIn: 3600 });
@@ -103,7 +130,7 @@ describe('BearerEdge.mcpAuth — delegated mode', () => {
 		new BearerEdge(delegated(), BASE).mcpAuth()(req as never, res as never, next);
 		expect(next).toHaveBeenCalled();
 		expect(req.userKey).toBe('user-9');
-		expect(req.bearerToken).toBe(token);
+		expect(req.credential).toEqual({ kind: 'bearer', token });
 	});
 
 	it('fails fast on an expired JWT → 401', () => {

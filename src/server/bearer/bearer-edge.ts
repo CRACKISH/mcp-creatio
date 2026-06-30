@@ -1,6 +1,6 @@
 import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
 import log from '../../log';
-import { env } from '../../utils';
+import { env, extractBpmcsrf, InjectedCredential } from '../../utils';
 import { resolvePublicOrigin } from '../http/public-origin';
 
 import { isAllowedBaseUrl, parseAllowedBaseUrls } from './base-url-guard';
@@ -10,6 +10,11 @@ import type { Express, NextFunction, Request, Response } from 'express';
 
 const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 const BASE_URL_OVERRIDE_HEADER = 'x-creatio-base-url';
+// Cookie passthrough (Forms-auth tenants without OAuth): the client/gateway forwards the Creatio
+// session in a dedicated header (not the transport's own `Cookie`, which proxies mangle). BPMCSRF
+// is read from the cookie string, or overridden by an explicit header.
+const COOKIE_HEADER = 'x-creatio-cookie';
+const BPMCSRF_HEADER = 'x-creatio-bpmcsrf';
 
 /** RFC 9728 Protected Resource Metadata, advertising Creatio Identity as the authorization server. */
 export function buildProtectedResourceMetadata(resource: string, identityBase: string) {
@@ -58,10 +63,36 @@ export class BearerEdge {
 		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
 	}
 
-	private _accept(req: Request, token: string, next: NextFunction, userKey?: string): void {
-		const r = req as Request & { userKey?: string; bearerToken?: string };
-		r.userKey = userKey ?? inspectBearer(token).userKey;
-		r.bearerToken = token;
+	/** Pull the per-request credential the client/gateway supplied: a Bearer token, or a forwarded
+	 *  Creatio Forms-auth session (cookie + BPMCSRF). Returns undefined when neither is present. */
+	private _extractCredential(req: Request): InjectedCredential | undefined {
+		const auth = req.headers.authorization;
+		if (typeof auth === 'string' && auth.startsWith('Bearer ')) {
+			return { kind: 'bearer', token: auth.slice(7) };
+		}
+		const cookie = req.headers[COOKIE_HEADER];
+		if (typeof cookie === 'string' && cookie) {
+			const explicitCsrf = req.headers[BPMCSRF_HEADER];
+			const bpmcsrf =
+				typeof explicitCsrf === 'string' && explicitCsrf ? explicitCsrf : extractBpmcsrf(cookie);
+			return { kind: 'cookie', cookie, bpmcsrf };
+		}
+		return undefined;
+	}
+
+	private _accept(
+		req: Request,
+		credential: InjectedCredential,
+		next: NextFunction,
+		userKey?: string,
+	): void {
+		const r = req as Request & { userKey?: string; credential?: InjectedCredential };
+		const resolvedUserKey =
+			userKey ?? (credential.kind === 'bearer' ? inspectBearer(credential.token).userKey : undefined);
+		if (resolvedUserKey !== undefined) {
+			r.userKey = resolvedUserKey;
+		}
+		r.credential = credential;
 		next();
 	}
 
@@ -77,7 +108,7 @@ export class BearerEdge {
 			error: 'unauthorized',
 			error_description:
 				reason === 'missing_token'
-					? 'A Creatio access token is required in the Authorization header.'
+					? 'A Creatio credential is required: a Bearer token (Authorization) or a forwarded session (X-Creatio-Cookie).'
 					: `Bearer token rejected: ${reason}.`,
 		});
 	}
@@ -93,19 +124,18 @@ export class BearerEdge {
 		});
 	}
 
-	/** Express middleware guarding `/mcp`. Sets `req.bearerToken` / `req.userKey` / `req.baseUrlOverride`. */
+	/** Express middleware guarding `/mcp`. Sets `req.credential` / `req.userKey` / `req.baseUrlOverride`. */
 	public mcpAuth() {
 		return (req: Request, res: Response, next: NextFunction): void => {
-			const header = req.headers.authorization;
-			if (!header || !header.startsWith('Bearer ')) {
+			const credential = this._extractCredential(req);
+			if (!credential) {
 				return this._challenge(req, res, 'missing_token');
 			}
-			const token = header.slice(7);
 
 			if (!this._isDelegated) {
 				// gateway: a per-request instance override is honored only here (from the trusted
-				// gateway). Still validate it — the override decides where the Bearer is sent, so a
-				// bad value is an SSRF / token-redirection lever even from a trusted source (CWE-918).
+				// gateway). Still validate it — the override decides where the credential is sent, so a
+				// bad value is an SSRF / credential-redirection lever even from a trusted source (CWE-918).
 				const baseOverride = req.headers[BASE_URL_OVERRIDE_HEADER];
 				if (typeof baseOverride === 'string' && baseOverride) {
 					if (!isAllowedBaseUrl(baseOverride, this._allowedBaseUrls)) {
@@ -118,15 +148,19 @@ export class BearerEdge {
 					}
 					(req as Request & { baseUrlOverride?: string }).baseUrlOverride = baseOverride;
 				}
-				return this._accept(req, token, next);
+				return this._accept(req, credential, next);
 			}
 
 			// delegated: fail fast on an obviously-expired JWT; Creatio validates the rest on the call.
-			const decoded = inspectBearer(token);
-			if (decoded.isJwt && isExpired(decoded)) {
-				return this._challenge(req, res, 'token_expired');
+			// A forwarded cookie session has no client-readable expiry, so it is accepted as-is.
+			if (credential.kind === 'bearer') {
+				const decoded = inspectBearer(credential.token);
+				if (decoded.isJwt && isExpired(decoded)) {
+					return this._challenge(req, res, 'token_expired');
+				}
+				return this._accept(req, credential, next, decoded.userKey);
 			}
-			return this._accept(req, token, next, decoded.userKey);
+			return this._accept(req, credential, next);
 		};
 	}
 }
