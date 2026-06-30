@@ -71,4 +71,22 @@ describe('LegacyProvider', () => {
 		);
 		await expect(makeProvider().getHeaders(JSON_ACCEPT, true)).rejects.toThrow(/no_set_cookie/);
 	});
+
+	it('dedupes concurrent logins into a single request (single-flight)', async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const fetchMock = vi.fn(async () => {
+			await gate;
+			return loginResponse(['BPMCSRF=tok; Path=/']);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const provider = makeProvider();
+
+		const a = provider.getHeaders(JSON_ACCEPT, true);
+		const b = provider.getHeaders(JSON_ACCEPT, true);
+		release();
+		await Promise.all([a, b]);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
 });

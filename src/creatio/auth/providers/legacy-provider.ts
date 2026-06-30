@@ -11,10 +11,25 @@ export class LegacyProvider extends BaseProvider<LegacyAuthConfig> {
 
 	private _cookieHeader: string | undefined;
 
-	private async _ensureSession() {
+	// Single-flight: a burst of concurrent first-calls (or 401-driven refreshes) that all find no
+	// session triggers ONE login, not N — avoids a thundering herd against AuthService on expiry.
+	// Mirrors the dedup BaseOAuth2Provider and the broker provider already do.
+	private _inflightLogin: Promise<void> | undefined;
+
+	private async _ensureSession(): Promise<void> {
 		if (this._cookieHeader) {
 			return;
 		}
+		if (this._inflightLogin) {
+			return this._inflightLogin;
+		}
+		this._inflightLogin = this._login().finally(() => {
+			this._inflightLogin = undefined;
+		});
+		return this._inflightLogin;
+	}
+
+	private async _login(): Promise<void> {
 		const url = `${this.config.baseUrl.replace(/\/$/, '')}/ServiceModel/AuthService.svc/Login`;
 		const body = JSON.stringify({
 			UserName: this.authConfig.login,

@@ -66,21 +66,18 @@ export class DataServiceSchemaProvider {
 		const baseUrl = this._transport.baseUrl;
 		const version = this._freshness ? await this._freshness.getSchemaVersion(baseUrl) : '';
 		const key = `${baseUrl}::${name}`;
-		const cached = this._schemaCache.get(key, version);
-		if (cached) {
-			return cached;
-		}
-		const body = await this._transport.post(
-			'RuntimeEntitySchemaRequest',
-			{ name },
-			{ logContext: { entity: name }, checkSuccess: true },
-		);
-		const schema: RuntimeSchema | undefined = body?.schema;
-		if (!schema || !schema.name) {
-			throw new Error(`entity_not_found:${name}`);
-		}
-		this._schemaCache.set(key, schema, version);
-		return schema;
+		return this._schemaCache.getOrLoad(key, version, async () => {
+			const body = await this._transport.post(
+				'RuntimeEntitySchemaRequest',
+				{ name },
+				{ logContext: { entity: name }, checkSuccess: true },
+			);
+			const schema: RuntimeSchema | undefined = body?.schema;
+			if (!schema || !schema.name) {
+				throw new Error(`entity_not_found:${name}`);
+			}
+			return schema;
+		});
 	}
 
 	private _columns(schema: RuntimeSchema): RuntimeColumn[] {

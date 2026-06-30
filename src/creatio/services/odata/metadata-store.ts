@@ -65,16 +65,12 @@ export class ODataMetadataStore {
 	private async _getDoc(): Promise<MetadataDoc> {
 		const baseUrl = this._client.normalizedBaseUrl;
 		const version = await this._version();
-		const cached = this._docs.get(baseUrl, version);
-		if (cached) {
-			return cached;
-		}
-		const headers = await this._client.getXmlHeaders();
-		const metadataUrl = `${odataRoot(baseUrl)}/$metadata`;
-		const xml = await this._client.fetchText(metadataUrl, async () => ({ headers }));
-		const doc: MetadataDoc = { xml };
-		this._docs.set(baseUrl, doc, version);
-		return doc;
+		return this._docs.getOrLoad(baseUrl, version, async () => {
+			const headers = await this._client.getXmlHeaders();
+			const metadataUrl = `${odataRoot(baseUrl)}/$metadata`;
+			const xml = await this._client.fetchText(metadataUrl, async () => ({ headers }));
+			return { xml };
+		});
 	}
 
 	private _getParsedMetadata(doc: MetadataDoc): any {
@@ -187,14 +183,10 @@ export class ODataMetadataStore {
 	public async listEntitySets(): Promise<string[]> {
 		const baseUrl = this._client.normalizedBaseUrl;
 		const version = await this._version();
-		const cached = this._entitySets.get(baseUrl, version);
-		if (cached) {
-			return cached;
-		}
-		const serviceSets = await this._tryGetEntitySetsFromService();
-		const result = serviceSets ?? (await this._getEntitySetsFromMetadata());
-		this._entitySets.set(baseUrl, result, version);
-		return result;
+		return this._entitySets.getOrLoad(baseUrl, version, async () => {
+			const serviceSets = await this._tryGetEntitySetsFromService();
+			return serviceSets ?? (await this._getEntitySetsFromMetadata());
+		});
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {

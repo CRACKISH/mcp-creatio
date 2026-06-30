@@ -20,6 +20,10 @@ export class VersionedTtlCache<V> {
 	private readonly _ttlMs: number;
 	private readonly _maxEntries: number;
 	private readonly _entries = new Map<string, CacheBox<V>>();
+	// In-flight loads for {@link getOrLoad}, keyed by key+version so concurrent misses for the same
+	// (key, version) share ONE loader call (single-flight) — and a stale-version miss never coalesces
+	// onto a fresh-version load. Cleared as soon as the load settles (whether it resolves or rejects).
+	private readonly _inflight = new Map<string, Promise<V>>();
 
 	constructor(ttlMs: number, maxEntries: number) {
 		this._ttlMs = ttlMs;
@@ -45,6 +49,40 @@ export class VersionedTtlCache<V> {
 	public set(key: string, value: V, version: string, now: number = Date.now()): void {
 		this._entries.set(key, { value, version, storedAt: now, lastAccessMs: now });
 		this._prune(now);
+	}
+
+	/**
+	 * Return the cached value, or run `loader` to produce and cache it on a miss. Concurrent misses
+	 * for the same (key, version) are coalesced into a single `loader` call (single-flight), so a
+	 * burst of cold requests for the same schema/metadata makes ONE network round-trip, not N. A
+	 * rejected load is propagated to every waiter and NOT cached, so the next call retries.
+	 */
+	public async getOrLoad(
+		key: string,
+		version: string,
+		loader: () => Promise<V>,
+		now: number = Date.now(),
+	): Promise<V> {
+		const hit = this.get(key, version, now);
+		if (hit !== undefined) {
+			return hit;
+		}
+		const flightKey = `${key}\u0000${version}`;
+		const existing = this._inflight.get(flightKey);
+		if (existing) {
+			return existing;
+		}
+		const flight = (async () => {
+			const value = await loader();
+			this.set(key, value, version);
+			return value;
+		})();
+		this._inflight.set(flightKey, flight);
+		try {
+			return await flight;
+		} finally {
+			this._inflight.delete(flightKey);
+		}
 	}
 
 	private _prune(now: number): void {

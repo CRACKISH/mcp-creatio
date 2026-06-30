@@ -60,4 +60,69 @@ describe('VersionedTtlCache', () => {
 		vi.setSystemTime(1001);
 		expect(cache.get('a', 'v')).toBeUndefined();
 	});
+
+	it('getOrLoad coalesces concurrent misses into a single loader call', async () => {
+		const cache = new VersionedTtlCache<number>(1000, 10);
+		let calls = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const loader = async () => {
+			calls++;
+			await gate;
+			return 7;
+		};
+		const a = cache.getOrLoad('k', 'v', loader);
+		const b = cache.getOrLoad('k', 'v', loader);
+		release();
+		expect(await a).toBe(7);
+		expect(await b).toBe(7);
+		expect(calls).toBe(1);
+	});
+
+	it('getOrLoad caches the loaded value for later hits', async () => {
+		const cache = new VersionedTtlCache<number>(1000, 10);
+		let calls = 0;
+		await cache.getOrLoad('k', 'v', async () => {
+			calls++;
+			return 1;
+		});
+		await cache.getOrLoad('k', 'v', async () => {
+			calls++;
+			return 2;
+		});
+		expect(calls).toBe(1);
+		expect(cache.get('k', 'v')).toBe(1);
+	});
+
+	it('getOrLoad does not cache a rejected load and retries next time', async () => {
+		const cache = new VersionedTtlCache<number>(1000, 10);
+		await expect(
+			cache.getOrLoad('k', 'v', async () => {
+				throw new Error('boom');
+			}),
+		).rejects.toThrow('boom');
+		expect(cache.size).toBe(0);
+		expect(await cache.getOrLoad('k', 'v', async () => 9)).toBe(9);
+	});
+
+	it('getOrLoad does not coalesce across different versions', async () => {
+		const cache = new VersionedTtlCache<string>(1000, 10);
+		let calls = 0;
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const a = cache.getOrLoad('k', 'v1', async () => {
+			calls++;
+			await gate;
+			return 'A';
+		});
+		const b = cache.getOrLoad('k', 'v2', async () => {
+			calls++;
+			await gate;
+			return 'B';
+		});
+		release();
+		await a;
+		await b;
+		expect(calls).toBe(2);
+	});
 });
