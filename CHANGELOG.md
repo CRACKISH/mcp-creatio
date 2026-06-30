@@ -4,6 +4,33 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.7]
+
+Credential flexibility and multi-tenant hardening: `gateway`/`delegated` now accept a forwarded
+Creatio session cookie (not just a Bearer), and the schema caches are shared, per-tenant, bounded,
+and stampede-safe. 608 tests; live-verified on two Creatio instances (both CRUD backends, cookie
+passthrough, and dynamic-tool discovery).
+
+### Added
+
+- **Cookie / multi-shape credential passthrough (`delegated` & `gateway`)** — a client or Control-Plane
+  that holds a Creatio Forms-auth session (cookie + `BPMCSRF`) instead of an OAuth Bearer can now
+  connect by forwarding it in `X-Creatio-Cookie` (BPMCSRF read from the cookie, or an explicit
+  `X-Creatio-Bpmcsrf` header). The per-request credential is a typed `InjectedCredential`
+  (`bearer | cookie`); the stateless passthrough provider attaches `Authorization: Bearer` or
+  `Cookie` + `BPMCSRF` + `ForceUseSession` — no cookie jar, no per-credential pool. `Authorization`
+  takes precedence when both are present.
+
+### Changed
+
+- **Shared `VersionedTtlCache` for schema caches** — OData `$metadata` / entity-sets and DataService
+  runtime schemas now use one version + TTL + LRU cache, keyed per base URL. Fixes a multi-tenant
+  `$metadata` re-fetch thrash on every interleaved tenant switch (the OData store was single-slot) and
+  bounds the previously unbounded DataService schema cache.
+- **Single-flight schema loads + deduped `legacy` login** — concurrent cache misses for the same
+  schema coalesce into one fetch; concurrent `legacy` re-logins coalesce into one `AuthService` call
+  (matching the OAuth2 and broker providers).
+
 ## [0.6.6]
 
 Kubernetes readiness: dedicated liveness/readiness HTTP probes and a hardened container image, so the
