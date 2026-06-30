@@ -1,6 +1,7 @@
 import { EntitySchemaDescription } from '../../contracts';
 
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
+import { VersionedTtlCache } from '../versioned-ttl-cache';
 
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { DataServiceQueryBuilder } from './data-service-query-builder';
@@ -22,6 +23,10 @@ interface RuntimeSchema {
 }
 
 const CACHE_TTL_MS = 30 * 60 * 1000;
+// Keyed per (base URL, entity), so the cap spans every entity described across every tenant; sized
+// generously since a single tenant can legitimately describe many entities, but still bounded so a
+// long-lived multi-tenant gateway cannot grow the schema cache without limit.
+const MAX_SCHEMA_ENTRIES = 1000;
 const ENTITY_LIST_SCHEMA = 'VwSysSchemaInWorkspace';
 const ENTITY_MANAGER = 'EntitySchemaManager';
 
@@ -41,10 +46,9 @@ export class DataServiceSchemaProvider {
 	private readonly _filters: DataServiceFilterTranslator;
 	private readonly _freshness: SchemaFreshnessGate | undefined;
 	// Keyed by `${baseUrl}::${name}` so a multi-tenant gateway never serves tenant A's schema to B.
-	// Each entry is stamped with the freshness version at fetch time; a version mismatch (the data
-	// model changed) treats it as a miss. The TTL is a coarse backstop (and the sole freshness gate
-	// when no SchemaFreshnessGate is wired — then `version` is constant and behaviour is unchanged).
-	private readonly _schemaCache = new Map<string, { schema: RuntimeSchema; version: string; at: number }>();
+	// Version-stamped (a data-model change is a miss), TTL-bounded, and LRU-capped — all delegated to
+	// the shared cache so this provider and ODataMetadataStore share one freshness/eviction policy.
+	private readonly _schemaCache = new VersionedTtlCache<RuntimeSchema>(CACHE_TTL_MS, MAX_SCHEMA_ENTRIES);
 
 	constructor(
 		transport: DataServiceTransport,
@@ -62,9 +66,9 @@ export class DataServiceSchemaProvider {
 		const baseUrl = this._transport.baseUrl;
 		const version = this._freshness ? await this._freshness.getSchemaVersion(baseUrl) : '';
 		const key = `${baseUrl}::${name}`;
-		const cached = this._schemaCache.get(key);
-		if (cached && cached.version === version && Date.now() - cached.at < CACHE_TTL_MS) {
-			return cached.schema;
+		const cached = this._schemaCache.get(key, version);
+		if (cached) {
+			return cached;
 		}
 		const body = await this._transport.post(
 			'RuntimeEntitySchemaRequest',
@@ -75,7 +79,7 @@ export class DataServiceSchemaProvider {
 		if (!schema || !schema.name) {
 			throw new Error(`entity_not_found:${name}`);
 		}
-		this._schemaCache.set(key, { schema, version, at: Date.now() });
+		this._schemaCache.set(key, schema, version);
 		return schema;
 	}
 

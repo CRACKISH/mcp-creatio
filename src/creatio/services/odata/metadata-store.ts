@@ -4,38 +4,45 @@ import log from '../../../log';
 import { EntitySchemaDescription } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
+import { VersionedTtlCache } from '../versioned-ttl-cache';
 
 import { odataRoot } from './odata-routes';
 
+/** A parsed `$metadata` document for one base URL. The parsed tree and the two lookup indexes are
+ *  built lazily (and absent on a fresh fetch) so they cost nothing for a tenant only ever listed.
+ *  Freshness/TTL/eviction live in {@link VersionedTtlCache}, not here. */
+interface MetadataDoc {
+	xml: string;
+	parsed?: any;
+	entityTypeBySet?: Map<string, string>;
+	typeNodeByName?: Map<string, any>;
+}
+
 export class ODataMetadataStore {
 	private static readonly METADATA_TTL_MS = 30 * 60 * 1000;
+	/** Max distinct base URLs (tenants) retained per cache; least-recently-used dropped past it. */
+	private static readonly DEFAULT_MAX_TENANTS = 100;
 	private readonly _client: CreatioHttpClient;
 	private readonly _freshness: SchemaFreshnessGate | undefined;
-	private _metadataXml?: string;
-	private _metadataParsed?: any;
-	private _metadataFetchedAt = 0;
-	private _entitySetsCache?: string[];
-	private _entitySetsFetchedAt = 0;
-	// The base URL + freshness version the cached document/list were fetched under. A change in
-	// either (a different tenant via the gateway override, or a data-model change) invalidates the
-	// single-slot cache. Single-slot is intentional: per-tenant pooling is the multitenancy epic;
-	// here correctness (never serve another tenant's / a stale model's metadata) is what matters.
-	private _metadataBaseUrl?: string;
-	private _metadataVersion?: string;
-	private _entitySetsBaseUrl?: string;
-	private _entitySetsVersion?: string;
-	// Built once per parsed-metadata document so describeEntity is O(1) instead of two O(N) scans
-	// over the entire (hundreds-to-thousands of types) Creatio EDMX on every call.
-	private _entityTypeBySet: Map<string, string> | undefined;
-	private _typeNodeByName: Map<string, any> | undefined;
+	// Keyed by base URL so a multi-tenant gateway never serves tenant A's metadata to B AND never
+	// thrashes: tenant A's parsed document survives an interleaved call to B (the prior single-slot
+	// design re-fetched A's whole $metadata on every tenant switch). Version-stamping + TTL + LRU are
+	// all the shared cache's job.
+	private readonly _docs: VersionedTtlCache<MetadataDoc>;
+	private readonly _entitySets: VersionedTtlCache<string[]>;
 
-	constructor(client: CreatioHttpClient, freshness?: SchemaFreshnessGate) {
+	constructor(
+		client: CreatioHttpClient,
+		freshness?: SchemaFreshnessGate,
+		maxTenants: number = ODataMetadataStore.DEFAULT_MAX_TENANTS,
+	) {
 		this._client = client;
 		this._freshness = freshness;
-	}
-
-	private _isFresh(fetchedAt: number): boolean {
-		return Date.now() - fetchedAt < ODataMetadataStore.METADATA_TTL_MS;
+		this._docs = new VersionedTtlCache<MetadataDoc>(ODataMetadataStore.METADATA_TTL_MS, maxTenants);
+		this._entitySets = new VersionedTtlCache<string[]>(
+			ODataMetadataStore.METADATA_TTL_MS,
+			maxTenants,
+		);
 	}
 
 	/** Freshness version for the current request's base URL (empty when no gate is wired, which
@@ -53,41 +60,32 @@ export class ODataMetadataStore {
 		return Array.isArray(value) ? value : [value];
 	}
 
-	private async _getMetadataXml(): Promise<string> {
+	/** The cached metadata document for the current request's base URL, fetching/refreshing the raw
+	 *  `$metadata` on a miss (different tenant, stale TTL, or a changed freshness version). */
+	private async _getDoc(): Promise<MetadataDoc> {
 		const baseUrl = this._client.normalizedBaseUrl;
 		const version = await this._version();
-		if (
-			this._metadataXml &&
-			this._metadataBaseUrl === baseUrl &&
-			this._metadataVersion === version &&
-			this._isFresh(this._metadataFetchedAt)
-		) {
-			return this._metadataXml;
+		const cached = this._docs.get(baseUrl, version);
+		if (cached) {
+			return cached;
 		}
 		const headers = await this._client.getXmlHeaders();
 		const metadataUrl = `${odataRoot(baseUrl)}/$metadata`;
-		const xmlContent = await this._client.fetchText(metadataUrl, async () => ({ headers }));
-		this._metadataXml = xmlContent;
-		this._metadataParsed = undefined; // force re-parse against the refreshed document
-		this._entityTypeBySet = undefined; // and rebuild the lookup indexes
-		this._typeNodeByName = undefined;
-		this._metadataBaseUrl = baseUrl;
-		this._metadataVersion = version;
-		this._metadataFetchedAt = Date.now();
-		return this._metadataXml;
+		const xml = await this._client.fetchText(metadataUrl, async () => ({ headers }));
+		const doc: MetadataDoc = { xml };
+		this._docs.set(baseUrl, doc, version);
+		return doc;
 	}
 
-	private async _getParsedMetadata(): Promise<any> {
-		const xmlContent = await this._getMetadataXml();
-		if (this._metadataParsed) {
-			return this._metadataParsed;
+	private _getParsedMetadata(doc: MetadataDoc): any {
+		if (!doc.parsed) {
+			const parser = new XMLParser({
+				ignoreAttributes: false,
+				attributeNamePrefix: '@_',
+			});
+			doc.parsed = parser.parse(doc.xml);
 		}
-		const parser = new XMLParser({
-			ignoreAttributes: false,
-			attributeNamePrefix: '@_',
-		});
-		this._metadataParsed = parser.parse(xmlContent);
-		return this._metadataParsed;
+		return doc.parsed;
 	}
 
 	private _extractSchemas(metadata: any): any[] {
@@ -123,14 +121,13 @@ export class ODataMetadataStore {
 		return null;
 	}
 
-	/** Build (once per parsed document) the entitySet→entityType and typeName→typeNode lookups.
-	 *  Always goes through {@link _getParsedMetadata} first so the TTL refresh runs (and nulls the
-	 *  indexes on a refetch); only the index build itself is cached. */
-	private async _ensureIndexes(): Promise<void> {
-		const metadata = await this._getParsedMetadata();
-		if (this._entityTypeBySet && this._typeNodeByName) {
+	/** Build (once per parsed document) the entitySet→entityType and typeName→typeNode lookups on the
+	 *  document, so describeEntity is O(1) instead of two O(N) scans over the entire EDMX per call. */
+	private _ensureIndexes(doc: MetadataDoc): void {
+		if (doc.entityTypeBySet && doc.typeNodeByName) {
 			return;
 		}
+		const metadata = this._getParsedMetadata(doc);
 		const schemas = this._extractSchemas(metadata);
 		const bySet = new Map<string, string>();
 		const byType = new Map<string, any>();
@@ -150,13 +147,14 @@ export class ODataMetadataStore {
 				}
 			}
 		}
-		this._entityTypeBySet = bySet;
-		this._typeNodeByName = byType;
+		doc.entityTypeBySet = bySet;
+		doc.typeNodeByName = byType;
 	}
 
 	private async _getEntitySetsFromMetadata(): Promise<string[]> {
-		await this._ensureIndexes();
-		return Array.from(this._entityTypeBySet!.keys());
+		const doc = await this._getDoc();
+		this._ensureIndexes(doc);
+		return Array.from(doc.entityTypeBySet!.keys());
 	}
 
 	private _parseEntityProperties(entityTypeNode: any): {
@@ -189,33 +187,27 @@ export class ODataMetadataStore {
 	public async listEntitySets(): Promise<string[]> {
 		const baseUrl = this._client.normalizedBaseUrl;
 		const version = await this._version();
-		if (
-			this._entitySetsCache &&
-			this._entitySetsBaseUrl === baseUrl &&
-			this._entitySetsVersion === version &&
-			this._isFresh(this._entitySetsFetchedAt)
-		) {
-			return this._entitySetsCache;
+		const cached = this._entitySets.get(baseUrl, version);
+		if (cached) {
+			return cached;
 		}
 		const serviceSets = await this._tryGetEntitySetsFromService();
 		const result = serviceSets ?? (await this._getEntitySetsFromMetadata());
-		this._entitySetsCache = result;
-		this._entitySetsBaseUrl = baseUrl;
-		this._entitySetsVersion = version;
-		this._entitySetsFetchedAt = Date.now();
+		this._entitySets.set(baseUrl, result, version);
 		return result;
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {
-		await this._ensureIndexes();
-		const fullType = this._entityTypeBySet!.get(entitySet) ?? '';
+		const doc = await this._getDoc();
+		this._ensureIndexes(doc);
+		const fullType = doc.entityTypeBySet!.get(entitySet) ?? '';
 		if (!fullType) {
 			const error = `entity_not_found:${entitySet}`;
 			log.error('creatio.metadata.describe_entity.error', { entitySet, error });
 			throw new Error(error);
 		}
 		const typeName = fullType.split('.').pop()!;
-		const entityTypeNode = this._typeNodeByName!.get(typeName);
+		const entityTypeNode = doc.typeNodeByName!.get(typeName);
 		if (!entityTypeNode) {
 			const error = `entity_type_not_found:${typeName}`;
 			log.error('creatio.metadata.describe_entity.error', { entitySet, error });

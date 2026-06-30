@@ -118,4 +118,57 @@ describe('ODataMetadataStore caching + TTL (H3)', () => {
 		await store.listEntitySets();
 		expect(serviceCalls).toBe(2);
 	});
+
+	it('isolates parsed metadata per base URL and does not thrash on a tenant switch', async () => {
+		let fetchTextCalls = 0;
+		const client = {
+			normalizedBaseUrl: 'https://a',
+			async getXmlHeaders() {
+				return {};
+			},
+			async fetchText() {
+				fetchTextCalls++;
+				return META_XML;
+			},
+		};
+		const store = new ODataMetadataStore(client as never);
+
+		await store.describeEntity('Contact'); // tenant A → fetch #1
+		expect(fetchTextCalls).toBe(1);
+		client.normalizedBaseUrl = 'https://b';
+		await store.describeEntity('Contact'); // tenant B → fetch #2
+		expect(fetchTextCalls).toBe(2);
+		// Switching back must hit each tenant's own cached document, not re-fetch. The prior
+		// single-slot store would have re-fetched A (then B) on every switch — fetch #3, #4, ...
+		client.normalizedBaseUrl = 'https://a';
+		await store.describeEntity('Contact');
+		client.normalizedBaseUrl = 'https://b';
+		await store.describeEntity('Contact');
+		expect(fetchTextCalls).toBe(2);
+	});
+
+	it('evicts the least-recently-used base URL past maxTenants', async () => {
+		let fetchTextCalls = 0;
+		const client = {
+			normalizedBaseUrl: 'https://a',
+			async getXmlHeaders() {
+				return {};
+			},
+			async fetchText() {
+				fetchTextCalls++;
+				return META_XML;
+			},
+		};
+		const store = new ODataMetadataStore(client as never, undefined, 2);
+
+		await store.describeEntity('Contact'); // A cached (#1)
+		client.normalizedBaseUrl = 'https://b';
+		await store.describeEntity('Contact'); // B cached (#2)
+		client.normalizedBaseUrl = 'https://c';
+		await store.describeEntity('Contact'); // C cached (#3) → evicts A (LRU), cap = 2
+		expect(fetchTextCalls).toBe(3);
+		client.normalizedBaseUrl = 'https://a';
+		await store.describeEntity('Contact'); // A was evicted → re-fetch (#4)
+		expect(fetchTextCalls).toBe(4);
+	});
 });
