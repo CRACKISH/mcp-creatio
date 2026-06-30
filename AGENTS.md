@@ -27,7 +27,7 @@ src/
       creatio-rest.ts   ← shared REST/sys-setting contracts + helpers for capability clients
       dataforge/        ← DataForge capability: client + tool preparer
       globalsearch/     ← Global Search capability: client + tool preparer
-    bearer/           ← stateless per-request Bearer edge (delegated: RFC 9728 + fail-fast expiry; gateway: trust)
+    bearer/           ← stateless per-request credential edge: Bearer OR forwarded cookie session (delegated: RFC 9728 + fail-fast expiry; gateway: trust)
     oauth/            ← broker mode: the MCP's own OAuth 2.1 AS (DCR + /authorize + /token, JWT + PKCE)
   sessions/           ← per-process MCP session/transport lifecycle + per-user Creatio token store (broker only)
   utils/              ← Reusable helpers (env, network, context)
@@ -363,9 +363,13 @@ returns). Expect the call to resolve to the expected user.
 - `client_credentials`: env `CREATIO_MCP_AUTH_MODE=client_credentials` + `CREATIO_CLIENT_ID`/`SECRET`;
   `/mcp` is open (no edge), the provider injects the M2M token. Confirm `creatio.auth.ok authKind=oauth2`.
 - `legacy`: env `…=legacy` + `CREATIO_LOGIN`/`CREATIO_PASSWORD`. Confirm `creatio.auth.ok authKind=legacy`.
-- `delegated`/`gateway`: the request must carry `Authorization: Bearer <a real Creatio token>`. Mint
-  one out-of-band (e.g. `curl -k` the client_credentials grant at `<base>/0/connect/token`) and pass
-  it through. A request with **no** token must get `401`; `gateway` also honors `X-Creatio-Base-Url`.
+- `delegated`/`gateway`: the request must carry a Creatio credential — either `Authorization: Bearer
+  <a real Creatio token>` (mint one out-of-band, e.g. `curl -k` the client_credentials grant at
+  `<base>/0/connect/token`) or a forwarded Forms-auth session in `X-Creatio-Cookie` (POST
+  `<base>/ServiceModel/AuthService.svc/Login`, then forward the Set-Cookie value; BPMCSRF is read from
+  it or from an explicit `X-Creatio-Bpmcsrf`). A request with **no** credential must get `401`;
+  `gateway` also honors `X-Creatio-Base-Url`. Dynamic tools (DataForge / Global Search / `pub-*`) are
+  probed inside the request context, so they discover on the forwarded credential too.
 
 ## 11. Versioning & Release (MANDATORY checklist)
 
@@ -409,7 +413,7 @@ through CI, not local `gh`. Backfill an old tag via the workflow's `workflow_dis
 
 If adding new auth provider:
 
-1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the single `ICreatioAuthProvider` contract: `getHeaders` + `refresh` + `cancelAllRefresh`). The current providers are `LegacyProvider`, `OAuth2Provider` (client credentials), `OAuth2BearerProvider` (stateless per-request passthrough — delegated/gateway), and `BrokerProvider` (serves the user's broker-held Creatio tokens, refreshing on demand).
+1. Create provider under `src/creatio/auth/providers/` (extend `BaseProvider`, which requires only the single `ICreatioAuthProvider` contract: `getHeaders` + `refresh` + `cancelAllRefresh`). The current providers are `LegacyProvider`, `OAuth2Provider` (client credentials), `OAuth2BearerProvider` (stateless per-request passthrough — delegated/gateway; Bearer or forwarded cookie session via `InjectedCredential`), and `BrokerProvider` (serves the user's broker-held Creatio tokens, refreshing on demand).
 2. Add selection logic in `auth-manager.ts` and `config-builder.ts`, preserving the order: explicit `CREATIO_MCP_AUTH_MODE` wins, else inferred legacy → client_credentials → delegated.
 3. Document environment variables clearly in README + AGENTS.md.
 
@@ -433,12 +437,16 @@ If adding new auth provider:
 > best-effort) + purges the server-side + issued-refresh tokens; always answers 200.
 >
 > In **`delegated`/`gateway`** the MCP stores nothing and does **not** cryptographically verify the
-> Bearer — both are **fully-trusted-environment** modes (Creatio is the authority; the request's
-> `userKey` is an unverified, logging-only identity). The client (delegated, token obtained from
-> Creatio Identity, advertised via RFC 9728) or a fronting Control-Plane (gateway) supplies the token
-> and the Bearer edge in `src/server/bearer/` passes it through. Gateway's `X-Creatio-Base-Url`
-> override is validated against `CREATIO_MCP_ALLOWED_BASE_URLS` (and always blocks cloud-metadata IPs)
-> since it controls where the Bearer is sent. For an untrusted direct external client, use `broker`.
+> credential — both are **fully-trusted-environment** modes (Creatio is the authority; the request's
+> `userKey` is an unverified, logging-only identity). The client (delegated) or a fronting
+> Control-Plane (gateway) supplies a Creatio credential — either a **Bearer** token (obtained from
+> Creatio Identity; delegated advertises it via RFC 9728) or a forwarded **Forms-auth session**
+> (`X-Creatio-Cookie` + BPMCSRF, the common shape for tenants without OAuth). The edge in
+> `src/server/bearer/` parses it into a typed `InjectedCredential` (`bearer | cookie`) and the
+> passthrough provider attaches the matching headers statelessly — no cookie jar, no per-credential
+> pool. Gateway's `X-Creatio-Base-Url` override is validated against `CREATIO_MCP_ALLOWED_BASE_URLS`
+> (and always blocks cloud-metadata IPs) since it controls where the credential is sent. For an
+> untrusted direct external client, use `broker`.
 
 > **Session keep-alive (single-session modes only).** `legacy`/`client_credentials` hold one shared
 > Creatio session; a long idle period lets Creatio drop the forms cookie. Reactive reconnect (the

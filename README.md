@@ -198,21 +198,30 @@ CREATIO_BASE_URL=https://your-creatio.com
 A request with **no** `Authorization` header gets `401` with a `WWW-Authenticate` challenge pointing
 at Creatio Identity (RFC 9728), so a compliant client knows where to log in.
 
+> **Forwarding a Creatio session cookie instead of a Bearer.** A client that authenticated to Creatio
+> the classic way holds a **Forms-auth session** (cookie + `BPMCSRF`), not an OAuth token. It can
+> forward that session instead of a Bearer by sending the cookie in **`X-Creatio-Cookie`** (and,
+> optionally, the anti-forgery token in `X-Creatio-Bpmcsrf` — otherwise it is read from the cookie).
+> The MCP attaches `Cookie` + `BPMCSRF` + `ForceUseSession` statelessly and lets Creatio validate it.
+> `Authorization: Bearer` takes precedence when both are present.
+
 ### `gateway`
 
-A trusted fronting service (Creatio.ai Control-Plane) injects the Bearer; the MCP trusts and uses
+A trusted fronting service (Creatio.ai Control-Plane) injects the credential; the MCP trusts and uses
 it. The optional `X-Creatio-Base-Url` header routes a request to a specific Creatio instance
-(multi-tenant) — honored only in this mode. Because that override decides where the request's Bearer
-is sent, it is validated: set **`CREATIO_MCP_ALLOWED_BASE_URLS`** (comma-separated origins) to
-restrict it to your tenants. When unset, any `http(s)` host is accepted (trusting the gateway) except
-the cloud-metadata link-local address, which is always blocked (SSRF guard).
+(multi-tenant) — honored only in this mode. Because that override decides where the request's
+credential is sent, it is validated: set **`CREATIO_MCP_ALLOWED_BASE_URLS`** (comma-separated origins)
+to restrict it to your tenants. When unset, any `http(s)` host is accepted (trusting the gateway)
+except the cloud-metadata link-local address, which is always blocked (SSRF guard).
 
 **Who sends what.** Unlike `delegated`, the end client talks to the **gateway**, not to the MCP — so
-the **gateway** is what injects the per-request headers. On each forwarded `/mcp` call it sends:
+the **gateway** is what injects the per-request headers. On each forwarded `/mcp` call it sends a
+Creatio credential — either a Bearer token, or a forwarded Forms-auth session:
 
 ```http
 POST /mcp HTTP/1.1
-Authorization: Bearer <CREATIO_ACCESS_TOKEN>     # required — the tenant's Creatio token
+Authorization: Bearer <CREATIO_ACCESS_TOKEN>     # a Bearer token …
+X-Creatio-Cookie: BPMCSRF=<csrf>; .ASPXAUTH=<s>   # … OR forward a Forms-auth session instead
 X-Creatio-Base-Url: https://tenant-a.creatio.com  # optional — pick the tenant's instance (multi-tenant)
 ```
 
@@ -234,10 +243,11 @@ curl -sS http://localhost:3000/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get-current-user-info","arguments":{}}}'
 ```
 
-> **Only the Bearer token is injected** — not arbitrary credentials. The gateway owns auth: it should
-> exchange whatever it holds (SSO, cookie, etc.) into a Creatio OAuth access token **before** calling
-> the MCP. (Injecting other credential shapes, e.g. cookie/basic per tenant, is intentionally out of
-> scope for now.)
+> **Bearer or session cookie — nothing else.** The gateway injects either a Creatio OAuth **Bearer**
+> token or a forwarded **Forms-auth session** (`X-Creatio-Cookie` + `BPMCSRF`); the MCP forwards it
+> statelessly (no cookie jar, no per-credential pool) and Creatio validates it. The gateway owns auth —
+> it should hold a ready Creatio credential of one of those two shapes. Other shapes (Basic, API key)
+> are intentionally out of scope.
 
 > **Per-tenant tool isolation.** A single MCP deployment serving many instances keeps each tenant's
 > tool surface separate, keyed by the effective base URL (`X-Creatio-Base-Url`, else `CREATIO_BASE_URL`).
