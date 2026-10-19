@@ -63,3 +63,16 @@ export interface CrudProvider {
 		context: { entity: string; collectionRead: boolean },
 	): UnknownNameError | undefined;
 }
+
+/**
+ * The neutral {@link UnknownNameError} behind a CRUD failure, if it reports an unknown name: either
+ * already thrown as one, or recognized by the provider in its own dialect. The single place callers
+ * classify a provider error, so none re-parses backend error text.
+ */
+export function unknownNameErrorOf(
+	provider: CrudProvider,
+	err: unknown,
+	context: { entity: string; collectionRead: boolean },
+): UnknownNameError | undefined {
+	return err instanceof UnknownNameError ? err : provider.toUnknownNameError?.(err, context);
+}

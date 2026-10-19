@@ -7,11 +7,11 @@ import {
 	RecordFilesProvider,
 	RecordFilesQuery,
 	RecordFilesResult,
-	UnknownNameError,
+	unknownNameErrorOf,
 } from '../contracts';
 
 import { assertEntityName } from './entity-name';
-import { isGuid } from './identifiers';
+import { assertRecordId } from './identifiers';
 
 // Creatio keeps attachments in two places (verified live on .NET Framework and .NET 8): the
 // classic per-object table `<Entity>File` (FK column `<Entity>`), and the generic `SysFile`
@@ -50,11 +50,9 @@ export class RecordFilesService implements RecordFilesProvider {
 	}
 
 	private _isUnknownEntity(err: unknown, entity: string): boolean {
-		const unknown =
-			err instanceof UnknownNameError
-				? err
-				: this._crud.toUnknownNameError?.(err, { entity, collectionRead: true });
-		return unknown?.kind === 'entity';
+		return (
+			unknownNameErrorOf(this._crud, err, { entity, collectionRead: true })?.kind === 'entity'
+		);
 	}
 
 	private async _read(storage: string, filter: FilterNode, top: number): Promise<RecordFile[]> {
@@ -105,9 +103,7 @@ export class RecordFilesService implements RecordFilesProvider {
 		top,
 	}: RecordFilesQuery): Promise<RecordFilesResult> {
 		assertEntityName(entity);
-		if (!isGuid(id)) {
-			throw new Error(`invalid_record_id:${id}`);
-		}
+		assertRecordId(id);
 		// One extra row per storage tells whether another page exists.
 		const [classic, generic] = await Promise.all([
 			this._readClassic(entity, id, top + 1),

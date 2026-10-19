@@ -30,18 +30,38 @@ const CACHE_VERSION = 'v1';
 
 /**
  * Detects the mount once per base URL with one anonymous request, caching the verdict (bounded,
- * single-flight). A failed probe (network, timeout) is NOT cached and falls back to `/0` for that
- * call, so a transient blip self-heals on the next request instead of pinning a wrong answer.
+ * single-flight). A failed probe (network, timeout, or an inconclusive status such as 5xx/403/429)
+ * is NOT cached and falls back to `/0` for that call, so a transient blip self-heals on the next
+ * request instead of pinning a wrong answer.
  */
 export class ProbingWorkspaceMountResolver implements WorkspaceMountResolver {
 	private readonly _cache = new VersionedTtlCache<WorkspaceMount>(CACHE_TTL_MS, MAX_TENANTS);
+
+	/** A definitive verdict only: 404 → root mount (.NET 8); 2xx/3xx/405 → `/0`; else `undefined`. */
+	private static _mountFromStatus(status: number): WorkspaceMount | undefined {
+		if (status === 404) {
+			return '';
+		}
+		if ((status >= 200 && status < 400) || status === 405) {
+			return '/0';
+		}
+		return undefined;
+	}
 
 	private async _probe(baseUrl: string): Promise<WorkspaceMount> {
 		const response = await fetch(baseUrl + PROBE_PATH, {
 			redirect: 'manual',
 			signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
 		});
-		const mount: WorkspaceMount = response.status === 404 ? '' : '/0';
+		const { status } = response;
+		// Only the status matters; release the socket instead of leaving the body for GC.
+		await response.body?.cancel().catch(() => undefined);
+		const mount = ProbingWorkspaceMountResolver._mountFromStatus(status);
+		if (mount === undefined) {
+			// 5xx (app pool restarting), 401/403 (WAF), 429 … say nothing about the mount: throw so
+			// `resolve` falls back to `/0` for this call only, instead of caching a guess for the TTL.
+			throw new Error(`inconclusive workspace-mount probe status ${status}`);
+		}
 		log.info('creatio.workspace_mount.detected', { baseUrl, mount: mount || '/' });
 		return mount;
 	}

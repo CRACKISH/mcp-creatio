@@ -358,12 +358,6 @@ export class Server {
 		return { source, entitySet, metadata };
 	}
 
-	/**
-	 * The client tool surface as data. Handlers return raw domain results; MCP content
-	 * wrapping is applied once by {@link _normalizeToToolHandler}. Adding a tool is a new
-	 * row here (plus its descriptor) — no new bespoke wrapping. Mutating tools are listed
-	 * separately and only registered when not in readonly mode.
-	 */
 	/** Feature-catalog tools exist only when the backend can serve the catalog (DataService);
 	 *  elsewhere features stay reachable through the generic CRUD tools + `refresh-feature-cache`. */
 	private _featureCatalogToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
@@ -397,6 +391,12 @@ export class Server {
 		};
 	}
 
+	/**
+	 * The client tool surface as data. Handlers return raw domain results; MCP content
+	 * wrapping is applied once by {@link _normalizeToToolHandler}. Adding a tool is a new
+	 * row here (plus its descriptor) — no new bespoke wrapping. Mutating tools are listed
+	 * separately and only registered when not in readonly mode.
+	 */
 	private _clientToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
 		const {
 			crud,

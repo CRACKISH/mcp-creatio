@@ -139,7 +139,14 @@ export class DataServiceCrudProvider implements CrudProvider {
 				.filter(([, type]) => toParameterDataValueType(type) === DataValueType.Lookup)
 				.map(([name]) => name),
 		);
-		return { query: expand ? { ...query, columns: [...types.keys()] } : query, lookups };
+		if (!expand) {
+			return { query, lookups };
+		}
+		// Content columns (a file's `Data`, …) are never selected: they can be megabytes per row.
+		const columns = [...types]
+			.filter(([, type]) => toParameterDataValueType(type) !== DataValueType.Binary)
+			.map(([name]) => name);
+		return { query: { ...query, columns }, lookups };
 	}
 
 	/** Keep only the requested columns (DataService auto-adds primary display/image columns
@@ -174,10 +181,10 @@ export class DataServiceCrudProvider implements CrudProvider {
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		assertEntityName(query.entity);
-		// top:0 means "no rows" (typically a count-only request). DataService cannot FETCH 0
-		// rows, so skip the row query entirely and return an empty set.
 		const resolved = await this._resolveRead(query);
 		const opts = resolved.lookups ? { lookups: resolved.lookups } : {};
+		// top:0 means "no rows" (typically a count-only request). DataService cannot FETCH 0
+		// rows, so skip the row query entirely and return an empty set.
 		let items: unknown[] = [];
 		if (query.top !== 0) {
 			const select = this._queryBuilder.buildSelectQuery(resolved.query, opts);

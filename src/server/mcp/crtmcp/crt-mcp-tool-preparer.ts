@@ -1,6 +1,7 @@
 import log from '../../../log';
 import { jsonSchemaToZodShape } from '../json-schema-to-zod';
 import { ToolPreparer, ToolRegistrar } from '../tool-preparer';
+import { RUNS } from '../tools-data';
 
 import { CrtMcpPublishingClient, PublishedTool } from './crt-mcp-client';
 
@@ -8,16 +9,6 @@ import { CrtMcpPublishingClient, PublishedTool } from './crt-mcp-client';
 export const PUBLISHED_TOOLS_CAPABILITY = 'published-tools';
 
 const NAME_PREFIX = 'pub';
-
-// This server only proxies a published tool and cannot verify what it does, so it never vouches
-// for one as read-only or harmless: whatever the app declares, the client is told to treat the tool
-// as able to change data (and to confirm it), never as open-world.
-const PUBLISHED_TOOL_ANNOTATIONS = {
-	readOnlyHint: false,
-	destructiveHint: true,
-	idempotentHint: false,
-	openWorldHint: false,
-} as const;
 
 /**
  * Registers tools published in the Creatio "MCP Publishing" composable app, but only
@@ -43,7 +34,9 @@ export class CrtMcpPublishingToolPreparer implements ToolPreparer {
 				tool.description ??
 				`Published tool "${tool.name}" from Creatio MCP server "${serverCode}".`,
 			inputSchema: jsonSchemaToZodShape(tool.inputSchema),
-			annotations: PUBLISHED_TOOL_ANNOTATIONS,
+			// This server only proxies the tool and cannot verify what it does, so it never vouches for
+			// it as read-only or harmless, whatever the app declares: the client should confirm it.
+			annotations: RUNS,
 		};
 		// Proxy the call straight through; the app validates args and shapes the result.
 		const handler = (args: Record<string, unknown>) =>

@@ -1,15 +1,9 @@
 import { z } from 'zod';
 
-/**
- * MCP tool annotations: hints a client uses to decide what it may run without asking the user.
- * Every tool acts only on the configured Creatio instance, so none is open-world.
- */
-interface ToolAnnotations {
-	readOnlyHint: boolean;
-	destructiveHint?: boolean;
-	idempotentHint?: boolean;
-	openWorldHint: boolean;
-}
+import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
+
+// MCP tool annotations: hints a client uses to decide what it may run without asking the user.
+// Every tool acts only on the configured Creatio instance, so none is open-world.
 
 /** Reads only. */
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
@@ -27,8 +21,8 @@ const CHANGES: ToolAnnotations = {
 	idempotentHint: true,
 	openWorldHint: false,
 };
-/** Runs server-side logic with effects this server cannot bound. */
-const RUNS: ToolAnnotations = {
+/** Runs server-side logic with effects this server cannot bound (also every proxied published tool). */
+export const RUNS: ToolAnnotations = {
 	readOnlyHint: false,
 	destructiveHint: true,
 	idempotentHint: false,

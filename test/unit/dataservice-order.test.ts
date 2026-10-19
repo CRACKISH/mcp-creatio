@@ -74,6 +74,33 @@ describe('DataService ordering on fields that are not selected', () => {
 		expect(paths(new Set(['Account']))).toEqual(['FacebookId', 'Account.Id']);
 	});
 
+	// A content column (a file's `Data`) can be megabytes per row: the expansion never selects it.
+	it('expands without binary content columns', async () => {
+		const { client, calls } = makeHttpClientHarness((url) =>
+			url.endsWith('/RuntimeEntitySchemaRequest')
+				? jsonResponse({
+						success: true,
+						schema: {
+							name: 'AccountFile',
+							columns: {
+								Items: {
+									Id: { name: 'Id', dataValueType: DataValueType.Guid },
+									Name: { name: 'Name', dataValueType: DataValueType.Text },
+									Data: { name: 'Data', dataValueType: DataValueType.Binary },
+								},
+							},
+						},
+					})
+				: jsonResponse({ success: true, rows: [] }),
+		);
+		await new DataServiceCrudProvider(client).read({
+			entity: 'AccountFile',
+			order: [{ field: 'Name', dir: 'asc' }],
+		});
+		const select = bodyOf(calls.find((c) => c.url.endsWith('/SelectQuery'))!) as any;
+		expect(Object.keys(select.columns.items)).toEqual(['Id', 'Name']);
+	});
+
 	it('leaves an unordered all-columns read in all-columns mode (no schema fetch)', async () => {
 		const { client, calls } = makeHttpClientHarness(() =>
 			jsonResponse({ success: true, rows: [] }),

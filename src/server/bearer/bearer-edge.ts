@@ -1,8 +1,8 @@
 import {
 	BearerAuthConfig,
 	BearerAuthMode,
+	resolveIdentityBase,
 	withOfflineAccess,
-	workspaceBaseUrl,
 } from '../../creatio';
 import log from '../../log';
 import { InjectedCredential, env, extractBpmcsrf } from '../../utils';
@@ -76,7 +76,7 @@ export class BearerEdge {
 	private _identityBase(): Promise<string> {
 		return this._config.idBaseUrl
 			? Promise.resolve(this._config.idBaseUrl)
-			: workspaceBaseUrl(this._baseUrl);
+			: resolveIdentityBase(this._baseUrl);
 	}
 
 	/** Pull the per-request credential the client/gateway supplied: a Bearer token, or a forwarded

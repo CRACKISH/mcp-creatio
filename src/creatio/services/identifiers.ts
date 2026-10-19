@@ -22,6 +22,14 @@ export function isEmptyPlaceholder(value: unknown): boolean {
 	return typeof value === 'string' && (value === EMPTY_GUID || MIN_DATE_RE.test(value));
 }
 
+/** Guard a record id that is put into a URL or query: it must be a GUID. Returns it for inline use. */
+export function assertRecordId(id: string): string {
+	if (!isGuid(id)) {
+		throw new Error(`invalid_record_id:${id}`);
+	}
+	return id;
+}
+
 export function isGuid(value: unknown): value is string {
 	return typeof value === 'string' && GUID_RE.test(value);
 }

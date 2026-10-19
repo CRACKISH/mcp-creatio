@@ -183,3 +183,26 @@ describe('read tool surfaces the suggestion to the agent', () => {
 		);
 	});
 });
+
+describe('self-review regressions', () => {
+	// OData says "The property 'X' cannot be used in …" about properties that DO exist; that must
+	// stay the original Creatio error, not a false unknown_column.
+	it('only treats the unknown-property phrasings as unknown columns', () => {
+		const existing = new Error(
+			"creatio_read_failed:400 The property 'Name' cannot be used in the $orderby query option.",
+		);
+		expect(odataError(existing, 'Contact', true)).toBeUndefined();
+	});
+
+	// A huge client-supplied name must not turn the O(n·m) distance into an event-loop stall.
+	it('skips suggestions for an absurdly long name and stays fast', () => {
+		const started = Date.now();
+		expect(
+			suggestNames(
+				'x'.repeat(100_000),
+				Array.from({ length: 2000 }, (_, i) => `Column${i}`),
+			),
+		).toEqual([]);
+		expect(Date.now() - started).toBeLessThan(500);
+	});
+});

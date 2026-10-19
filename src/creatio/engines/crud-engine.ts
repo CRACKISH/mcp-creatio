@@ -9,6 +9,7 @@ import {
 	ReadQuery,
 	ReadResult,
 	UnknownNameError,
+	unknownNameErrorOf,
 } from '../contracts';
 
 import { BaseEngine, EngineEnv } from './engine';
@@ -45,10 +46,7 @@ export class CrudEngine extends BaseEngine {
 		try {
 			return await run();
 		} catch (err) {
-			const unknown =
-				err instanceof UnknownNameError
-					? err
-					: this._provider.toUnknownNameError?.(err, { entity, collectionRead });
+			const unknown = unknownNameErrorOf(this._provider, err, { entity, collectionRead });
 			throw unknown ? await this._withSuggestions(unknown) : err;
 		}
 	}

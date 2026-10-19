@@ -111,3 +111,33 @@ describe('workspace-mount-aware routes', () => {
 		expect(body.authorization_servers).toEqual([NET8]);
 	});
 });
+
+describe('self-review regressions', () => {
+	// A 5xx / 403 / 429 says nothing about the mount: it must not be cached as `/0` for the TTL.
+	it.each([500, 503, 403, 429])('does not cache an inconclusive %i probe', async (status) => {
+		let answer = status;
+		const fetchMock = stubRuntimes(() => new Response(null, { status: answer }));
+		const resolver = new ProbingWorkspaceMountResolver();
+		expect(await resolver.resolve(NET8)).toBe('/0');
+		answer = 404;
+		expect(await resolver.resolve(NET8)).toBe('');
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it.each([200, 302, 405])('treats %i as a definitive /0 mount', async (status) => {
+		stubRuntimes(() => new Response(null, { status }));
+		expect(await new ProbingWorkspaceMountResolver().resolve(FRAMEWORK)).toBe('/0');
+	});
+
+	// The delegated edge used its own copy of the identity-base rule and advertised `…/0/0`.
+	it('delegated discovery does not double a /0 already in the base URL', async () => {
+		installWorkspaceMountDetection({ resolve: async () => '/0' });
+		const app = express();
+		new BearerEdge(
+			{ kind: AuthProviderType.OAuth2Bearer, mode: BearerAuthMode.Delegated } as never,
+			`${FRAMEWORK}/0`,
+		).registerRoutes(app);
+		const { body } = await request(app).get('/.well-known/oauth-protected-resource');
+		expect(body.authorization_servers).toEqual([`${FRAMEWORK}/0`]);
+	});
+});

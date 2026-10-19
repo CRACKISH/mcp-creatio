@@ -24,16 +24,29 @@ function editDistance(a: string, b: string): number {
 }
 
 /**
+ * Longest name worth suggesting for. Real Creatio identifiers are far shorter; the cap stops a
+ * client-supplied name from turning the O(n·m) distance into an event-loop stall.
+ */
+const MAX_SUGGEST_LENGTH = 128;
+
+/**
  * The known names closest to a mistyped one, best first: a case-only difference, then typos within
  * roughly a third of the name's length. Nothing is suggested when no name is close.
  */
 export function suggestNames(target: string, candidates: Iterable<string>, limit = 3): string[] {
+	if (target.length > MAX_SUGGEST_LENGTH) {
+		return [];
+	}
 	const wanted = target.toLowerCase();
 	const scored: Array<{ name: string; score: number }> = [];
 	for (const name of new Set(candidates)) {
 		const known = name.toLowerCase();
-		const score = editDistance(wanted, known);
 		const tolerance = Math.max(1, Math.floor(Math.max(wanted.length, known.length) / 3));
+		// The distance is at least the length gap, so a wider gap can never be within tolerance.
+		if (Math.abs(wanted.length - known.length) > tolerance) {
+			continue;
+		}
+		const score = editDistance(wanted, known);
 		if (score <= tolerance) {
 			scored.push({ name, score });
 		}
