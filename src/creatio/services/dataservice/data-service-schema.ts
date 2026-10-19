@@ -1,5 +1,4 @@
 import { EntitySchemaDescription } from '../../contracts';
-
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
 import { VersionedTtlCache } from '../versioned-ttl-cache';
 
@@ -48,7 +47,10 @@ export class DataServiceSchemaProvider {
 	// Keyed by `${baseUrl}::${name}` so a multi-tenant gateway never serves tenant A's schema to B.
 	// Version-stamped (a data-model change is a miss), TTL-bounded, and LRU-capped — all delegated to
 	// the shared cache so this provider and ODataMetadataStore share one freshness/eviction policy.
-	private readonly _schemaCache = new VersionedTtlCache<RuntimeSchema>(CACHE_TTL_MS, MAX_SCHEMA_ENTRIES);
+	private readonly _schemaCache = new VersionedTtlCache<RuntimeSchema>(
+		CACHE_TTL_MS,
+		MAX_SCHEMA_ENTRIES,
+	);
 
 	constructor(
 		transport: DataServiceTransport,

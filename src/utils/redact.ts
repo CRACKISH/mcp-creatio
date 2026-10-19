@@ -42,8 +42,14 @@ export function redactSecrets(input: unknown): string {
 	}
 	return input
 		.replace(AUTH_SCHEME_VALUE_RE, (_m, scheme: string) => `${scheme} ${REDACTED}`)
-		.replace(AUTHORIZATION_HEADER_RE, (_m, key: string, sep: string) => `${key}${sep}${REDACTED}`)
-		.replace(SECRET_PARAM_RE, (_m, prefix: string, openQuote: string) => `${prefix}${openQuote}${REDACTED}`);
+		.replace(
+			AUTHORIZATION_HEADER_RE,
+			(_m, key: string, sep: string) => `${key}${sep}${REDACTED}`,
+		)
+		.replace(
+			SECRET_PARAM_RE,
+			(_m, prefix: string, openQuote: string) => `${prefix}${openQuote}${REDACTED}`,
+		);
 }
 
 /**

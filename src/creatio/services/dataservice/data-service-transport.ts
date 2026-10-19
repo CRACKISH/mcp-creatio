@@ -12,6 +12,12 @@ import { CreatioHttpClient } from '../http-client';
 export class DataServiceTransport {
 	private readonly _client: CreatioHttpClient;
 
+	/** The Creatio instance base for the current request (honors the gateway per-request override).
+	 *  Used to key schema caches per tenant. */
+	public get baseUrl(): string {
+		return this._client.normalizedBaseUrl;
+	}
+
 	constructor(client: CreatioHttpClient) {
 		this._client = client;
 	}
@@ -27,12 +33,6 @@ export class DataServiceTransport {
 				'unknown_error';
 			throw new Error(`creatio_dataservice_${operation}_error:${message}`);
 		}
-	}
-
-	/** The Creatio instance base for the current request (honors the gateway per-request override).
-	 *  Used to key schema caches per tenant. */
-	public get baseUrl(): string {
-		return this._client.normalizedBaseUrl;
 	}
 
 	public endpoint(operation: string): string {

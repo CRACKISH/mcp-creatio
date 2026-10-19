@@ -1,6 +1,6 @@
 import { BearerAuthConfig, BearerAuthMode, withOfflineAccess } from '../../creatio';
 import log from '../../log';
-import { env, extractBpmcsrf, InjectedCredential } from '../../utils';
+import { InjectedCredential, env, extractBpmcsrf } from '../../utils';
 import { resolvePublicOrigin } from '../http/public-origin';
 
 import { isAllowedBaseUrl, parseAllowedBaseUrls } from './base-url-guard';
@@ -82,7 +82,9 @@ export class BearerEdge {
 		if (typeof cookie === 'string' && cookie) {
 			const explicitCsrf = req.headers[BPMCSRF_HEADER];
 			const bpmcsrf =
-				typeof explicitCsrf === 'string' && explicitCsrf ? explicitCsrf : extractBpmcsrf(cookie);
+				typeof explicitCsrf === 'string' && explicitCsrf
+					? explicitCsrf
+					: extractBpmcsrf(cookie);
 			return { kind: 'cookie', cookie, bpmcsrf };
 		}
 		return undefined;
@@ -96,7 +98,8 @@ export class BearerEdge {
 	): void {
 		const r = req as Request & { userKey?: string; credential?: InjectedCredential };
 		const resolvedUserKey =
-			userKey ?? (credential.kind === 'bearer' ? inspectBearer(credential.token).userKey : undefined);
+			userKey ??
+			(credential.kind === 'bearer' ? inspectBearer(credential.token).userKey : undefined);
 		if (resolvedUserKey !== undefined) {
 			r.userKey = resolvedUserKey;
 		}

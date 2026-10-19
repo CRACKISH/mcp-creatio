@@ -25,13 +25,35 @@ export class VersionedTtlCache<V> {
 	// onto a fresh-version load. Cleared as soon as the load settles (whether it resolves or rejects).
 	private readonly _inflight = new Map<string, Promise<V>>();
 
+	public get size(): number {
+		return this._entries.size;
+	}
+
 	constructor(ttlMs: number, maxEntries: number) {
 		this._ttlMs = ttlMs;
 		this._maxEntries = maxEntries;
 	}
 
-	public get size(): number {
-		return this._entries.size;
+	private _prune(now: number): void {
+		for (const [key, box] of this._entries) {
+			if (now - box.storedAt >= this._ttlMs) {
+				this._entries.delete(key);
+			}
+		}
+		if (this._entries.size <= this._maxEntries) {
+			return;
+		}
+		const byAge = Array.from(this._entries.entries()).sort(
+			(a, b) => a[1].lastAccessMs - b[1].lastAccessMs,
+		);
+		let over = this._entries.size - this._maxEntries;
+		for (const [key] of byAge) {
+			if (over <= 0) {
+				break;
+			}
+			this._entries.delete(key);
+			over--;
+		}
 	}
 
 	/** The cached value iff present, version-matching and within TTL; otherwise `undefined`. Touches
@@ -82,28 +104,6 @@ export class VersionedTtlCache<V> {
 			return await flight;
 		} finally {
 			this._inflight.delete(flightKey);
-		}
-	}
-
-	private _prune(now: number): void {
-		for (const [key, box] of this._entries) {
-			if (now - box.storedAt >= this._ttlMs) {
-				this._entries.delete(key);
-			}
-		}
-		if (this._entries.size <= this._maxEntries) {
-			return;
-		}
-		const byAge = Array.from(this._entries.entries()).sort(
-			(a, b) => a[1].lastAccessMs - b[1].lastAccessMs,
-		);
-		let over = this._entries.size - this._maxEntries;
-		for (const [key] of byAge) {
-			if (over <= 0) {
-				break;
-			}
-			this._entries.delete(key);
-			over--;
 		}
 	}
 }

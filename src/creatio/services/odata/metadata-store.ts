@@ -38,7 +38,10 @@ export class ODataMetadataStore {
 	) {
 		this._client = client;
 		this._freshness = freshness;
-		this._docs = new VersionedTtlCache<MetadataDoc>(ODataMetadataStore.METADATA_TTL_MS, maxTenants);
+		this._docs = new VersionedTtlCache<MetadataDoc>(
+			ODataMetadataStore.METADATA_TTL_MS,
+			maxTenants,
+		);
 		this._entitySets = new VersionedTtlCache<string[]>(
 			ODataMetadataStore.METADATA_TTL_MS,
 			maxTenants,

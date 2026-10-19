@@ -6,10 +6,10 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import log from '../../log';
 import { SessionContext } from '../../sessions';
 import {
+	InjectedCredential,
 	getClientIp,
 	getSessionIdFromRequest,
 	getUserKeyFromRequest,
-	InjectedCredential,
 	runWithContext,
 } from '../../utils';
 

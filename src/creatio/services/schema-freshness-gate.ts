@@ -34,6 +34,15 @@ export class SchemaFreshnessGate {
 		this._ttlMs = ttlMs;
 	}
 
+	private async _fetchToken(now: number): Promise<string> {
+		const hashes = await this._client.getHashes();
+		if (!hashes) {
+			return `fallback:${Math.floor(now / FALLBACK_BUCKET_MS)}`;
+		}
+		const entitySchema = hashes.hashes[ENTITY_SCHEMA_HASH_NAME] ?? '';
+		return `v${hashes.cacheVersion}:${entitySchema}`;
+	}
+
 	/**
 	 * Current schema-version token for `baseUrl`. Stable while the data model is unchanged; changes
 	 * when Creatio's `runtime-entity-schema` hash or the global `cacheVersion` changes. Callers stamp
@@ -48,14 +57,5 @@ export class SchemaFreshnessGate {
 		const token = await this._fetchToken(now);
 		this._snapshots.set(baseUrl, { token, at: now });
 		return token;
-	}
-
-	private async _fetchToken(now: number): Promise<string> {
-		const hashes = await this._client.getHashes();
-		if (!hashes) {
-			return `fallback:${Math.floor(now / FALLBACK_BUCKET_MS)}`;
-		}
-		const entitySchema = hashes.hashes[ENTITY_SCHEMA_HASH_NAME] ?? '';
-		return `v${hashes.cacheVersion}:${entitySchema}`;
 	}
 }

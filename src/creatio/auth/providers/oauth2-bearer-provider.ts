@@ -24,7 +24,12 @@ export class OAuth2BearerProvider extends BaseProvider<BearerAuthConfig> {
 			throw new Error('credential_required');
 		}
 		if (credential.kind === 'cookie') {
-			return buildCookieHeaders(accept, Boolean(isJson), credential.cookie, credential.bpmcsrf);
+			return buildCookieHeaders(
+				accept,
+				Boolean(isJson),
+				credential.cookie,
+				credential.bpmcsrf,
+			);
 		}
 		return buildHeaders(accept, Boolean(isJson), credential.token);
 	}
