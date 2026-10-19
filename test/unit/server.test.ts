@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CreatioEngineManager } from '../../src/creatio';
 import { Server } from '../../src/server/mcp';
@@ -88,6 +88,78 @@ describe('Server tool registration', () => {
 		expect(engines.feature.kind).toBe('feature');
 		expect(engines.adminOperation.kind).toBe('admin-operation');
 		expect(engines.configuration.kind).toBe('configuration');
+	});
+});
+
+describe('Feature catalog tools (DataService backend only)', () => {
+	const FEATURE_TOOLS = ['list-features', 'get-feature', 'set-feature-state'];
+
+	function buildWithCatalog(readonlyMode = false) {
+		const context = makeFakeContext() as ReturnType<typeof makeFakeContext> & {
+			featureCatalog: Record<string, unknown>;
+		};
+		context.featureCatalog = {
+			kind: 'feature-catalog',
+			listFeatures: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
+			getFeature: vi.fn().mockResolvedValue({ code: 'F', overrides: [] }),
+			setFeatureState: vi.fn().mockResolvedValue({ code: 'F', overrides: [] }),
+		};
+		const server = new Server(new CreatioEngineManager(context as never), { readonlyMode });
+		const handlers = (server as unknown as { _handlers: Map<string, ToolHandler> })._handlers;
+		return { context, handlers };
+	}
+
+	it('are not registered without a catalog (OData backend keeps the table tools)', () => {
+		const { handlers } = buildServer(false);
+		for (const name of FEATURE_TOOLS) {
+			expect(handlers.has(name)).toBe(false);
+		}
+		expect(handlers.has('refresh-feature-cache')).toBe(true);
+	});
+
+	it('are registered with a catalog; set-feature-state is gated out in readonly mode', () => {
+		for (const name of FEATURE_TOOLS) {
+			expect(buildWithCatalog(false).handlers.has(name)).toBe(true);
+		}
+		const { handlers } = buildWithCatalog(true);
+		expect(handlers.has('list-features')).toBe(true);
+		expect(handlers.has('get-feature')).toBe(true);
+		expect(handlers.has('set-feature-state')).toBe(false);
+	});
+
+	it('delegate validated arguments to the catalog', async () => {
+		const { handlers, context } = buildWithCatalog();
+		await callTool(handlers, 'list-features', { search: 'Freedom' });
+		expect(context.featureCatalog.listFeatures).toHaveBeenCalledWith({
+			search: 'Freedom',
+			top: 50,
+		});
+		await callTool(handlers, 'get-feature', { code: 'F' });
+		expect(context.featureCatalog.getFeature).toHaveBeenCalledWith('F');
+		await callTool(handlers, 'set-feature-state', {
+			code: 'F',
+			state: 'enabled',
+			adminUnitId: GUID,
+		});
+		expect(context.featureCatalog.setFeatureState).toHaveBeenCalledWith({
+			code: 'F',
+			state: 'enabled',
+			adminUnitId: GUID,
+		});
+	});
+
+	it('reject an invalid state or a non-GUID admin unit', async () => {
+		const { handlers } = buildWithCatalog();
+		await expect(
+			callTool(handlers, 'set-feature-state', { code: 'F', state: 'on' }),
+		).rejects.toThrow();
+		await expect(
+			callTool(handlers, 'set-feature-state', {
+				code: 'F',
+				state: 'enabled',
+				adminUnitId: 'x',
+			}),
+		).rejects.toThrow();
 	});
 });
 

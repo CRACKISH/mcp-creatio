@@ -4,6 +4,7 @@ import {
 	AdminOperationProvider,
 	ConfigurationProvider,
 	CrudProvider,
+	FeatureCatalogProvider,
 	FeatureProvider,
 	ProcessProvider,
 	SysSettingsProvider,
@@ -12,9 +13,12 @@ import {
 import { CreatioProviderContext } from '../provider-context';
 
 import { AdminOperationServiceProvider } from './admin-operation-service-provider';
+import { AppFeatureStore } from './app-feature-store';
 import { ClientCacheHashClient } from './client-cache-hash-client';
 import { ConfigurationServiceProvider } from './configuration-service-provider';
 import { createCrudProvider } from './crud-provider-factory';
+import { DataServiceCrudProvider } from './dataservice/data-service-crud-provider';
+import { FeatureCatalogService } from './feature-catalog-service';
 import { FeatureServiceProvider } from './feature-service-provider';
 import { CreatioHttpClient } from './http-client';
 import { ODataMetadataStore } from './odata/metadata-store';
@@ -34,6 +38,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 	public readonly configuration: ConfigurationProvider;
 	public readonly crud: CrudProvider;
 	public readonly feature: FeatureProvider;
+	public readonly featureCatalog?: FeatureCatalogProvider;
 	public readonly process: ProcessProvider;
 	public readonly sysSettings: SysSettingsProvider;
 	public readonly user: UserProvider;
@@ -59,6 +64,12 @@ export class CreatioServiceContext implements CreatioProviderContext {
 			freshness: this._freshness,
 		});
 		this.feature = new FeatureServiceProvider(this._httpClient);
+		if (this.crud instanceof DataServiceCrudProvider) {
+			this.featureCatalog = new FeatureCatalogService(
+				new AppFeatureStore(this.crud),
+				this.feature,
+			);
+		}
 		this.process = new ProcessServiceProvider(this._httpClient);
 		this.sysSettings = new SysSettingsServiceProvider(this._httpClient);
 		this.user = new UserInfoProvider(this._httpClient);

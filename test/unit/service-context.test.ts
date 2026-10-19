@@ -20,4 +20,15 @@ describe('CreatioServiceContext', () => {
 		expect(ctx.user).toBeTruthy();
 		expect(ctx.authProvider.type).toBe(AuthProviderType.OAuth2);
 	});
+
+	it('offers the feature catalog only on the DataService backend', () => {
+		const config = {
+			baseUrl: 'https://tenant.creatio.local',
+			auth: { kind: AuthProviderType.OAuth2, clientId: 'c', clientSecret: 's' },
+		};
+		expect(new CreatioServiceContext(config as never).featureCatalog).toBeDefined();
+		expect(
+			new CreatioServiceContext({ ...config, crudBackend: 'odata' } as never).featureCatalog,
+		).toBeUndefined();
+	});
 });

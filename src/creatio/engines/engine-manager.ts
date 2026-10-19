@@ -132,6 +132,7 @@ export class CreatioEngineManager {
 			() =>
 				new FeatureEngine(
 					this._options?.featureProvider ?? this._context.feature,
+					this._context.featureCatalog,
 					this._env,
 				),
 			this._options?.enableFeature ?? true,

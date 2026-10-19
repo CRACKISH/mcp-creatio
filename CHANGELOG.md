@@ -4,6 +4,19 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Feature toggles from every source (DataService backend)** — `list-features`, `get-feature` and
+  `set-feature-state` work through the `AppFeature` / `AppFeatureState` virtual entities the Creatio
+  feature page uses, so features defined in `web.config`, package metadata or `GlobalAppSettings`
+  are visible and switchable, not only `Feature` table rows. Change the default state or a
+  per-user/role override (`inherit` removes it); the tool clears that feature's cache, re-reads it
+  and fails with `feature_state_not_applied` instead of reporting a false success. On the OData
+  backend the table-based workflow (`Feature` / `AdminUnitFeatureState` + `refresh-feature-cache`)
+  is unchanged.
+
 ## [0.6.8]
 
 OAuth scope fix for older Creatio versions ([#2](https://github.com/CRACKISH/mcp-creatio/issues/2)).

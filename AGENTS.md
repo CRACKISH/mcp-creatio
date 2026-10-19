@@ -97,6 +97,10 @@ CreatioServiceContext
   ├─ ProcessServiceProvider → POSTs to ProcessEngineService
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
   ├─ FeatureServiceProvider → /rest/FeatureService/ClearFeaturesCacheForAllUsers
+  ├─ featureCatalog? (DataService backend only) → FeatureCatalogService over AppFeatureStore:
+  │     the AppFeature / AppFeatureState virtual entities the Freedom UI feature page uses
+  │     (every source; platform listeners persist writes; overrides are readable ONLY via the
+  │     `[AppFeature:Id:Feature].Id` filter; no aggregation, so lists page by `hasMore`)
   ├─ AdminOperationServiceProvider → /rest/RightsService/{Upsert,Delete}AdminOperation[,Grantee]
   ├─ ConfigurationServiceProvider → generic /rest/<service>/<method> caller
   └─ UserInfoProvider → UserInfoService for current user data
@@ -167,7 +171,7 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 5. Keep tool names stable: lowercase kebab-case (e.g. `execute-process`).
 6. Auth selection: an explicit `CREATIO_MCP_AUTH_MODE` always wins; when unset the mode is INFERRED in order legacy (login+password) → client_credentials (id+secret) → delegated. `broker`/`delegated`/`gateway` are HTTP-only. Token handling differs by mode: **`broker`** issues its own client tokens AND stores users' Creatio tokens server-side (`SessionContext`); `delegated`/`gateway` pass the client/gateway token straight through and store nothing; `client_credentials`/`legacy` hold one server-side identity.
 7. Do not leak secrets or access tokens in tool responses.
-8. `CREATIO_MCP_READONLY=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered. This is enforced at two layers: the MCP layer does not register these tools, AND the engine layer's `_mutate` throws `ReadonlyModeError` (defense-in-depth) — both read `CREATIO_MCP_READONLY`.
+8. `CREATIO_MCP_READONLY=true` must guarantee no mutation tools (`create`, `update`, `delete`, `execute-process`, `set-sys-settings-value`, `create-sys-setting`, `update-sys-setting-definition`, `refresh-feature-cache`, `set-feature-state`, `upsert-admin-operation`, `delete-admin-operation`, `set-admin-operation-grantee`, `delete-admin-operation-grantee`, `call-configuration-service`) are registered. This is enforced at two layers: the MCP layer does not register these tools, AND the engine layer's `_mutate` throws `ReadonlyModeError` (defense-in-depth) — both read `CREATIO_MCP_READONLY`.
 
 ## 5. Adding a New Tool (Checklist)
 

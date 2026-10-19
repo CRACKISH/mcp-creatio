@@ -892,190 +892,61 @@ const FEATURE_TOGGLE_GUIDE = `
 
 ## 🧭 Quick Map
 
-Creatio feature toggles are stored in TWO database-backed entities, both reachable via OData:
+A feature can come from several **sources**: a DB row (\`DbFeatureProvider\`), \`web.config\`, package \`Metadata\`, or \`GlobalAppSettings\`. A DB row always wins over the others. Each feature has a **default state** (for everyone) and optional **per-user/role overrides** (\`SysAdminUnit\` — a user or a role).
 
-| Entity                   | What it represents                                                       | When to use                          |
-|--------------------------|--------------------------------------------------------------------------|--------------------------------------|
-| \`Feature\`                | Catalog row for a feature (Code, Name, Description, DefaultState)         | Read/create/update/delete the toggle |
-| \`AdminUnitFeatureState\`  | Per-user/role override (FeatureId, SysAdminUnitId, FeatureState)          | Override a feature for one principal |
+Which tools you have depends on the server's CRUD backend:
 
-There is **NO** dedicated feature CRUD tool — use the existing \`read\`, \`create\`, \`update\`, \`delete\` tools on the entity sets above. The only feature-specific tool is \`refresh-feature-cache\`.
+| Backend                    | Tools                                                                 | Sees                  |
+|----------------------------|-----------------------------------------------------------------------|-----------------------|
+| DataService (default)      | \`list-features\`, \`get-feature\`, \`set-feature-state\`                    | Features from **every** source |
+| OData                      | generic \`read\` / \`create\` / \`update\` / \`delete\` + \`refresh-feature-cache\` | Only DB rows (\`Feature\` table) |
 
-> ℹ️ The Freedom UI in Creatio shows a virtual section called *AppFeature* that adds a couple of computed columns (\`Source\`, \`StateForCurrentUser\`). Those virtual entities are **not** exposed through OData — always use the persisted \`Feature\` and \`AdminUnitFeatureState\` tables from automation.
-
----
-
-## 📋 Feature Columns
-
-| Column          | Type     | Notes                                                                  |
-|-----------------|----------|------------------------------------------------------------------------|
-| \`Id\`            | Guid     | Primary key                                                            |
-| \`Code\`          | string   | Feature code. Must match \`^[a-zA-Z]+[a-zA-Z0-9-_.]*$\`                   |
-| \`Name\`          | string   | Display name (commonly equal to \`Code\`)                                |
-| \`Description\`   | string   | Optional description                                                   |
-| \`DefaultState\`  | Int32    | **0 = disabled, 1 = enabled**. NOT a boolean — always send integers.   |
-| \`ProcessListeners\` | Int32 | Internal flag — leave it as the default value                          |
-| \`CreatedOn\` / \`ModifiedOn\` | DateTime | Audit fields                                                |
+If \`list-features\` is available, use it — it is the same data the Creatio feature page shows.
 
 ---
 
-## 📋 AdminUnitFeatureState Columns
+## ✅ DataService backend (feature tools)
 
-| Column            | Type   | Notes                                                            |
-|-------------------|--------|------------------------------------------------------------------|
-| \`Id\`              | Guid   | Primary key                                                      |
-| \`FeatureId\`       | Guid   | FK → \`Feature.Id\`                                                |
-| \`SysAdminUnitId\`  | Guid   | FK → \`SysAdminUnit.Id\` (the user or role)                        |
-| \`FeatureState\`    | Int32  | **0 = disabled, 1 = enabled** for that admin unit                 |
-| \`ProcessListeners\`| Int32  | Internal flag — leave default                                     |
+1. **Find a feature:** \`list-features\` with \`search\` (substring of the code), optionally \`source\` / \`enabledForCurrentUser\`; page with \`skip\` while \`hasMore\` is true.
+2. **Inspect it:** \`get-feature { code }\` → default state, effective state for the MCP user, \`overrides\`.
+3. **Change the default:** \`set-feature-state { code, state: "enabled" | "disabled" }\`.
+4. **Override for a user/role:** \`set-feature-state { code, state, adminUnitId }\` — \`adminUnitId\` is \`SysAdminUnit.Id\` (NOT a ContactId); resolve it with \`read\` on \`SysAdminUnit\` filtered by \`Name\`.
+5. **Remove an override:** \`set-feature-state { code, state: "inherit", adminUnitId }\`.
 
-\`SysAdminUnitId\` is the **SysAdminUnit.Id** of the principal (not its ContactId). Look it up explicitly when you only know a user/role name.
+\`set-feature-state\` clears that feature's cache and returns the re-read feature, so no \`refresh-feature-cache\` is needed. Changing a \`web.config\` / \`Metadata\` / \`GlobalAppSettings\` feature creates its \`Feature\` DB row; from then on the DB value takes precedence over the original source — exactly what the Creatio feature page does.
 
----
-
-## 🛠️ Common Workflows
-
-### 1. List features
-
-\`\`\`json
-{
-  "entity": "Feature",
-  "select": ["Id", "Code", "Name", "Description", "DefaultState"],
-  "top": 200,
-  "orderBy": "Code asc"
-}
-\`\`\`
-
-### 2. Look up one feature by code
-
-\`\`\`json
-{
-  "entity": "Feature",
-  "filters": { "all": [ { "field": "Code", "op": "eq", "value": "MyFeature" } ] },
-  "select": ["Id", "Code", "DefaultState"],
-  "top": 1
-}
-\`\`\`
-
-### 3. Enable or disable a feature globally (change default state)
-
-\`\`\`json
-{
-  "entity": "Feature",
-  "id": "<feature-guid>",
-  "data": { "DefaultState": 1 }
-}
-\`\`\`
-
-Use \`1\` to enable, \`0\` to disable. After the update, run \`refresh-feature-cache\` with the same feature \`Code\` so the new value is visible to every connected user.
-
-### 4. Create a new feature
-
-\`\`\`json
-{
-  "entity": "Feature",
-  "data": {
-    "Code": "MyNewFeature",
-    "Name": "MyNewFeature",
-    "Description": "Enables the new dashboard",
-    "DefaultState": 0
-  }
-}
-\`\`\`
-
-Then refresh the cache.
-
-### 5. Override a feature for a specific user or role
-
-First resolve the principal's \`SysAdminUnit.Id\`:
-
-\`\`\`json
-{
-  "entity": "SysAdminUnit",
-  "filters": { "all": [ { "field": "Name", "op": "eq", "value": "Supervisor" } ] },
-  "select": ["Id", "Name", "SysAdminUnitTypeValue"],
-  "top": 1
-}
-\`\`\`
-
-Then create or update the override:
-
-\`\`\`json
-{
-  "entity": "AdminUnitFeatureState",
-  "data": {
-    "FeatureId": "<feature-guid>",
-    "SysAdminUnitId": "<sysadminunit-guid>",
-    "FeatureState": 1
-  }
-}
-\`\`\`
-
-If an override row already exists for the same \`(FeatureId, SysAdminUnitId)\` pair, query it first and \`update\` it instead of creating a duplicate. Refresh the cache afterwards.
-
-### 6. Inspect overrides for a feature
-
-\`\`\`json
-{
-  "entity": "AdminUnitFeatureState",
-  "filters": { "all": [ { "field": "FeatureId", "op": "eq", "value": "<feature-guid>" } ] },
-  "select": ["Id", "FeatureId", "SysAdminUnitId", "FeatureState"]
-}
-\`\`\`
-
-### 7. Remove an override
-
-\`\`\`json
-{ "entity": "AdminUnitFeatureState", "id": "<override-guid>" }
-\`\`\`
-
-### 8. Delete a feature
-
-\`\`\`json
-{ "entity": "Feature", "id": "<feature-guid>" }
-\`\`\`
-
-Deletes the catalog row. Existing \`AdminUnitFeatureState\` rows tied to that feature should be removed first (query them with the filter from step 6) — Creatio will reject the delete if dependent rows remain.
+To create a brand-new feature, \`create\` a \`Feature\` row (\`Code\`, \`Name\`, \`DefaultState\`), then use the tools above.
 
 ---
 
-## 🔁 When to refresh the cache
+## 🗄️ OData backend (tables)
 
-Call the \`refresh-feature-cache\` tool **after** any write that changes feature state:
-- Updated \`Feature.DefaultState\` → refresh with that feature's \`Code\`.
-- Created, updated, or deleted an \`AdminUnitFeatureState\` row → refresh with the affected feature's \`Code\`.
-- If you do not know (or don't have) the code, call \`refresh-feature-cache\` with no arguments to clear the cache for every feature.
+Only DB-backed features are reachable: \`Feature\` (catalog: \`Code\`, \`Name\`, \`Description\`, \`DefaultState\`) and \`AdminUnitFeatureState\` (overrides: \`FeatureId\`, \`SysAdminUnitId\`, \`FeatureState\`). \`DefaultState\` / \`FeatureState\` are **Int32: 0 = disabled, 1 = enabled** — never booleans.
 
-Reads alone do **not** require a refresh.
+- **List / find:** \`read\` on \`Feature\` (filter \`Code\`).
+- **Change the default:** \`update\` \`Feature\` → \`{ "DefaultState": 1 }\`.
+- **Override for a user/role:** \`read\` \`AdminUnitFeatureState\` by \`FeatureId\` + \`SysAdminUnitId\`; \`update\` the row if it exists, otherwise \`create\` it.
+- **Remove an override:** \`delete\` that \`AdminUnitFeatureState\` row.
+- **Delete a feature:** delete its \`AdminUnitFeatureState\` rows first, then the \`Feature\` row.
+
+After **every** write call \`refresh-feature-cache\` with the feature \`Code\` (or with no arguments to clear all), otherwise users keep seeing the old state.
 
 ---
 
 ## ❌ Common Mistakes
 
-- ❌ Sending \`true\`/\`false\` for \`DefaultState\` or \`FeatureState\` — both columns are **Int32** (0 / 1).
-- ❌ Using \`AppFeature\` / \`AppFeatureState\` over OData — those are virtual UI-only entities. Use \`Feature\` / \`AdminUnitFeatureState\`.
-- ❌ Confusing \`SysAdminUnit.Id\` with \`ContactId\` — overrides use \`SysAdminUnit.Id\`.
-- ❌ Forgetting to call \`refresh-feature-cache\` after writes (other users keep seeing the old state).
-- ❌ Creating a duplicate \`AdminUnitFeatureState\` for the same \`(FeatureId, SysAdminUnitId)\` pair instead of updating the existing one.
-- ❌ Using a \`Code\` that doesn't match \`^[a-zA-Z]+[a-zA-Z0-9-_.]*$\` — the platform validator rejects it.
-- ❌ Trying to manage features that are NOT in the \`Feature\` table — Creatio OData v4 does not expose virtual entities (\`AppFeature\` / \`AppFeatureState\`). Features defined only in \`web.config\` or via non-DB providers are invisible to MCP until a backing row exists in \`Feature\`.
-
----
-
-## ✅ Final Checklist
-
-Before reporting a feature change as done:
-- [ ] Used \`Feature\` for the catalog and \`AdminUnitFeatureState\` for per-user/role overrides.
-- [ ] Sent state values as integers (0 / 1), not booleans.
-- [ ] Resolved the principal via \`SysAdminUnit\` (Id, not ContactId).
-- [ ] Called \`refresh-feature-cache\` (with \`featureCode\` when possible) after every write.
+- ❌ Passing a \`ContactId\` as \`adminUnitId\` / \`SysAdminUnitId\` — overrides use \`SysAdminUnit.Id\`.
+- ❌ Reading only the \`Feature\` table on the DataService backend — it misses web.config / metadata features; use \`list-features\`.
+- ❌ (OData) Sending \`true\`/\`false\` for \`DefaultState\` / \`FeatureState\`, or forgetting \`refresh-feature-cache\` after a write.
+- ❌ (OData) Creating a duplicate \`AdminUnitFeatureState\` for the same \`(FeatureId, SysAdminUnitId)\` instead of updating it.
+- ❌ A \`Code\` not matching \`^[a-zA-Z]+[a-zA-Z0-9-_.]*$\` — the platform validator rejects it.
 `.trim();
 
 export const FEATURE_TOGGLE_PROMPT = {
 	name: 'feature-toggle-guide',
 	title: 'Creatio Feature Toggle Guide',
 	description:
-		'How to read, create, update and delete feature toggles via the AppFeature / AppFeatureState OData entities, and when to call refresh-feature-cache',
+		'How to list, inspect and change Creatio feature toggles (default state and per-user/role overrides) on the DataService and OData backends, and when to call refresh-feature-cache',
 	argsSchema: {},
 	callback: () => ({
 		messages: [

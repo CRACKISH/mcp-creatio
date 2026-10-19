@@ -665,8 +665,81 @@ export const refreshFeatureCacheInput = z.object(refreshFeatureCacheInputShape);
 export const refreshFeatureCacheDescriptor = makeToolDescriptor({
 	title: 'Refresh Creatio feature toggle cache',
 	description:
-		'Invalidates the in-memory feature-toggle cache for all users. Call this after changing rows in `Feature` or `AdminUnitFeatureState` via the standard create/update/delete tools so the new state becomes visible. Pass `featureCode` to scope to a single feature; omit to refresh all. See /feature-toggle-guide for the full workflow.',
+		'Invalidates the in-memory feature-toggle cache for all users. `set-feature-state` already does this; call it only after changing rows in `Feature` or `AdminUnitFeatureState` directly via the generic create/update/delete tools, so the new state becomes visible. Pass `featureCode` to scope to a single feature; omit to refresh all. See /feature-toggle-guide for the full workflow.',
 	inputShape: refreshFeatureCacheInputShape,
+});
+
+const featureCode = () =>
+	z.string().min(1).describe('Feature code, exact match (e.g., "FreedomUIComposableApp").');
+
+const listFeaturesInputShape = {
+	search: z
+		.string()
+		.min(1)
+		.optional()
+		.describe('Case-insensitive substring of the feature code (e.g., "Freedom").'),
+	source: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			'Only features resolved from this source: `DbFeatureProvider` (a DB row), `web.config`, `Metadata`, `GlobalAppSettings`.',
+		),
+	enabledForCurrentUser: z
+		.boolean()
+		.optional()
+		.describe('Only features currently on (true) or off (false) for the user the MCP acts as.'),
+	top: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(500)
+		.default(50)
+		.describe('Max features to return (default 50). Instances define 1000+ features.'),
+	skip: z.coerce.number().int().min(0).optional().describe('Offset for paging, ordered by code.'),
+} as const;
+
+export const listFeaturesInput = z.object(listFeaturesInputShape);
+
+export const listFeaturesDescriptor = makeToolDescriptor({
+	title: 'List Creatio feature toggles',
+	description:
+		'Lists feature toggles from EVERY source — not only DB rows but also web.config, metadata and GlobalAppSettings features that the `Feature` table does not contain. Each item: code, name, description, `source`, `enabledByDefault` (state for everyone without an override) and `enabledForCurrentUser` (effective state for the MCP user). Response: { items, hasMore }, ordered by code — page with `skip` while `hasMore` is true. Use `get-feature` for one feature with its per-user/role overrides.',
+	inputShape: listFeaturesInputShape,
+});
+
+const getFeatureInputShape = { code: featureCode() } as const;
+
+export const getFeatureInput = z.object(getFeatureInputShape);
+
+export const getFeatureDescriptor = makeToolDescriptor({
+	title: 'Get a Creatio feature toggle with its overrides',
+	description:
+		'Returns one feature (same fields as `list-features`) plus `overrides`: the per-user/role states ({ adminUnitId, adminUnitName, enabled }) that take precedence over the default. Fails with `feature_not_found:<code>` for an unknown code.',
+	inputShape: getFeatureInputShape,
+});
+
+const setFeatureStateInputShape = {
+	code: featureCode(),
+	state: z
+		.enum(['enabled', 'disabled', 'inherit'])
+		.describe(
+			'`enabled` / `disabled` set the state; `inherit` removes the override for `adminUnitId` so the default applies again (requires `adminUnitId`).',
+		),
+	adminUnitId: creatioGuid()
+		.optional()
+		.describe(
+			'User or role (`SysAdminUnit` Id) to override the feature for. Omit to change the DEFAULT state for everyone without an override. Find ids with `read` on `SysAdminUnit` (filter by `Name`); the current user is `get-current-user-info`.',
+		),
+} as const;
+
+export const setFeatureStateInput = z.object(setFeatureStateInputShape);
+
+export const setFeatureStateDescriptor = makeToolDescriptor({
+	title: 'Enable or disable a Creatio feature toggle',
+	description:
+		"Changes a feature the way the Creatio feature page does: the default state, or a per-user/role override. Works for features from any source; the first change to a web.config/metadata feature creates its `Feature` DB row, which from then on takes precedence over the original source (the platform behaves the same). Clears that feature's cache and re-reads it, returning the feature as in `get-feature`; fails with `feature_state_not_applied:<code>` if Creatio did not apply the change.",
+	inputShape: setFeatureStateInputShape,
 });
 
 const upsertAdminOperationInputShape = {

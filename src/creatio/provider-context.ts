@@ -3,6 +3,7 @@ import {
 	AdminOperationProvider,
 	ConfigurationProvider,
 	CrudProvider,
+	FeatureCatalogProvider,
 	FeatureProvider,
 	ProcessProvider,
 	SysSettingsProvider,
@@ -15,6 +16,8 @@ export interface CreatioProviderContext {
 	configuration: ConfigurationProvider;
 	crud: CrudProvider;
 	feature: FeatureProvider;
+	/** Present only on the DataService backend (the catalog's virtual entities are DataService-only). */
+	featureCatalog?: FeatureCatalogProvider;
 	process: ProcessProvider;
 	sysSettings: SysSettingsProvider;
 	user: UserProvider;

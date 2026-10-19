@@ -47,14 +47,20 @@ import {
 	executeProcessInput,
 	getCurrentUserInfoDescriptor,
 	getCurrentUserInfoInput,
+	getFeatureDescriptor,
+	getFeatureInput,
 	listEntitiesDescriptor,
 	listEntitiesInput,
+	listFeaturesDescriptor,
+	listFeaturesInput,
 	querySysSettingsDescriptor,
 	querySysSettingsInput,
 	refreshFeatureCacheDescriptor,
 	refreshFeatureCacheInput,
 	setAdminOperationGranteeDescriptor,
 	setAdminOperationGranteeInput,
+	setFeatureStateDescriptor,
+	setFeatureStateInput,
 	setSysSettingsValueDescriptor,
 	setSysSettingsValueInput,
 	updateDescriptor,
@@ -352,9 +358,43 @@ export class Server {
 	 * row here (plus its descriptor) — no new bespoke wrapping. Mutating tools are listed
 	 * separately and only registered when not in readonly mode.
 	 */
+	/** Feature-catalog tools exist only when the backend can serve the catalog (DataService);
+	 *  elsewhere features stay reachable through the generic CRUD tools + `refresh-feature-cache`. */
+	private _featureCatalogToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
+		const { feature } = this._engines;
+		if (!feature.hasCatalog) {
+			return { core: [], mutating: [] };
+		}
+		return {
+			core: [
+				{
+					name: 'list-features',
+					descriptor: listFeaturesDescriptor,
+					input: listFeaturesInput,
+					run: (query) => feature.listFeatures(query),
+				},
+				{
+					name: 'get-feature',
+					descriptor: getFeatureDescriptor,
+					input: getFeatureInput,
+					run: ({ code }) => feature.getFeature(code),
+				},
+			],
+			mutating: [
+				{
+					name: 'set-feature-state',
+					descriptor: setFeatureStateDescriptor,
+					input: setFeatureStateInput,
+					run: (request) => feature.setFeatureState(request),
+				},
+			],
+		};
+	}
+
 	private _clientToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
 		const { crud, user, sysSettings, process, feature, adminOperation, configuration } =
 			this._engines;
+		const featureCatalog = this._featureCatalogToolDefs();
 		const core: ClientToolDef[] = [
 			{
 				name: 'get-current-user-info',
@@ -386,6 +426,7 @@ export class Server {
 				input: querySysSettingsInput,
 				run: ({ sysSettingCodes }) => sysSettings.queryValues(sysSettingCodes),
 			},
+			...featureCatalog.core,
 		];
 		const mutating: ClientToolDef[] = [
 			{
@@ -442,6 +483,7 @@ export class Server {
 				input: refreshFeatureCacheInput,
 				run: ({ featureCode }) => feature.clearFeaturesCache(featureCode),
 			},
+			...featureCatalog.mutating,
 			{
 				name: 'upsert-admin-operation',
 				descriptor: upsertAdminOperationDescriptor,

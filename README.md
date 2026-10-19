@@ -29,8 +29,9 @@ Desktop, ChatGPT, GitHub Copilot, and other AI tools to your Creatio data, schem
 - **CRUD + schema** — read, create, update, delete records; list entity sets; inspect schemas.
 - **Business processes** — run Creatio workflows with parameters.
 - **System settings** — read, write, and manage system-setting metadata.
-- **Feature toggles** — manage `Feature` / `AdminUnitFeatureState` and refresh the feature cache.
-  ⚠️ Only DB-backed features are reachable (those defined solely in `web.config` are invisible).
+- **Feature toggles** — list, inspect and switch features from every source (DB, `web.config`,
+  metadata, `GlobalAppSettings`), by default or per user/role, like the Creatio feature page
+  (DataService backend). On the OData backend only DB-backed `Feature` rows are reachable.
 - **System operations** — manage `SysAdminOperation` and per-user/role grants (OData blocks these
   tables, so dedicated tools are provided).
 - **Custom services** — invoke any configuration-package REST service (`/0/rest/<service>/<method>`)
@@ -369,7 +370,10 @@ works unchanged on both backends.
 | `set-sys-settings-value`         | Update one or more system setting values                                                                                                                 |
 | `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                                |
 | `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                                         |
-| `refresh-feature-cache`          | Invalidate the in-memory feature-toggle cache. Call after editing `Feature` / `AdminUnitFeatureState` rows                                               |
+| `list-features`                  | _DataService backend._ List feature toggles from every source with their default and current-user state; paged by `hasMore`                              |
+| `get-feature`                    | _DataService backend._ One feature with its per-user/role overrides                                                                                      |
+| `set-feature-state`              | _DataService backend._ Enable/disable a feature by default or for a user/role (`inherit` removes an override); clears its cache and verifies the change  |
+| `refresh-feature-cache`          | Invalidate the in-memory feature-toggle cache. Call after editing `Feature` / `AdminUnitFeatureState` rows directly                                      |
 | `upsert-admin-operation`         | Create or update a `SysAdminOperation` (system operation / permission). Required because OData modifications are blocked for this entity                 |
 | `delete-admin-operation`         | Delete one or more `SysAdminOperation` rows (related grantee rows are cleaned up automatically)                                                          |
 | `set-admin-operation-grantee`    | Grant or revoke a system operation for users/roles. Repeated calls update the existing row instead of duplicating                                        |
