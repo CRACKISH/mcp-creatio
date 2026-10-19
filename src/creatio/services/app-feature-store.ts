@@ -7,6 +7,7 @@ import {
 	FeatureListResult,
 	FeatureOverride,
 	FilterNode,
+	LookupValue,
 } from '../contracts';
 
 // The virtual entities behind the Freedom UI feature page (package `FeatureToggling`). Their
@@ -41,35 +42,19 @@ export interface OverrideRecord extends FeatureOverride {
 
 type Row = Record<string, unknown>;
 
-interface LookupCell {
-	value?: unknown;
-	displayValue?: unknown;
-}
+const text = (cell: unknown): string => (cell == null ? '' : String(cell));
 
-function isLookupCell(cell: unknown): cell is LookupCell {
-	return Boolean(cell) && typeof cell === 'object' && 'displayValue' in (cell as object);
-}
-
-/** A text cell, or a lookup cell (`{ value, displayValue }`) by its display value. */
-function displayText(cell: unknown): string {
-	if (isLookupCell(cell)) {
-		return String(cell.displayValue ?? '');
-	}
-	return cell == null ? '' : String(cell);
-}
-
-function lookupId(cell: unknown): string {
-	return isLookupCell(cell) ? String(cell.value ?? '') : '';
-}
+/** Rows come normalized by the provider: a lookup is a {@link LookupValue} or `null`. */
+const lookup = (cell: unknown): LookupValue | null => (cell as LookupValue | null) ?? null;
 
 function toFeatureRecord(row: Row): FeatureRecord {
-	const description = displayText(row.Description);
+	const description = text(row.Description);
 	return {
 		id: String(row.Id),
 		code: String(row.Code),
-		name: displayText(row.Name),
+		name: text(row.Name),
 		...(description ? { description } : {}),
-		source: displayText(row.Source),
+		source: text(row.Source),
 		enabledByDefault: row.State === true,
 		enabledForCurrentUser: row.StateForCurrentUser === true,
 	};
@@ -83,8 +68,8 @@ export function withoutId<T extends { id: string }>({ id: _id, ...rest }: T): Om
 function toOverrideRecord(row: Row): OverrideRecord {
 	return {
 		id: String(row.Id),
-		adminUnitId: lookupId(row.AdminUnit),
-		adminUnitName: displayText(row.AdminUnit),
+		adminUnitId: text(lookup(row.AdminUnit)?.value),
+		adminUnitName: text(lookup(row.AdminUnit)?.displayValue),
 		enabled: row.FeatureState === true,
 	};
 }

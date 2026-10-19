@@ -79,9 +79,17 @@ export interface ReadQuery {
 	odata?: ODataReadExtras;
 }
 
+/** A lookup cell as returned by a backend that resolves display values (DataService). */
+export interface LookupValue {
+	value: unknown;
+	displayValue: unknown;
+}
+
 /** Normalized read result, identical across backends. `totalCount` is set only when the
  *  query requested a count. Each provider maps its native envelope (`value`/`@odata.count`
- *  vs `rows`/`rowCount`) onto this shape so callers above the provider never branch on it. */
+ *  vs `rows`/`rowCount`) onto this shape so callers above the provider never branch on it.
+ *  Cell values are normalized too: a cell without a value is `null` (never `""`, an empty GUID
+ *  or `0001-01-01`), and a lookup column is a {@link LookupValue}. */
 export interface ReadResult {
 	items: unknown[];
 	totalCount?: number;

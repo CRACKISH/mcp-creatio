@@ -9,8 +9,7 @@ import {
 } from '../contracts';
 
 import { CreatioHttpClient } from './http-client';
-
-const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
+import { EMPTY_GUID } from './identifiers';
 
 interface RightsHelperInner {
 	Success: boolean;

@@ -11,6 +11,17 @@ export const GUID_RE =
 export const ISO_DATETIME_RE =
 	/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 
+/** Creatio's "no reference" GUID: an unset lookup, or "generate one" in id-taking services. */
+export const EMPTY_GUID = '00000000-0000-0000-0000-000000000000';
+
+// OData's "no value" for a date/time column (`DateTime.MinValue`), with or without time/zone.
+const MIN_DATE_RE = /^0001-01-01(T00:00:00(\.0+)?(Z|[+-]00:00)?)?$/;
+
+/** Whether a raw cell is one of the platform's placeholders for "no value". */
+export function isEmptyPlaceholder(value: unknown): boolean {
+	return typeof value === 'string' && (value === EMPTY_GUID || MIN_DATE_RE.test(value));
+}
+
 export function isGuid(value: unknown): value is string {
 	return typeof value === 'string' && GUID_RE.test(value);
 }

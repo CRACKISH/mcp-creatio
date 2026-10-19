@@ -146,6 +146,11 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
   `[]` without the row query (still runs the COUNT query). `count` uses a separate aggregation
   SelectQuery; `list-entities` is `VwSysSchemaInWorkspace` deduped by Name; reads project to the
   requested columns (DataService auto-adds primary `Photo`/display columns).
+- **Empty values**: DataService sends `""` for EVERY empty cell (dates, numbers, lookups) and a
+  lookup as `{value, displayValue, primaryImageValue, primaryColorValue}`; OData sends the empty
+  GUID / `0001-01-01` placeholders. Both providers normalize rows (`normalizeDataServiceRows`, typed
+  by the response `rowConfig`; `normalizeODataValue`) so a missing value is `null` (text keeps `""`)
+  and a lookup is `{value, displayValue}` — see `ReadResult` in `contracts/query.ts`.
 
 ## 3. Core Modules You Will Touch
 
@@ -371,7 +376,7 @@ returns). Expect the call to resolve to the expected user.
   `/mcp` is open (no edge), the provider injects the M2M token. Confirm `creatio.auth.ok authKind=oauth2`.
 - `legacy`: env `…=legacy` + `CREATIO_LOGIN`/`CREATIO_PASSWORD`. Confirm `creatio.auth.ok authKind=legacy`.
 - `delegated`/`gateway`: the request must carry a Creatio credential — either `Authorization: Bearer
-  <a real Creatio token>` (mint one out-of-band, e.g. `curl -k` the client_credentials grant at
+<a real Creatio token>` (mint one out-of-band, e.g. `curl -k` the client_credentials grant at
   `<base>/0/connect/token`) or a forwarded Forms-auth session in `X-Creatio-Cookie` (POST
   `<base>/ServiceModel/AuthService.svc/Login`, then forward the Set-Cookie value; BPMCSRF is read from
   it or from an explicit `X-Creatio-Bpmcsrf`). A request with **no** credential must get `401`;

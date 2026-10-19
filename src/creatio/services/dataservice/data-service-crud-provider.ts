@@ -16,6 +16,7 @@ import { SchemaFreshnessGate } from '../schema-freshness-gate';
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
+import { normalizeDataServiceRows } from './data-service-row-normalizer';
 import { DataServiceSchemaProvider } from './data-service-schema';
 import { DataServiceTransport } from './data-service-transport';
 import {
@@ -153,7 +154,10 @@ export class DataServiceCrudProvider implements CrudProvider {
 					notFoundColumns: body.notFoundColumns,
 				});
 			}
-			items = this._project(this._rows(body), query.columns);
+			items = this._project(
+				normalizeDataServiceRows(this._rows(body), body?.rowConfig),
+				query.columns,
+			);
 		}
 		if (!query.count) {
 			return { items };

@@ -15,6 +15,7 @@ import { GUID_RE } from '../identifiers';
 import { ODataMetadataStore } from './metadata-store';
 import { ODataQueryTranslator } from './odata-query-translator';
 import { odataRoot } from './odata-routes';
+import { normalizeODataValue } from './odata-value-normalizer';
 
 export class ODataCrudProvider implements CrudProvider {
 	private readonly _client: CreatioHttpClient;
@@ -99,7 +100,8 @@ export class ODataCrudProvider implements CrudProvider {
 			async (response, duration) => {
 				const body: any = await response.json().catch(() => ({}));
 				const value = this._extractODataValue(body);
-				const items = Array.isArray(value) ? value : value != null ? [value] : [];
+				const raw = Array.isArray(value) ? value : value != null ? [value] : [];
+				const items = raw.map(normalizeODataValue);
 				// `@odata.count` is the server-side total of all matching records (ignores $top/$skip).
 				const total =
 					body && typeof body === 'object' && '@odata.count' in body

@@ -6,6 +6,7 @@ export * from './creatio-service-context';
 export * from './crud-provider-factory';
 export * from './schema-freshness-gate';
 export * from './entity-name';
+export * from './identifiers';
 export * from './lookup-path';
 export * from './dataservice/data-service-types';
 export * from './dataservice/data-service-value-type';

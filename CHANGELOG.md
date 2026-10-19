@@ -17,6 +17,13 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   backend the table-based workflow (`Feature` / `AdminUnitFeatureState` + `refresh-feature-cache`)
   is unchanged.
 
+### Changed
+
+- **`read` returns normalized values on both backends** — a cell without a value is `null`
+  instead of DataService's `""` or OData's empty-GUID / `0001-01-01` placeholders (text columns
+  still read as `""`), and a DataService lookup is a compact `{ value, displayValue }` without the
+  UI-only image/colour hints. Types come from the response's own column metadata, not guessing.
+
 ## [0.6.8]
 
 OAuth scope fix for older Creatio versions ([#2](https://github.com/CRACKISH/mcp-creatio/issues/2)).

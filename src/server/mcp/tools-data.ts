@@ -335,6 +335,7 @@ export function buildReadDescriptor(caps: ReadCapabilities) {
 			'Filter related records via navigation (Contact/Name, Contact/Id) — a scalar lookup `XxxId` with a GUID is handled for you. ' +
 			advanced +
 			'Paginate with skip+top (+ a stable orderBy). To COUNT, set count:true (response becomes { total, value }); for count-only use count:true + top:0. ' +
+			'An empty value is null (text may be ""); a lookup column reads as { value, displayValue }. ' +
 			'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
 			"Examples: entity:'Order', select:['Id','Number','Amount'], filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, orderBy:'Amount desc', top:25, skip:0. " +
 			"count-only: entity:'Opportunity', filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, count:true, top:0.",
