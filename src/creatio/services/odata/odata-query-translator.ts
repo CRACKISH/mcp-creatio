@@ -27,11 +27,14 @@ export class ODataQueryTranslator {
 		return /Id$/i.test(field);
 	}
 
+	/** Validates a column path, accepting the DataService-style `Account.Name` as `Account/Name` so
+	 *  one path convention works on both backends. */
 	private _assertPath(field: string): string {
-		if (!ODataQueryTranslator.SAFE_PATH.test(field)) {
+		const path = field.replace(/\./g, '/');
+		if (!ODataQueryTranslator.SAFE_PATH.test(path)) {
 			throw new Error(`unsafe_odata_identifier:${field}`);
 		}
-		return field;
+		return path;
 	}
 
 	private _escapeStr(value: string): string {
@@ -110,9 +113,9 @@ export class ODataQueryTranslator {
 		if (!node.values.length) {
 			return undefined;
 		}
-		this._assertPath(String(node.field));
+		const field = this._assertPath(String(node.field));
 		const parts = node.values.map((v) => {
-			const f = this._lookupNavField(node.field, v, lookups);
+			const f = this._lookupNavField(field, v, lookups);
 			return `${f} eq ${this._literalFor(f, v)}`;
 		});
 		return parts.length === 1 ? parts[0] : `(${parts.join(' or ')})`;

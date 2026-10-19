@@ -60,3 +60,35 @@ describe('ODataQueryTranslator with the entity lookups known', () => {
 		expect(filterOf('RecordId')).toBe(`Record/Id eq ${G}`); // no metadata: the heuristic
 	});
 });
+
+describe('ODataQueryTranslator accepts the dotted related-column path', () => {
+	it('maps Account.Name to Account/Name in filters, in-lists and orderBy', () => {
+		const params = new ODataQueryTranslator()
+			.buildQueryParams({
+				entity: 'Contact',
+				filter: {
+					kind: 'group',
+					logic: 'and',
+					items: [
+						{ kind: 'condition', field: 'Account.Name', op: 'contains', value: 'Acme' },
+						{ kind: 'in', field: 'Account.Code', values: ['A', 'B'] },
+					],
+				},
+				order: [{ field: 'Account.Name', dir: 'desc' }],
+			})
+			.map(decodeURIComponent);
+		expect(params).toContain(
+			"$filter=(contains(Account/Name,'Acme') and (Account/Code eq 'A' or Account/Code eq 'B'))",
+		);
+		expect(params).toContain('$orderby=Account/Name desc');
+	});
+
+	it('still rejects an unsafe identifier', () => {
+		expect(() =>
+			new ODataQueryTranslator().buildQueryParams({
+				entity: 'Contact',
+				columns: ['Name;drop'],
+			}),
+		).toThrow(/unsafe_odata_identifier/);
+	});
+});
