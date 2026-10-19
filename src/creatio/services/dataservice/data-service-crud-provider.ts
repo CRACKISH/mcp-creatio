@@ -8,12 +8,14 @@ import {
 	EntitySchemaDescription,
 	ReadQuery,
 	ReadResult,
+	UnknownNameError,
 } from '../../contracts';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
 
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
+import { toUnknownNameError } from './data-service-errors';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
 import { normalizeDataServiceRows } from './data-service-row-normalizer';
@@ -167,11 +169,10 @@ export class DataServiceCrudProvider implements CrudProvider {
 			const body = await this._transport.post('SelectQuery', select, {
 				logContext: { entity: query.entity, top: query.top, skip: query.skip },
 			});
+			// DataService drops an unknown column from the result instead of failing; surface it, as
+			// OData does, rather than return rows silently missing the requested column.
 			if (body?.notFoundColumns?.length) {
-				log.warn('creatio.dataservice.read.not_found_columns', {
-					entity: query.entity,
-					notFoundColumns: body.notFoundColumns,
-				});
+				throw new UnknownNameError('column', String(body.notFoundColumns[0]), query.entity);
 			}
 			items = this._project(
 				normalizeDataServiceRows(this._rows(body), body?.rowConfig),
@@ -215,6 +216,10 @@ export class DataServiceCrudProvider implements CrudProvider {
 			{ logContext: { entity, id }, checkSuccess: true },
 		);
 		return { success: body?.success !== false, rowsAffected: body?.rowsAffected };
+	}
+
+	public toUnknownNameError(err: unknown, { entity }: { entity: string }) {
+		return toUnknownNameError(err, entity);
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams): Promise<any> {

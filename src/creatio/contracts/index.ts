@@ -6,4 +6,5 @@ export * from './navigation-provider';
 export * from './process-provider';
 export * from './query';
 export * from './sys-settings-provider';
+export * from './unknown-name-error';
 export * from './user-provider';

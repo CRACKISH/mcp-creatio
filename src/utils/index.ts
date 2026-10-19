@@ -4,3 +4,4 @@ export * from './network';
 export * from './pkce';
 export * from './context';
 export * from './redact';
+export * from './name-suggest';

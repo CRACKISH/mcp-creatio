@@ -23,6 +23,12 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   on both .NET Framework and .NET 8, sends a signed-out visitor through login and back, and falls
   back to the home page for objects without a record page. Built locally (no request); honors the
   gateway tenant override; available in readonly mode.
+- **"Did you mean …?" for unknown entities and columns** — when Creatio rejects a name (in
+  `select`, filters, `orderBy`, or a create/update body), the error now names the closest known
+  ones from the cached schema or entity list, e.g. `unknown_column:Emial (Contact). Did you mean:
+Email?`. Each backend recognizes its own messages; the suggestions are computed once in the CRUD
+  engine and never replace the original error when they cannot be computed. DataService used to
+  drop an unknown `select` column silently; it is now reported like OData does.
 
 ### Fixed
 

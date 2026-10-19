@@ -160,6 +160,11 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
   `[]` without the row query (still runs the COUNT query). `count` uses a separate aggregation
   SelectQuery; `list-entities` is `VwSysSchemaInWorkspace` deduped by Name; reads project to the
   requested columns (DataService auto-adds primary `Photo`/display columns).
+- **Unknown names**: DataService drops an unknown `select` column silently (`notFoundColumns`) and
+  fails filters/writes with `Column by path X not found` / `Collection item with name X not found` /
+  `Item with name "X" not found`; OData answers `Could not find a property named 'X'` (400) or 404
+  for an unknown entity set. Each provider maps its dialect via `toUnknownNameError`; `CrudEngine`
+  adds `suggestNames` matches — keep new dialect text in the provider's `*-errors.ts`.
 - **Empty values**: DataService sends `""` for EVERY empty cell (dates, numbers, lookups) and a
   lookup as `{value, displayValue, primaryImageValue, primaryColorValue}`; OData sends the empty
   GUID / `0001-01-01` placeholders. Both providers normalize rows (`normalizeDataServiceRows`, typed

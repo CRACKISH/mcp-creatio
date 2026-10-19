@@ -13,6 +13,7 @@ import { CreatioHttpClient } from '../http-client';
 import { GUID_RE } from '../identifiers';
 
 import { ODataMetadataStore } from './metadata-store';
+import { toUnknownNameError } from './odata-errors';
 import { ODataQueryTranslator } from './odata-query-translator';
 import { odataRoot } from './odata-routes';
 import { normalizeODataValue } from './odata-value-normalizer';
@@ -144,6 +145,13 @@ export class ODataCrudProvider implements CrudProvider {
 			},
 			{ errorPrefix: 'creatio_update_failed', logContext: { entity, id } },
 		);
+	}
+
+	public toUnknownNameError(
+		err: unknown,
+		{ entity, collectionRead }: { entity: string; collectionRead: boolean },
+	) {
+		return toUnknownNameError(err, entity, collectionRead);
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams) {

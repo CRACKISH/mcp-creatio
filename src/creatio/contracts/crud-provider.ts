@@ -1,4 +1,5 @@
 import { ReadQuery, ReadResult } from './query';
+import { UnknownNameError } from './unknown-name-error';
 
 export interface EntitySchemaProperty {
 	name: string;
@@ -55,4 +56,10 @@ export interface CrudProvider {
 	create(params: CrudWriteParams): Promise<any>;
 	update(params: CrudUpdateParams): Promise<any>;
 	delete(params: CrudDeleteParams): Promise<any>;
+	/** Recognize this backend's "unknown entity / column" failure. `collectionRead` is true for a
+	 *  query over a whole entity (not a lookup by key, whose 404 means a missing record). */
+	toUnknownNameError?(
+		err: unknown,
+		context: { entity: string; collectionRead: boolean },
+	): UnknownNameError | undefined;
 }
