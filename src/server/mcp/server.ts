@@ -49,6 +49,8 @@ import {
 	getCurrentUserInfoInput,
 	getFeatureDescriptor,
 	getFeatureInput,
+	getRecordUrlDescriptor,
+	getRecordUrlInput,
 	listEntitiesDescriptor,
 	listEntitiesInput,
 	listFeaturesDescriptor,
@@ -392,8 +394,16 @@ export class Server {
 	}
 
 	private _clientToolDefs(): { core: ClientToolDef[]; mutating: ClientToolDef[] } {
-		const { crud, user, sysSettings, process, feature, adminOperation, configuration } =
-			this._engines;
+		const {
+			crud,
+			user,
+			sysSettings,
+			process,
+			feature,
+			adminOperation,
+			configuration,
+			navigation,
+		} = this._engines;
 		const featureCatalog = this._featureCatalogToolDefs();
 		const core: ClientToolDef[] = [
 			{
@@ -425,6 +435,12 @@ export class Server {
 				descriptor: querySysSettingsDescriptor,
 				input: querySysSettingsInput,
 				run: ({ sysSettingCodes }) => sysSettings.queryValues(sysSettingCodes),
+			},
+			{
+				name: 'get-record-url',
+				descriptor: getRecordUrlDescriptor,
+				input: getRecordUrlInput,
+				run: async ({ entity, id }) => ({ url: navigation.recordUrl(entity, id) }),
 			},
 			...featureCatalog.core,
 		];

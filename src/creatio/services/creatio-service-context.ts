@@ -6,6 +6,7 @@ import {
 	CrudProvider,
 	FeatureCatalogProvider,
 	FeatureProvider,
+	NavigationProvider,
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
@@ -21,6 +22,7 @@ import { DataServiceCrudProvider } from './dataservice/data-service-crud-provide
 import { FeatureCatalogService } from './feature-catalog-service';
 import { FeatureServiceProvider } from './feature-service-provider';
 import { CreatioHttpClient } from './http-client';
+import { NavigationServiceProvider } from './navigation-service-provider';
 import { ODataMetadataStore } from './odata/metadata-store';
 import { ProcessServiceProvider } from './process-service-provider';
 import { SchemaFreshnessGate } from './schema-freshness-gate';
@@ -39,6 +41,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 	public readonly crud: CrudProvider;
 	public readonly feature: FeatureProvider;
 	public readonly featureCatalog?: FeatureCatalogProvider;
+	public readonly navigation: NavigationProvider;
 	public readonly process: ProcessProvider;
 	public readonly sysSettings: SysSettingsProvider;
 	public readonly user: UserProvider;
@@ -70,6 +73,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 				this.feature,
 			);
 		}
+		this.navigation = new NavigationServiceProvider(this._httpClient);
 		this.process = new ProcessServiceProvider(this._httpClient);
 		this.sysSettings = new SysSettingsServiceProvider(this._httpClient);
 		this.user = new UserInfoProvider(this._httpClient);

@@ -370,6 +370,7 @@ works unchanged on both backends.
 | `set-sys-settings-value`         | Update one or more system setting values                                                                                                                 |
 | `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                                |
 | `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                                         |
+| `get-record-url`                 | Link that opens a record in Creatio (Creatio picks the classic or Freedom UI page); built locally, no request                                            |
 | `list-features`                  | _DataService backend._ List feature toggles from every source with their default and current-user state; paged by `hasMore`                              |
 | `get-feature`                    | _DataService backend._ One feature with its per-user/role overrides                                                                                      |
 | `set-feature-state`              | _DataService backend._ Enable/disable a feature by default or for a user/role (`inherit` removes an override); clears its cache and verifies the change  |

@@ -16,6 +16,11 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   and fails with `feature_state_not_applied` instead of reporting a false success. On the OData
   backend the table-based workflow (`Feature` / `AdminUnitFeatureState` + `refresh-feature-cache`)
   is unchanged.
+- **`get-record-url`** — a browser link to any record (`{ entity, id }` → `{ url }`) through
+  Creatio's own record router, which opens the right page (classic card or Freedom UI form page)
+  on both .NET Framework and .NET 8, sends a signed-out visitor through login and back, and falls
+  back to the home page for objects without a record page. Built locally (no request); honors the
+  gateway tenant override; available in readonly mode.
 
 ### Changed
 

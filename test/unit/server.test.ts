@@ -91,6 +91,25 @@ describe('Server tool registration', () => {
 	});
 });
 
+describe('get-record-url', () => {
+	it('is a read-only tool, registered in readonly mode, returning { url }', async () => {
+		const { handlers, context } = buildServer(true);
+		const result = await callTool(handlers, 'get-record-url', { entity: 'Contact', id: GUID });
+		expect(context.navigation.recordUrl).toHaveBeenCalledWith('Contact', GUID);
+		expect(result).toEqual({
+			url: `https://tenant/0/rest/NavigationService/Redirect?schemaName=Contact&recordId=${GUID}`,
+		});
+	});
+
+	it('rejects a non-GUID id before building anything', async () => {
+		const { handlers, context } = buildServer();
+		await expect(
+			callTool(handlers, 'get-record-url', { entity: 'Contact', id: 'x' }),
+		).rejects.toThrow();
+		expect(context.navigation.recordUrl).not.toHaveBeenCalled();
+	});
+});
+
 describe('Feature catalog tools (DataService backend only)', () => {
 	const FEATURE_TOOLS = ['list-features', 'get-feature', 'set-feature-state'];
 

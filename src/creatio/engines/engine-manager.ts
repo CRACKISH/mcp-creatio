@@ -4,6 +4,7 @@ import {
 	ConfigurationProvider,
 	CrudProvider,
 	FeatureProvider,
+	NavigationProvider,
 	ProcessProvider,
 	SysSettingsProvider,
 	UserProvider,
@@ -16,6 +17,7 @@ import { CrudEngine } from './crud-engine';
 import { CreatioEngine, EngineEnv } from './engine';
 import { EngineRegistry, EngineType } from './engine-registry';
 import { FeatureEngine } from './feature-engine';
+import { NavigationEngine } from './navigation-engine';
 import { ProcessEngine } from './process-engine';
 import { SysSettingsEngine } from './sys-settings-engine';
 import { UserEngine } from './user-engine';
@@ -25,6 +27,7 @@ export interface EngineManagerOptions {
 	configurationProvider?: ConfigurationProvider;
 	crudProvider?: CrudProvider;
 	featureProvider?: FeatureProvider;
+	navigationProvider?: NavigationProvider;
 	processProvider?: ProcessProvider;
 	sysSettingsProvider?: SysSettingsProvider;
 	userProvider?: UserProvider;
@@ -32,6 +35,7 @@ export interface EngineManagerOptions {
 	enableConfiguration?: boolean;
 	enableCrud?: boolean;
 	enableFeature?: boolean;
+	enableNavigation?: boolean;
 	enableProcess?: boolean;
 	enableSysSettings?: boolean;
 	enableUser?: boolean;
@@ -73,6 +77,10 @@ export class CreatioEngineManager {
 
 	public get feature(): FeatureEngine {
 		return this._registry.require<FeatureEngine>(EngineType.Feature);
+	}
+
+	public get navigation(): NavigationEngine {
+		return this._registry.require<NavigationEngine>(EngineType.Navigation);
 	}
 
 	public get process(): ProcessEngine {
@@ -130,6 +138,15 @@ export class CreatioEngineManager {
 					this._env,
 				),
 			this._options?.enableFeature ?? true,
+		);
+		this._registerEngine(
+			EngineType.Navigation,
+			() =>
+				new NavigationEngine(
+					this._options?.navigationProvider ?? this._context.navigation,
+					this._env,
+				),
+			this._options?.enableNavigation ?? true,
 		);
 		this._registerEngine(
 			EngineType.Process,

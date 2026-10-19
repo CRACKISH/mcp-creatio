@@ -670,6 +670,23 @@ export const refreshFeatureCacheDescriptor = makeToolDescriptor({
 	inputShape: refreshFeatureCacheInputShape,
 });
 
+const getRecordUrlInputShape = {
+	entity: z
+		.string()
+		.min(1)
+		.describe('Object (schema) name of the record, e.g. "Contact", "Opportunity".'),
+	id: creatioGuid().describe('Record Id.'),
+} as const;
+
+export const getRecordUrlInput = z.object(getRecordUrlInputShape);
+
+export const getRecordUrlDescriptor = makeToolDescriptor({
+	title: 'Get a link to a Creatio record',
+	description:
+		'Returns { url }: a browser link that opens the record in Creatio — Creatio itself picks the record page (classic or Freedom UI). Give it to the user whenever you mention a specific record. A visitor who is not signed in goes through login first; an object without a record page opens the Creatio home page. No request is made to Creatio.',
+	inputShape: getRecordUrlInputShape,
+});
+
 const featureCode = () =>
 	z.string().min(1).describe('Feature code, exact match (e.g., "FreedomUIComposableApp").');
 

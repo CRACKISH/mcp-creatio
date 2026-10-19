@@ -19,6 +19,7 @@ export * from './dataservice/data-service-crud-provider';
 export * from './feature-catalog-service';
 export * from './feature-service-provider';
 export * from './http-client';
+export * from './navigation-service-provider';
 export * from './odata/metadata-store';
 export * from './odata/odata-crud-provider';
 export * from './odata/odata-query-translator';

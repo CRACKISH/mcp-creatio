@@ -5,6 +5,7 @@ export * from './admin-operation-engine';
 export * from './configuration-engine';
 export * from './crud-engine';
 export * from './feature-engine';
+export * from './navigation-engine';
 export * from './process-engine';
 export * from './sys-settings-engine';
 export * from './user-engine';

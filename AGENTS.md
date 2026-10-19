@@ -103,6 +103,8 @@ CreatioServiceContext
   │     `[AppFeature:Id:Feature].Id` filter; no aggregation, so lists page by `hasMore`)
   ├─ AdminOperationServiceProvider → /rest/RightsService/{Upsert,Delete}AdminOperation[,Grantee]
   ├─ ConfigurationServiceProvider → generic /rest/<service>/<method> caller
+  ├─ NavigationServiceProvider → record links via /0/rest/NavigationService/Redirect (pure; the
+  │     platform resolves the classic / Freedom UI page on open, on .NET Framework and .NET 8)
   └─ UserInfoProvider → UserInfoService for current user data
 ```
 

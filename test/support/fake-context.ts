@@ -68,6 +68,13 @@ export function makeFakeContext(authType: AuthProviderType = AuthProviderType.Le
 			kind: 'feature',
 			clearFeaturesCache: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
 		},
+		navigation: {
+			kind: 'navigation',
+			recordUrl: vi.fn(
+				(entity: string, id: string) =>
+					`https://tenant/0/rest/NavigationService/Redirect?schemaName=${entity}&recordId=${id}`,
+			),
+		},
 		adminOperation: {
 			kind: 'admin-operation',
 			upsertAdminOperation: vi.fn().mockResolvedValue({ success: true, id: 'op-1' }),
