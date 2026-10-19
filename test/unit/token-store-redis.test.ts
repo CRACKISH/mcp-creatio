@@ -6,7 +6,7 @@ class FakeRedisClient {
 	public get = vi.fn(async () => null);
 	public set = vi.fn(async () => 'OK');
 	public del = vi.fn(async () => 1);
-	public quit = vi.fn(async () => {});
+	public close = vi.fn(async () => {});
 }
 
 let fakeClient: FakeRedisClient;

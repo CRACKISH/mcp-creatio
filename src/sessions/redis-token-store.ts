@@ -55,7 +55,9 @@ export class RedisTokenStore implements TokenStore {
 	public async set(userKey: string, tokens: UserTokens): Promise<void> {
 		const payload: UserTokens = { ...tokens, storedAtMs: tokens.storedAtMs ?? Date.now() };
 		const blob = encryptToken(JSON.stringify(payload), this._key);
-		await this._client.set(this._redisKey(userKey), blob, { EX: this._ttlSeconds });
+		await this._client.set(this._redisKey(userKey), blob, {
+			expiration: { type: 'EX', value: this._ttlSeconds },
+		});
 	}
 
 	public async delete(userKey: string): Promise<void> {
@@ -68,7 +70,7 @@ export class RedisTokenStore implements TokenStore {
 
 	public async close(): Promise<void> {
 		try {
-			await this._client.quit();
+			await this._client.close();
 		} catch (err) {
 			log.warn('redis.token_store.close_failed', { error: String(err) });
 		}

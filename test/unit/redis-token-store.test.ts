@@ -8,7 +8,7 @@ import type { UserTokens } from '../../src/sessions/session-context';
 class FakeRedisClient {
 	public store = new Map<string, string>();
 	public connected = false;
-	public quitCalled = false;
+	public closeCalled = false;
 	public connect = vi.fn(async () => {
 		this.connected = true;
 	});
@@ -22,8 +22,8 @@ class FakeRedisClient {
 		this.store.delete(key);
 		return 1;
 	});
-	public quit = vi.fn(async () => {
-		this.quitCalled = true;
+	public close = vi.fn(async () => {
+		this.closeCalled = true;
 	});
 }
 
@@ -53,6 +53,14 @@ describe('RedisTokenStore', () => {
 		await makeStore();
 		expect(fakeClient.connect).toHaveBeenCalled();
 		expect(fakeClient.connected).toBe(true);
+	});
+
+	it('set expires the key after the configured TTL (redis 6 `expiration` option)', async () => {
+		const store = await makeStore();
+		await store.set('u1', tokens);
+		expect(fakeClient.set).toHaveBeenCalledWith('mcp:creatio:tok:u1', expect.any(String), {
+			expiration: { type: 'EX', value: 3600 },
+		});
 	});
 
 	it('set → get round-trips UserTokens and stores them encrypted at rest', async () => {
@@ -97,16 +105,16 @@ describe('RedisTokenStore', () => {
 		expect(await store.evictStale(Date.now())).toBe(0);
 	});
 
-	it('close calls quit', async () => {
+	it('close closes the client', async () => {
 		const store = await makeStore();
 		await store.close();
-		expect(fakeClient.quit).toHaveBeenCalled();
-		expect(fakeClient.quitCalled).toBe(true);
+		expect(fakeClient.close).toHaveBeenCalled();
+		expect(fakeClient.closeCalled).toBe(true);
 	});
 
-	it('close swallows a quit failure', async () => {
+	it('close swallows a close failure', async () => {
 		const store = await makeStore();
-		fakeClient.quit.mockRejectedValueOnce(new Error('boom'));
+		fakeClient.close.mockRejectedValueOnce(new Error('boom'));
 		await expect(store.close()).resolves.toBeUndefined();
 	});
 });

@@ -21,7 +21,7 @@ async function redisReachable(): Promise<boolean> {
 			client.connect(),
 			new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
 		]);
-		await client.quit().catch(() => {});
+		await client.close().catch(() => {});
 		return true;
 	} catch {
 		return false;

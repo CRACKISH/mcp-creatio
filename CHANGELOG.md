@@ -32,6 +32,9 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   ^6.29.1 (response desynchronization / CRLF injection), `fast-xml-parser` ^5.11.2 (entity-expansion
   limit reset), `express` ^5.3.0 (pulls patched `proxy-addr` — IP spoofing behind a trusted proxy —
   and `qs`). Dev tooling refreshed (vitest, eslint, typescript-eslint, prettier).
+- **`redis` client 4 → 6** (broker `CREATIO_MCP_TOKEN_STORE=redis` only): uses the current
+  `expiration` / `close()` API instead of the deprecated `EX` / `quit()`. Verified against Redis 7.4;
+  very old servers (e.g. the Redis 3.x Windows port) are not supported by the new client.
 
 ## [0.6.8]
 
