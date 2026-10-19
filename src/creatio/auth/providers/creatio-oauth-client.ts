@@ -8,6 +8,7 @@ import {
 	TOKEN_ENDPOINT,
 	computeTokenExpiryMs,
 	resolveIdentityBase,
+	withOfflineAccess,
 } from '../auth';
 
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 180;
@@ -21,18 +22,17 @@ const DEFAULT_TOKEN_LIFETIME_SECONDS = 180;
 export class CreatioOAuthClient {
 	private readonly _baseUrl: string;
 	private readonly _auth: BrokerAuthConfig;
+	/** Space-delimited wire scope, resolved once (config is immutable for the client's lifetime). */
+	private readonly _scope: string;
 
 	private get _identityBase(): string {
 		return resolveIdentityBase(this._baseUrl, this._auth.idBaseUrl);
 	}
 
-	private get _scope(): string {
-		return this._auth.scope || 'offline_access';
-	}
-
 	constructor(baseUrl: string, auth: BrokerAuthConfig) {
 		this._baseUrl = baseUrl;
 		this._auth = auth;
+		this._scope = withOfflineAccess(auth.scopes).join(' ');
 	}
 
 	private _baseBody(): URLSearchParams {

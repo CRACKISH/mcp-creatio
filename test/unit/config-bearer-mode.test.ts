@@ -6,6 +6,7 @@ import { AuthProviderType, BearerAuthMode } from '../../src/creatio';
 const VARS = [
 	'CREATIO_MCP_AUTH_MODE',
 	'CREATIO_ID_BASE_URL',
+	'CREATIO_OAUTH_SCOPE',
 	'CREATIO_CLIENT_ID',
 	'CREATIO_CLIENT_SECRET',
 	'CREATIO_MCP_JWT_SECRET',
@@ -103,6 +104,35 @@ describe('CREATIO_MCP_AUTH_MODE — unified auth resolver', () => {
 		clean();
 		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'legacy');
 		expect(() => getCreatioClientConfig()).toThrow(/legacy auth requires/);
+	});
+
+	it.each([
+		['delegated', {}],
+		['broker', { CREATIO_CLIENT_ID: 'app-1', CREATIO_MCP_JWT_SECRET: STRONG_SECRET }],
+		['client_credentials', { CREATIO_CLIENT_ID: 'c', CREATIO_CLIENT_SECRET: 's' }],
+	])('%s picks up CREATIO_OAUTH_SCOPE as parsed scopes (issue #2)', (mode, vars) => {
+		clean();
+		vi.stubEnv('CREATIO_MCP_AUTH_MODE', mode);
+		for (const [k, v] of Object.entries(vars)) {
+			vi.stubEnv(k, v);
+		}
+		vi.stubEnv('CREATIO_OAUTH_SCOPE', 'ApplicationAccess_abc, extra');
+		expect(getCreatioClientConfig().auth).toMatchObject({
+			scopes: ['ApplicationAccess_abc', 'extra'],
+		});
+	});
+
+	it('omits scopes when CREATIO_OAUTH_SCOPE is unset', () => {
+		clean();
+		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'delegated');
+		expect(getCreatioClientConfig().auth).not.toHaveProperty('scopes');
+	});
+
+	it('fails fast on an invalid CREATIO_OAUTH_SCOPE', () => {
+		clean();
+		vi.stubEnv('CREATIO_MCP_AUTH_MODE', 'delegated');
+		vi.stubEnv('CREATIO_OAUTH_SCOPE', 'bad"scope');
+		expect(() => getCreatioClientConfig()).toThrow(/invalid_oauth_scope/);
 	});
 
 	it('rejects an unknown mode', () => {

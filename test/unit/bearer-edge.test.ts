@@ -1,4 +1,6 @@
+import express from 'express';
 import jwt from 'jsonwebtoken';
+import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AuthProviderType, BearerAuthMode } from '../../src/creatio';
@@ -32,13 +34,43 @@ const BASE = 'https://t.creatio.local';
 describe('buildProtectedResourceMetadata (RFC 9728)', () => {
 	it('advertises Creatio Identity as the authorization server', () => {
 		expect(
-			buildProtectedResourceMetadata('https://mcp.local/mcp', 'https://t.local/0'),
+			buildProtectedResourceMetadata('https://mcp.local/mcp', 'https://t.local/0', [
+				'offline_access',
+			]),
 		).toEqual({
 			resource: 'https://mcp.local/mcp',
 			authorization_servers: ['https://t.local/0'],
 			scopes_supported: ['offline_access'],
 			bearer_methods_supported: ['header'],
 		});
+	});
+});
+
+describe('BearerEdge.registerRoutes — delegated discovery scopes', () => {
+	async function fetchMetadata(config: unknown) {
+		const app = express();
+		new BearerEdge(config as never, BASE).registerRoutes(app);
+		return (await request(app).get('/.well-known/oauth-protected-resource')).body;
+	}
+
+	it('advertises offline_access by default', async () => {
+		expect((await fetchMetadata(delegated())).scopes_supported).toEqual(['offline_access']);
+	});
+
+	// Issue #2: a delegated client requests exactly what we advertise, so the configured
+	// ApplicationAccess scope must be discoverable or its token 401s on older Creatio.
+	it('advertises the configured scopes so the client requests a usable token', async () => {
+		const config = { ...(delegated() as object), scopes: ['ApplicationAccess_abc'] };
+		expect((await fetchMetadata(config)).scopes_supported).toEqual([
+			'offline_access',
+			'ApplicationAccess_abc',
+		]);
+	});
+
+	it('gateway publishes no discovery metadata (the Control-Plane owns the token)', async () => {
+		const app = express();
+		new BearerEdge(gateway(), BASE).registerRoutes(app);
+		expect((await request(app).get('/.well-known/oauth-protected-resource')).status).toBe(404);
 	});
 });
 

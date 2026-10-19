@@ -74,6 +74,32 @@ describe('OAuth2Provider (client credentials)', () => {
 		);
 	});
 
+	it('omits scope by default so the app keeps its default grant', async () => {
+		const fetchMock = vi.fn(async (_u: string, _init: RequestInit) =>
+			jsonOk({ access_token: 'CC', expires_in: 3600 }),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await new OAuth2Provider(ccConfig() as never).getHeaders('application/json', true);
+		expect(new URLSearchParams(String(fetchMock.mock.calls[0]![1].body)).has('scope')).toBe(
+			false,
+		);
+	});
+
+	it('sends exactly the configured scopes, without offline_access (issue #2)', async () => {
+		const fetchMock = vi.fn(async (_u: string, _init: RequestInit) =>
+			jsonOk({ access_token: 'CC', expires_in: 3600 }),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const config = ccConfig();
+		const provider = new OAuth2Provider({
+			...config,
+			auth: { ...config.auth, scopes: ['ApplicationAccess_abc', 'extra'] },
+		} as never);
+		await provider.getHeaders('application/json', true);
+		const body = new URLSearchParams(String(fetchMock.mock.calls[0]![1].body));
+		expect(body.get('scope')).toBe('ApplicationAccess_abc extra');
+	});
+
 	it('refresh() forces a new token fetch', async () => {
 		const fetchMock = vi.fn(async () => jsonOk({ access_token: 'CC', expires_in: 3600 }));
 		vi.stubGlobal('fetch', fetchMock);

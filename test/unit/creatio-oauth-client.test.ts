@@ -40,6 +40,18 @@ describe('CreatioOAuthClient.buildAuthorizeUrl', () => {
 		expect(url.searchParams.get('code_challenge_method')).toBe('S256');
 		expect(url.searchParams.get('scope')).toBe('offline_access');
 	});
+
+	// Issue #2: Creatio without AddApplicationAccessScopeAutomatically 401s on a token lacking
+	// the app's ApplicationAccess_<id> scope, so the configured scope must reach /connect/authorize.
+	it('requests the configured resource scopes alongside offline_access', () => {
+		const url = new URL(
+			new CreatioOAuthClient(
+				BASE,
+				publicAuth({ scopes: ['ApplicationAccess_abc'] }),
+			).buildAuthorizeUrl('http://localhost:3000/oauth/callback', 'S', 'C'),
+		);
+		expect(url.searchParams.get('scope')).toBe('offline_access ApplicationAccess_abc');
+	});
 });
 
 describe('CreatioOAuthClient.exchangeCode', () => {
@@ -107,6 +119,22 @@ describe('CreatioOAuthClient.refresh', () => {
 		const tokens = await new CreatioOAuthClient(BASE, publicAuth()).refresh('OLD-RT');
 		expect(tokens.accessToken).toBe('AT2');
 		expect(tokens.refreshToken).toBe('OLD-RT');
+	});
+
+	it('re-requests the configured scopes on refresh (issue #2)', async () => {
+		let body = '';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_u: string, init: RequestInit) => {
+				body = String(init.body);
+				return jsonOk({ access_token: 'AT2', expires_in: 3600 });
+			}),
+		);
+		await new CreatioOAuthClient(
+			BASE,
+			publicAuth({ scopes: ['ApplicationAccess_abc'] }),
+		).refresh('OLD-RT');
+		expect(new URLSearchParams(body).get('scope')).toBe('offline_access ApplicationAccess_abc');
 	});
 
 	it('adopts a rotated refresh token when returned', async () => {

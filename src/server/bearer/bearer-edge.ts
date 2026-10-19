@@ -1,4 +1,4 @@
-import { BearerAuthConfig, BearerAuthMode } from '../../creatio';
+import { BearerAuthConfig, BearerAuthMode, withOfflineAccess } from '../../creatio';
 import log from '../../log';
 import { env, extractBpmcsrf, InjectedCredential } from '../../utils';
 import { resolvePublicOrigin } from '../http/public-origin';
@@ -16,12 +16,17 @@ const BASE_URL_OVERRIDE_HEADER = 'x-creatio-base-url';
 const COOKIE_HEADER = 'x-creatio-cookie';
 const BPMCSRF_HEADER = 'x-creatio-bpmcsrf';
 
-/** RFC 9728 Protected Resource Metadata, advertising Creatio Identity as the authorization server. */
-export function buildProtectedResourceMetadata(resource: string, identityBase: string) {
+/** RFC 9728 Protected Resource Metadata, advertising `authorizationServer` and the scopes a client
+ *  should request from it. */
+export function buildProtectedResourceMetadata(
+	resource: string,
+	authorizationServer: string,
+	scopes: readonly string[],
+) {
 	return {
 		resource,
-		authorization_servers: [identityBase],
-		scopes_supported: ['offline_access'],
+		authorization_servers: [authorizationServer],
+		scopes_supported: [...scopes],
 		bearer_methods_supported: ['header'],
 	};
 }
@@ -47,6 +52,8 @@ export class BearerEdge {
 	private readonly _config: BearerAuthConfig;
 	private readonly _baseUrl: string;
 	private readonly _allowedBaseUrls: string[];
+	/** Scopes a delegated client must request from Creatio Identity for a usable token. */
+	private readonly _scopes: readonly string[];
 
 	private get _isDelegated(): boolean {
 		return this._config.mode === BearerAuthMode.Delegated;
@@ -61,6 +68,7 @@ export class BearerEdge {
 		this._config = config;
 		this._baseUrl = baseUrl;
 		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
+		this._scopes = withOfflineAccess(config.scopes);
 	}
 
 	/** Pull the per-request credential the client/gateway supplied: a Bearer token, or a forwarded
@@ -120,7 +128,7 @@ export class BearerEdge {
 		}
 		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
 			const resource = `${resolvePublicOrigin(req)}/mcp`;
-			res.json(buildProtectedResourceMetadata(resource, this._identityBase));
+			res.json(buildProtectedResourceMetadata(resource, this._identityBase, this._scopes));
 		});
 	}
 

@@ -30,6 +30,8 @@ Options:
   --client-id <value>          OAuth2 client credentials client_id
   --client-secret <value>      OAuth2 client credentials client_secret
   --id-base-url <url>          Creatio Identity base URL
+  --oauth-scope <scopes>       Extra OAuth scopes, space/comma-separated
+                               (e.g. ApplicationAccess_<id> on older Creatio)
   --readonly <true|false>      Enable readonly mode
   --log-level <silent|error|warn|info>
                                Log verbosity (default: silent)
@@ -92,6 +94,7 @@ export function applyCliEnv(opts: CliOptions): void {
 	setEnvIfDefined('CREATIO_CLIENT_ID', opts['client-id']);
 	setEnvIfDefined('CREATIO_CLIENT_SECRET', opts['client-secret']);
 	setEnvIfDefined('CREATIO_ID_BASE_URL', opts['id-base-url']);
+	setEnvIfDefined('CREATIO_OAUTH_SCOPE', opts['oauth-scope']);
 	setEnvIfDefined('CREATIO_MCP_READONLY', opts.readonly);
 	setEnvIfDefined('CREATIO_MCP_LOG_LEVEL', opts['log-level']);
 }

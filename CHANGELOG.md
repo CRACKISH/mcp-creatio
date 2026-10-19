@@ -4,6 +4,18 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`CREATIO_OAUTH_SCOPE` / `--oauth-scope`** — extra Creatio OAuth scopes for every OAuth mode.
+  Fixes [#2](https://github.com/CRACKISH/mcp-creatio/issues/2): on Creatio versions without the
+  `AddApplicationAccessScopeAutomatically` feature the login succeeded but every call returned `401`,
+  because tokens lacked the app's `ApplicationAccess_<id>` scope and it could not be configured.
+  `broker` requests it on authorize + refresh (always with `offline_access`), `delegated` advertises
+  it in RFC 9728 `scopes_supported`, `client_credentials` sends it on the token request. Values are
+  validated against RFC 6749 at startup (fail fast).
+
 ## [0.6.7]
 
 Credential flexibility and multi-tenant hardening: `gateway`/`delegated` now accept a forwarded

@@ -20,7 +20,8 @@ import type {
 type SessionStillHeld = (userKey: string) => Promise<boolean>;
 
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
-const ISSUED_SCOPE = 'offline_access';
+/** The only scope this AS issues to its MCP clients (refresh-token capable). */
+export const ISSUED_SCOPE = 'offline_access';
 
 export class OAuthServer {
 	private readonly _storage = new OAuthStorage();

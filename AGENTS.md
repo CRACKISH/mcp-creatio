@@ -360,6 +360,9 @@ Streamable-HTTP handshake instead: `POST /mcp` `initialize` → `notifications/i
 `tools/call get-current-user-info` (carry the `mcp-session-id` header the initialize response
 returns). Expect the call to resolve to the expected user.
 
+- Older Creatio (no `AddApplicationAccessScopeAutomatically` feature) 401s every call until
+  `CREATIO_OAUTH_SCOPE=ApplicationAccess_<id>` is set (parsed/validated once in `config-builder`
+  → `CreatioIdentityOptions.scopes`; `withOfflineAccess` adds `offline_access` for user flows).
 - `client_credentials`: env `CREATIO_MCP_AUTH_MODE=client_credentials` + `CREATIO_CLIENT_ID`/`SECRET`;
   `/mcp` is open (no edge), the provider injects the M2M token. Confirm `creatio.auth.ok authKind=oauth2`.
 - `legacy`: env `…=legacy` + `CREATIO_LOGIN`/`CREATIO_PASSWORD`. Confirm `creatio.auth.ok authKind=legacy`.

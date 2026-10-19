@@ -20,6 +20,11 @@ export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
 		body.set('grant_type', 'client_credentials');
 		body.set('client_id', this.authConfig.clientId);
 		body.set('client_secret', this.authConfig.clientSecret);
+		// Only explicitly configured scopes: client_credentials issues no refresh token, so
+		// `offline_access` does not apply, and omitting `scope` keeps the app's default grant.
+		if (this.authConfig.scopes?.length) {
+			body.set('scope', this.authConfig.scopes.join(' '));
+		}
 		try {
 			log.creatioAuthStart(this._config.baseUrl, 'oauth2');
 			const response = await fetch(url, {

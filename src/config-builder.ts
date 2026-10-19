@@ -7,9 +7,11 @@ import {
 	BrokerAuthConfig,
 	CreatioClientAuthConfig,
 	CreatioClientConfig,
+	CreatioIdentityOptions,
 	CrudBackend,
 	LegacyAuthConfig,
 	OAuth2AuthConfig,
+	parseScopes,
 } from './creatio';
 import log from './log';
 import { TokenStoreConfig } from './sessions';
@@ -52,13 +54,21 @@ function inferMode(): AuthMode {
 	return 'delegated';
 }
 
+/**
+ * Creatio Identity options shared by every OAuth-based mode. Scopes are parsed (and validated) once
+ * here so an invalid `CREATIO_OAUTH_SCOPE` fails at startup; unset values are omitted entirely.
+ */
+function identityOptions(): CreatioIdentityOptions {
+	const idBaseUrl = env('CREATIO_ID_BASE_URL');
+	const scopes = parseScopes(env('CREATIO_OAUTH_SCOPE'));
+	return {
+		...(idBaseUrl ? { idBaseUrl } : {}),
+		...(scopes.length ? { scopes } : {}),
+	};
+}
+
 function bearerConfig(mode: BearerAuthMode): BearerAuthConfig {
-	const conf: BearerAuthConfig = { kind: AuthProviderType.OAuth2Bearer, mode };
-	const idb = env('CREATIO_ID_BASE_URL');
-	if (idb) {
-		conf.idBaseUrl = idb;
-	}
-	return conf;
+	return { kind: AuthProviderType.OAuth2Bearer, mode, ...identityOptions() };
 }
 
 function clientCredentialsConfig(): OAuth2AuthConfig {
@@ -67,12 +77,7 @@ function clientCredentialsConfig(): OAuth2AuthConfig {
 	if (!clientId || !clientSecret) {
 		throw new Error(MISSING_CLIENT_CREDENTIALS);
 	}
-	const conf: OAuth2AuthConfig = { kind: AuthProviderType.OAuth2, clientId, clientSecret };
-	const idb = env('CREATIO_ID_BASE_URL');
-	if (idb) {
-		conf.idBaseUrl = idb;
-	}
-	return conf;
+	return { kind: AuthProviderType.OAuth2, clientId, clientSecret, ...identityOptions() };
 }
 
 /** HS256 security rests ENTIRELY on the secret's entropy, so a short secret is brute-forceable
@@ -118,16 +123,14 @@ function brokerConfig(): BrokerAuthConfig {
 		throw new Error(MISSING_BROKER);
 	}
 	const jwtSecret = resolveBrokerJwtSecret();
-	const conf: BrokerAuthConfig = { kind: AuthProviderType.Broker, clientId, jwtSecret };
 	const clientSecret = env('CREATIO_CLIENT_SECRET');
-	if (clientSecret) {
-		conf.clientSecret = clientSecret;
-	}
-	const idb = env('CREATIO_ID_BASE_URL');
-	if (idb) {
-		conf.idBaseUrl = idb;
-	}
-	return conf;
+	return {
+		kind: AuthProviderType.Broker,
+		clientId,
+		jwtSecret,
+		...(clientSecret ? { clientSecret } : {}),
+		...identityOptions(),
+	};
 }
 
 function legacyConfig(): LegacyAuthConfig {

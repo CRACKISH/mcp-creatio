@@ -3,7 +3,7 @@ import log from '../../log';
 import { SessionContext } from '../../sessions';
 import { generatePkcePair } from '../../utils';
 import { buildProtectedResourceMetadata, inspectBearer } from '../bearer';
-import { OAuthServer, OAuthValidators } from '../oauth';
+import { ISSUED_SCOPE, OAuthServer, OAuthValidators } from '../oauth';
 
 import { resolvePublicOrigin } from './public-origin';
 
@@ -29,7 +29,7 @@ function authServerMetadata(req: Request) {
 		grant_types_supported: ['authorization_code', 'refresh_token'],
 		token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
 		code_challenge_methods_supported: ['S256'],
-		scopes_supported: ['offline_access'],
+		scopes_supported: [ISSUED_SCOPE],
 	};
 }
 
@@ -100,7 +100,7 @@ export class BrokerHandlers {
 	/** RFC 9728: in broker mode WE are the authorization server, so it points back at this origin. */
 	public handleProtectedResourceMetadata(req: Request, res: Response): void {
 		const base = origin(req);
-		res.json(buildProtectedResourceMetadata(`${base}/mcp`, base));
+		res.json(buildProtectedResourceMetadata(`${base}/mcp`, base, [ISSUED_SCOPE]));
 	}
 
 	/**

@@ -48,7 +48,9 @@ describe('setEnvIfDefined / applyCliEnv', () => {
 			login: 'admin',
 			password: 'secret',
 			readonly: 'true',
+			'oauth-scope': 'ApplicationAccess_abc',
 		});
+		expect(process.env.CREATIO_OAUTH_SCOPE).toBe('ApplicationAccess_abc');
 		expect(process.env.CREATIO_BASE_URL).toBe('https://tenant.creatio.local');
 		expect(process.env.CREATIO_LOGIN).toBe('admin');
 		expect(process.env.CREATIO_PASSWORD).toBe('secret');
@@ -57,5 +59,6 @@ describe('setEnvIfDefined / applyCliEnv', () => {
 		delete process.env.CREATIO_LOGIN;
 		delete process.env.CREATIO_PASSWORD;
 		delete process.env.CREATIO_MCP_READONLY;
+		delete process.env.CREATIO_OAUTH_SCOPE;
 	});
 });

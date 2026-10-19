@@ -167,6 +167,21 @@ issued refresh tokens. It always answers `200` (no token-validity oracle).
 Register the Creatio app in System Designer → _OAuth 2.0 applications_ → _On behalf of a user_, and
 add the MCP callback (`http://localhost:3000/oauth/callback` for a local run) to its redirect URIs.
 
+#### OAuth scope (older Creatio versions)
+
+If the login succeeds but every tool call (e.g. `get-current-user-info`) returns **`401`**, your
+Creatio predates the `AddApplicationAccessScopeAutomatically` feature: tokens are only usable when
+the request explicitly asks for the app's resource scope. Find it in the **OAuth resource** lookup
+(`ApplicationAccess_<id>`) and set:
+
+```bash
+CREATIO_OAUTH_SCOPE=ApplicationAccess_<id>   # space/comma-separated; offline_access is always added
+```
+
+It applies to every OAuth mode: `broker` requests it on login and refresh, `delegated` advertises it
+in its RFC 9728 metadata (so the client requests it), and `client_credentials` sends it on the token
+request. An invalid scope value fails at startup.
+
 ### `delegated` (default when nothing else is set)
 
 Pure resource server: each `/mcp` request must carry a Creatio access token; the MCP advertises the
@@ -297,6 +312,7 @@ nothing works without it; the rest depend on the auth method and the features yo
 | `CREATIO_MCP_ALLOWED_BASE_URLS`      | gateway       | _Optional_ — comma-separated allowlist of Creatio origins the `X-Creatio-Base-Url` override may target (SSRF guard). Unset ⇒ any http(s) host except cloud-metadata        |
 | `CREATIO_LOGIN` / `CREATIO_PASSWORD` | legacy        | Username / password                                                                                                                                                        |
 | `CREATIO_ID_BASE_URL`                | any           | _Optional_ — Identity Service URL; defaults to deriving from `CREATIO_BASE_URL`                                                                                            |
+| `CREATIO_OAUTH_SCOPE`                | OAuth modes   | _Optional_ — extra Creatio OAuth scopes (space/comma-separated), e.g. `ApplicationAccess_<id>` on older Creatio — see [OAuth scope](#oauth-scope-older-creatio-versions)   |
 
 ### Data & behavior (optional)
 
