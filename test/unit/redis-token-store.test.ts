@@ -57,13 +57,16 @@ describe('RedisTokenStore', () => {
 
 	it('set → get round-trips UserTokens and stores them encrypted at rest', async () => {
 		const store = await makeStore();
-		await store.set('u1', tokens);
+		// A long, distinctive plaintext: a 2-char token like 'AT' randomly appears in the base64url
+		// ciphertext (random IV) in a few % of runs, which made this assertion flaky.
+		const accessToken = 'plaintext-access-token-sentinel';
+		await store.set('u1', { ...tokens, accessToken });
 		// On-disk value must be encrypted — not the plaintext access token.
 		const raw = [...fakeClient.store.values()][0];
 		expect(raw).toBeTruthy();
-		expect(raw).not.toContain('AT');
+		expect(raw).not.toContain(accessToken);
 		const back = await store.get('u1');
-		expect(back?.accessToken).toBe('AT');
+		expect(back?.accessToken).toBe(accessToken);
 		expect(back?.storedAtMs).toBeTypeOf('number');
 	});
 
