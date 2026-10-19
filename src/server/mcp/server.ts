@@ -141,9 +141,11 @@ export class Server {
 		this._globalSearchPreparer = new GlobalSearchToolPreparer(
 			new GlobalSearchClient(engines.configuration, engines.sysSettings),
 		);
+		// A published tool may change data, and this server cannot tell which do, so readonly mode
+		// keeps them all off (invariant: readonly registers no mutating tool).
 		this._publishedToolsPreparer = new CrtMcpPublishingToolPreparer(
 			new CrtMcpPublishingClient(engines.configuration, engines.crud),
-			envBool('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS', false),
+			envBool('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS', false) && !this._readonly,
 		);
 		// A disabled capability is simply never added to the preparer list, so it is neither
 		// probed (no network / no token spend) nor registered as a tool.

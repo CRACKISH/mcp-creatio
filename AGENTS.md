@@ -247,7 +247,9 @@ Three capabilities follow this pattern today:
   under a `pub-<server>-<tool>` name that proxies `tools/call` back to the app (the app keeps
   ownership of schema/RBAC/validation/execution). JSON Schema → Zod via `json-schema-to-zod.ts`;
   multi-segment route reached via `ConfigurationCaller.rawPath`. Intentionally undocumented in
-  the README.
+  the README. Published tools may mutate and this server cannot tell which, so they are never
+  enabled in readonly mode and always carry conservative annotations (not read-only, destructive),
+  whatever the app declares.
 
 Add the next capability the same way.
 

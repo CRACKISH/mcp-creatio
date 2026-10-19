@@ -36,14 +36,26 @@ function makeClient(over?: Partial<CrtMcpPublishingClient>): CrtMcpPublishingCli
 }
 
 describe('CrtMcpPublishingToolPreparer', () => {
-	it("passes the app's MCP annotations through", async () => {
-		const annotations = { readOnlyHint: true, openWorldHint: false };
+	// Security review: forwarding the app's hints verbatim let a published tool claim
+	// `readOnlyHint: true` and be auto-run by a client although this proxy cannot verify it.
+	it('declares conservative annotations whatever the app claims', async () => {
 		const client = makeClient({
-			listTools: vi.fn(async () => [{ name: 'get-thing', inputSchema: {}, annotations }]),
+			listTools: vi.fn(async () => [
+				{
+					name: 'get-thing',
+					inputSchema: {},
+					annotations: { readOnlyHint: true, destructiveHint: false },
+				},
+			]),
 		} as never);
 		const { registrar, registered } = makeRegistrar();
 		await new CrtMcpPublishingToolPreparer(client, true).prepare(registrar);
-		expect(registered.get('pub-Srv-get-thing')!.descriptor.annotations).toEqual(annotations);
+		expect(registered.get('pub-Srv-get-thing')!.descriptor.annotations).toEqual({
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: false,
+			openWorldHint: false,
+		});
 	});
 
 	it('registers nothing when disabled (flag off)', async () => {
@@ -75,7 +87,6 @@ describe('CrtMcpPublishingToolPreparer', () => {
 		expect(entry!.descriptor.description).toBe('Get a thing');
 		// input schema was converted into a zod raw shape (has the `id` property)
 		expect(Object.keys(entry!.descriptor.inputSchema)).toEqual(['id']);
-		expect(entry!.descriptor.annotations).toBeUndefined(); // none published, none invented
 
 		// the handler proxies straight to callTool(server, originalName, args)
 		await entry!.handler({ id: '42' });

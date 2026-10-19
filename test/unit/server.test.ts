@@ -592,6 +592,20 @@ describe('Global Search tool preparation', () => {
 });
 
 describe('Published-tools capability (hidden, off by default)', () => {
+	// Invariant #8: a published tool may mutate, so readonly mode must not enable them even when
+	// the opt-in flag is set.
+	it('stays disabled in readonly mode even with ENABLE_PUBLISHED_TOOLS=true', () => {
+		vi.stubEnv('CREATIO_MCP_ENABLE_PUBLISHED_TOOLS', 'true');
+		try {
+			const readonly = buildServer(true).server as any;
+			const normal = buildServer(false).server as any;
+			expect(readonly._publishedToolsPreparer._enabled).toBe(false);
+			expect(normal._publishedToolsPreparer._enabled).toBe(true);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it('does not register any published (pub-*) tools when ENABLE_PUBLISHED_TOOLS is unset', async () => {
 		const { server } = buildServer();
 		await prepare(server);

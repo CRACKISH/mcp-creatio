@@ -9,9 +9,15 @@ export const PUBLISHED_TOOLS_CAPABILITY = 'published-tools';
 
 const NAME_PREFIX = 'pub';
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
+// This server only proxies a published tool and cannot verify what it does, so it never vouches
+// for one as read-only or harmless: whatever the app declares, the client is told to treat the tool
+// as able to change data (and to confirm it), never as open-world.
+const PUBLISHED_TOOL_ANNOTATIONS = {
+	readOnlyHint: false,
+	destructiveHint: true,
+	idempotentHint: false,
+	openWorldHint: false,
+} as const;
 
 /**
  * Registers tools published in the Creatio "MCP Publishing" composable app, but only
@@ -37,9 +43,7 @@ export class CrtMcpPublishingToolPreparer implements ToolPreparer {
 				tool.description ??
 				`Published tool "${tool.name}" from Creatio MCP server "${serverCode}".`,
 			inputSchema: jsonSchemaToZodShape(tool.inputSchema),
-			// The app owns the tool's semantics, so its MCP annotations (read-only, destructive, …)
-			// are passed through for the client to act on.
-			...(isPlainObject(tool.annotations) ? { annotations: tool.annotations } : {}),
+			annotations: PUBLISHED_TOOL_ANNOTATIONS,
 		};
 		// Proxy the call straight through; the app validates args and shapes the result.
 		const handler = (args: Record<string, unknown>) =>

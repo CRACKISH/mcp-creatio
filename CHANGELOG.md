@@ -66,7 +66,8 @@ Email?`. Each backend recognizes its own messages; the suggestions are computed 
   sorting, paging, counting, links and attachments); `/contactid-guide` rewritten.
 - **MCP tool annotations** — every tool declares `readOnlyHint` / `destructiveHint` /
   `idempotentHint` / `openWorldHint`, so clients can run reads without confirmation and flag
-  destructive calls; published tools pass the app's own annotations through.
+  destructive calls. Proxied published tools always declare conservative hints (may change data),
+  whatever the app claims — this server cannot verify them.
 
 - **`read` returns normalized values on both backends** — a cell without a value is `null`
   instead of DataService's `""` or OData's empty-GUID / `0001-01-01` placeholders (text columns
@@ -75,6 +76,12 @@ Email?`. Each backend recognizes its own messages; the suggestions are computed 
 
 ### Security
 
+- **Published tools are no longer registered in readonly mode** (`CREATIO_MCP_READONLY=true`).
+  A published tool can change data and this server cannot tell which do, so with the opt-in
+  `CREATIO_MCP_ENABLE_PUBLISHED_TOOLS` they were exposed despite readonly — breaking the "readonly
+  registers no mutating tool" guarantee.
+- **The Creatio session id is redacted** from tool results (`get-current-user-info` used to relay
+  `userInfo.sessionId` to the client).
 - **Dependencies updated within their ranges; `npm audit` is clean (was 9 advisories, 1 critical).**
   Minimum versions raised so installs cannot resolve a vulnerable release: `@modelcontextprotocol/sdk`
   ^1.32.1 (OAuth client could send credentials to a server-chosen authorization server), `undici`
