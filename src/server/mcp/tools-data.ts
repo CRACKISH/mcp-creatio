@@ -1,59 +1,58 @@
 import { z } from 'zod';
 
-const CRITICAL_WARNINGS = {
-	FILTER_SELECT_SYNC:
-		'⚠️ CRITICAL: When using $filter with $select:\n' +
-		'- ALWAYS include filtered fields in $select array\n' +
-		"- Example: filter by AccountId → select=['Id','AccountId',...]\n" +
-		'- Creatio returns error "Column by path X not found" if field filtered but not selected\n' +
-		'- This does NOT apply to expanded entities - those are separate',
-	GUID_NO_QUOTES:
-		'⚠️ IMPORTANT GUID SYNTAX:\n' +
-		'- GUID fields (Id, AccountId, ContactId, etc.): NO quotes, NO guid prefix!\n' +
-		'  ✅ CORRECT: AccountId eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
-		"  ❌ WRONG: AccountId eq guid'...' or AccountId eq '...'\n" +
-		"- String/Text fields: WITH single quotes! Example: Name eq 'John'\n" +
-		"- Navigation properties: WITH single quotes! Example: Type/Name eq 'Employee'",
-	TIME_CONVERSION:
-		'⏰ TIME CONVERSION CRITICAL:\nWhen updating StartDate/DueDate, convert local time to UTC!',
-	LOOKUP_NAVIGATION:
-		'🔗 FILTERING BY A LOOKUP (related record) — use NAVIGATION, not the scalar FK:\n' +
-		"- By name (best): Contact/Name eq 'Andrew Baker', Type/Name eq 'Employee'\n" +
-		'- By id: Contact/Id eq <guid>  (GUID, no quotes)\n' +
-		'- ❌ Do NOT filter the scalar `ContactId`/`OwnerId`/`AccountId` directly — Creatio OData 500s with "Column by path XxxId not found in schema".\n' +
-		'- The primary key `Id eq <guid>` DOES work as-is (it is a real column, not a lookup).',
-} as const;
+/**
+ * MCP tool annotations: hints a client uses to decide what it may run without asking the user.
+ * Every tool acts only on the configured Creatio instance, so none is open-world.
+ */
+interface ToolAnnotations {
+	readOnlyHint: boolean;
+	destructiveHint?: boolean;
+	idempotentHint?: boolean;
+	openWorldHint: boolean;
+}
 
-const DATA_TYPES_DESC = {
-	BASIC:
-		'DATA TYPES:\n' +
-		'- Strings: "John Doe", "john@example.com"\n' +
-		'- Numbers: 1000, 25.99\n' +
-		'- Booleans: true, false\n' +
-		'- Dates: ISO 8601 format with Z for UTC: "2025-10-08T19:00:00Z"\n' +
-		'- GUIDs (lookups): "8ecab4a1-0ca3-4515-9399-efe0a19390bd" (no quotes in value!)',
-	LOOKUPS:
-		'LOOKUP FIELDS:\n' +
-		'- Use field name ending with Id: AccountId, ContactId, TypeId, etc.\n' +
-		'- Value must be valid GUID from related entity\n' +
-		'- Example: AccountId: "8ecab4a1-0ca3-4515-9399-efe0a19390bd"',
-	DATES:
-		'⏰ DATES & TIME:\n' +
-		'- Always use UTC time with Z suffix\n' +
-		'- Convert local time to UTC: subtract timezone offset\n' +
-		'- Format: "YYYY-MM-DDTHH:mm:ssZ"\n' +
-		'- Example: "2025-10-08T19:00:00Z" for 22:00 local (UTC+3)',
-} as const;
+/** Reads only. */
+const READ_ONLY: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
+/** Adds data; never removes or overwrites existing data. */
+const ADDS: ToolAnnotations = {
+	readOnlyHint: false,
+	destructiveHint: false,
+	idempotentHint: false,
+	openWorldHint: false,
+};
+/** Overwrites or removes data; repeating the same call has no further effect. */
+const CHANGES: ToolAnnotations = {
+	readOnlyHint: false,
+	destructiveHint: true,
+	idempotentHint: true,
+	openWorldHint: false,
+};
+/** Runs server-side logic with effects this server cannot bound. */
+const RUNS: ToolAnnotations = {
+	readOnlyHint: false,
+	destructiveHint: true,
+	idempotentHint: false,
+	openWorldHint: false,
+};
+/** Clears a cache: no data changes, safe to repeat. */
+const REFRESHES: ToolAnnotations = {
+	readOnlyHint: false,
+	destructiveHint: false,
+	idempotentHint: true,
+	openWorldHint: false,
+};
 
 function makeToolDescriptor(opts: {
 	title: string;
 	description: string;
 	inputShape: Record<string, z.ZodTypeAny>;
+	annotations: ToolAnnotations;
 }) {
 	return {
 		title: opts.title,
 		description: opts.description,
 		inputSchema: opts.inputShape,
+		annotations: opts.annotations,
 	};
 }
 
@@ -61,49 +60,28 @@ const CREATIO_GUID_REGEX =
 	/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const creatioGuid = () => z.string().regex(CREATIO_GUID_REGEX, 'Must be a 36-character hex GUID');
 
+const entityName = (examples: string) =>
+	z.string().min(1).describe(`Entity (object schema) name, e.g. ${examples}.`);
+
+const DATES_RULE =
+	'Date/time values are UTC ISO 8601 with a Z suffix ("2026-03-01T09:30:00Z") — convert the user\'s local time first (/datetime-guide).';
+
+// --- Current user -----------------------------------------------------------------------------
+
 const getCurrentUserInfoInputShape = {};
 export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
 
 export const getCurrentUserInfoDescriptor = makeToolDescriptor({
-	title: '🔑 Get Current User Info - CALL THIS FIRST!',
+	title: 'Get the current Creatio user',
 	description:
-		'⚠️⚠️⚠️ MANDATORY FIRST STEP ⚠️⚠️⚠️\n\n' +
-		'🚨 YOU MUST CALL THIS TOOL FIRST before creating ANY Activity, Lead, Opportunity, Case, or other CRM record!\n\n' +
-		'WHY CALL FIRST:\n' +
-		'- Returns the ContactId needed for OwnerId and AuthorId fields\n' +
-		'- Without this, you CANNOT create activities or CRM records correctly\n' +
-		'- Activities MUST have valid OwnerId and AuthorId (both = ContactId)\n' +
-		'- By default, ALL activities/leads/tasks are created FOR THE CURRENT USER\n\n' +
-		'📋 REQUIRED WORKFLOW:\n' +
-		'Step 1: Call get-current-user-info (no parameters) ← DO THIS NOW!\n' +
-		'Step 2: Extract contactId from response\n' +
-		'Step 3: Store contactId in memory for this conversation\n' +
-		'Step 4: Use contactId as OwnerId and AuthorId in ALL create operations\n\n' +
-		'Returns:\n' +
-		'{\n' +
-		'  "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",\n' +
-		'  "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← SAVE THIS!\n' +
-		'  "userName": "Current User",\n' +
-		'  "cultureName": "en-US"\n' +
-		'}\n\n' +
-		'USE CASES (when to call):\n' +
-		'✅ User asks to create activity/meeting/task/call → CALL THIS FIRST!\n' +
-		'✅ User asks to create lead/opportunity/case → CALL THIS FIRST!\n' +
-		'✅ User asks who they are → CALL THIS!\n' +
-		'✅ Beginning of ANY CRM workflow → CALL THIS FIRST!\n' +
-		'❌ Simple queries (read/search) → Not required\n\n' +
-		'CRITICAL RULES:\n' +
-		'- ContactId (NOT userId) goes into OwnerId/AuthorId fields\n' +
-		"- Cache the ContactId - don't call repeatedly\n" +
-		'- Default assumption: create records FOR current user\n' +
-		'- Only change owner if user explicitly says "for [someone else]"\n\n' +
-		'Example usage:\n' +
-		'User: "Create a meeting for tomorrow"\n' +
-		'YOU: 1) Call get-current-user-info\n' +
-		'     2) Use contactId for OwnerId and AuthorId\n' +
-		'     3) Create activity with those IDs',
+		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZoneId, timeZoneOffsetHours, userRoles, ... } }. ' +
+		'Call it once before creating records owned by the user — owner/author lookups (OwnerId, AuthorId) take `userInfo.contactId`, not `userInfo.id` — or when a tool needs the user as a user/role (`adminUnitId` = `userInfo.id`). Reuse the result for the rest of the conversation; reads do not need it. ' +
+		"`timeZoneOffsetHours` is the user's Creatio time zone, useful when converting times (/datetime-guide). See /contactid-guide.",
 	inputShape: getCurrentUserInfoInputShape,
+	annotations: READ_ONLY,
 });
+
+// --- Read ----------------------------------------------------------------------------------------
 
 const op = z.enum(['eq', 'ne', 'gt', 'ge', 'lt', 'le', 'contains', 'startswith', 'endswith']);
 
@@ -114,17 +92,16 @@ const baseCondition = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'Field to filter on. To filter by a linked record, use navigation: by name `Contact/Name` / `Type/Name`, or by id `Contact/Id`. ' +
-				'A scalar lookup FK (`ContactId`, `OwnerId`, `AccountId`) with a GUID value is auto-rewritten to `<Lookup>/Id`. The primary key is `Id`.',
+			'A column (`Name`), a lookup by id (`AccountId` compared with a GUID) or a related column by path (`Account.Name`). The primary key is `Id`.',
 		),
 });
 
 const compareCondition = baseCondition.extend({
 	op: op.describe(
-		'Comparison operators: eq, ne, gt, ge, lt, le, contains, startswith, endswith.',
+		'eq, ne, gt, ge, lt, le; contains / startswith / endswith for text (case-insensitive).',
 	),
 	value: value.describe(
-		'Value to compare with. GUIDs are emitted unquoted for Id/lookup paths; other strings are quoted/escaped automatically.',
+		'Value to compare with: text, number, boolean, a GUID for ids, or null with eq / ne for "is empty" / "is not empty". Quoting and escaping are handled for you.',
 	),
 });
 
@@ -132,143 +109,60 @@ const inCondition = baseCondition.extend({
 	in: z
 		.array(z.union([z.string(), z.number(), z.boolean()]))
 		.min(1)
-		.describe('Set of values (expanded to an OR group). Lookup FK GUIDs are auto-navigated.'),
+		.describe('Matches any of these values (one value type per list).'),
 });
 
 const condition = z.union([compareCondition, inCondition]);
 
 const filtersShape = z
 	.object({
-		all: z
-			.array(condition)
-			.min(1)
-			.optional()
-			.describe(
-				'All conditions (AND). Example: [{ field:"Stage/Name", op:"eq", value:"Presentation" }]',
-			),
+		all: z.array(condition).min(1).optional().describe('Conditions that must ALL hold (AND).'),
 		any: z
 			.array(condition)
 			.min(1)
 			.optional()
 			.describe(
-				'Any condition (OR). Example: [{ field:"Type/Name", op:"eq", value:"Employee" }, { field:"Type/Name", op:"eq", value:"Manager" }]',
+				'Conditions of which at least ONE must hold (OR); combined with `all` by AND.',
 			),
 	})
 	.describe(
-		'Structured filters - alternative to raw $filter. Automatically handles OData syntax, escaping, GUID formatting, and lookup navigation.\n' +
-			'Filter by a linked record via navigation (Contact/Name, Contact/Id) — or pass a scalar `ContactId` GUID and it is auto-rewritten to `Contact/Id`.\n\n' +
-			'Examples:\n' +
-			'- Lookup by name: { all:[{ field:"Contact/Name", op:"eq", value:"Andrew Baker" }] }\n' +
-			'- Lookup by id: { all:[{ field:"ContactId", op:"eq", value:"60733efc-..." }] }\n' +
-			'- Multiple AND: { all:[{ field:"IsActive", op:"eq", value:true }, { field:"Name", op:"contains", value:"John" }] }\n' +
-			'- Multiple OR: { any:[{ field:"Status/Name", op:"eq", value:"Active" }, { field:"Status/Name", op:"eq", value:"Pending" }] }',
+		'Structured filter: { all: [...], any: [...] } of { field, op, value } or { field, in: [...] }. ' +
+			'Examples: { all: [{ field: "Account.Name", op: "eq", value: "Acme" }] }; ' +
+			'{ all: [{ field: "OwnerId", op: "eq", value: "<contactId>" }, { field: "Amount", op: "gt", value: 1000 }] }; ' +
+			'{ any: [{ field: "Stage.Name", op: "eq", value: "Presentation" }, { field: "Stage.Name", op: "eq", value: "Negotiation" }] }.',
 	);
 
 const readInputShape = {
-	entity: z
-		.string()
-		.min(1)
-		.describe(
-			'Creatio OData entity set to query (e.g., Contact, Account, Activity). Tip: call "list-entities" first, then "describe-entity" to confirm fields before reading.',
-		),
+	entity: entityName('"Contact", "Account", "Opportunity", "Activity"'),
 	filter: z
 		.preprocess(
 			(v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
 			z.string().min(1).optional(),
 		)
 		.describe(
-			'⚠️ OData backend ONLY — ignored when the DataService backend is active (the default). ' +
-				'Prefer the structured `filters` parameter, which works on both backends.\n' +
-				"OData $filter clause. Use single quotes for strings and escape embedded ' as ''.\n" +
-				"Operators: eq, ne, gt, ge, lt, le, and, or, not. Functions: contains(F,'v'), startswith(F,'v'), endswith(F,'v'), length(F), day(F).\n\n" +
-				CRITICAL_WARNINGS.GUID_NO_QUOTES +
-				'\n\n' +
-				CRITICAL_WARNINGS.LOOKUP_NAVIGATION +
-				'\n\n' +
-				'Examples:\n' +
-				'- By primary Id: Id eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
-				"- Lookup by name: Contact/Name eq 'Andrew Baker' (RECOMMENDED)\n" +
-				'- Lookup by id (NAVIGATION): Contact/Id eq 8ecab4a1-0ca3-4515-9399-efe0a19390bd\n' +
-				"- Text search: contains(Name,'Acme')\n" +
-				"- Multiple: contains(Name,'Baker') and Type/Name eq 'Employee'\n\n" +
-				'💡 BEST PRACTICE: prefer the structured `filters` parameter — it auto-rewrites lookup `XxxId` filters to the required `Xxx/Id` navigation for you.',
+			"Raw OData $filter (escape hatch; prefer `filters`). Strings in single quotes (escape ' as ''), GUIDs and dates unquoted, a lookup by its navigation id (`Account/Id eq <guid>`, not `AccountId`). Example: \"contains(Name,'Acme') and Type/Name eq 'Customer'\". AND-combined with `filters`.",
 		),
-	filters: filtersShape
-		.optional()
-		.describe(
-			'Structured filters (alternative to raw $filter). Handles OData syntax, GUID formatting, and lookup navigation automatically.\n\n' +
-				CRITICAL_WARNINGS.LOOKUP_NAVIGATION +
-				'\n(With this structured parameter you can pass either form — a `XxxId` field with a GUID value is auto-rewritten to `Xxx/Id`.)\n\n' +
-				'Examples:\n' +
-				"- Lookup by name: { all:[{ field:'Contact/Name', op:'eq', value:'Andrew Baker' }] } (RECOMMENDED)\n" +
-				"- Lookup by id: { all:[{ field:'ContactId', op:'eq', value:'60733efc-f36b-1410-a883-16d83cab0980' }] }  // becomes Contact/Id eq <guid>\n" +
-				"- Multiple AND: { all:[{ field:'IsActive', op:'eq', value:true }, { field:'Name', op:'contains', value:'John' }] }\n" +
-				"- Multiple OR: { any:[{ field:'Stage/Name', op:'eq', value:'Presentation' }, { field:'Stage/Name', op:'eq', value:'Negotiation' }] }",
-		),
+	filters: filtersShape.optional(),
 	select: z
 		.preprocess(
 			(v) => (Array.isArray(v) && v.length === 0 ? undefined : v),
 			z.array(z.string()).optional(),
 		)
-		.describe(
-			'Fields to return from the main entity. Strongly recommended for performance.\n\n' +
-				'⚠️ IMPORTANT: $select works ONLY for direct properties of the entity!\n' +
-				"- ✅ CORRECT: select=['Id','Name','AccountId','Email']\n" +
-				"- ❌ WRONG: select=['Account/Name'] - navigation paths NOT supported\n\n" +
-				CRITICAL_WARNINGS.FILTER_SELECT_SYNC +
-				'\n\n' +
-				'💡 TO GET RELATED DATA: Use expand parameter (RECOMMENDED)!\n' +
-				"- expand=['Account'] loads full Account object automatically\n" +
-				'- No need to include expanded fields in select\n' +
-				'- Much better than making separate requests\n\n' +
-				"Use 'describe-entity' to discover available field names.",
-		),
+		.describe('Columns to return. Recommended: keeps the response small.'),
 	expand: z
 		.preprocess(
 			(v) => (Array.isArray(v) && v.length === 0 ? undefined : v),
 			z.array(z.string()).optional(),
 		)
 		.describe(
-			'⚠️ OData backend ONLY — ignored when the DataService backend is active (the default). ' +
-				'With DataService, read related fields by dotted column path in `select`/`filters` (e.g. `Account.Name`).\n\n' +
-				'Navigation properties to expand (load related entities in one request).\n\n' +
-				'This is the OData $expand parameter. Loads related entity objects.\n' +
-				'Very useful to get complete data without multiple requests!\n\n' +
-				'✅ HOW TO USE:\n' +
-				"- Find field ending with 'Id' (e.g., AccountId, ContactId, OwnerId)\n" +
-				"- Remove 'Id' suffix to get navigation name: AccountId → Account\n" +
-				"- Add to expand array: expand=['Account']\n\n" +
-				'� EXAMPLES:\n' +
-				"- Get orders with account info: expand=['Account']\n" +
-				"- Get contacts with account info: expand=['Account']\n" +
-				"- Multiple relations: expand=['Account','Owner']\n" +
-				"- Nested expansion: expand=['Account($expand=PrimaryContact)']\n\n" +
-				'💡 EXAMPLE REQUEST:\n' +
-				"  entity: 'Order'\n" +
-				"  expand: ['Account']\n" +
-				"  select: ['Id','Number','Amount','AccountId']\n" +
-				'Result includes full Account object with all its fields for each order!\n\n' +
-				'⚠️ NOTE: When combining $expand with $filter:\n' +
-				'- Still include filtered fields in select if using $select\n' +
-				'- Expanded entities are added to response, not to select',
+			'Related records to include, by navigation name (the lookup column without `Id`): ["Account"], ["Account", "Owner"], nested ["Account($expand=PrimaryContact)"].',
 		),
 	orderBy: z
 		.preprocess(
 			(v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
 			z.string().optional(),
 		)
-		.describe(
-			'OData $orderby clause for sorting results.\n\n' +
-				'Syntax: "FieldName asc" or "FieldName desc"\n' +
-				'Multiple fields: "Field1 asc, Field2 desc"\n\n' +
-				'✅ EXAMPLES:\n' +
-				'- orderBy: "Name asc" - sort by name ascending\n' +
-				'- orderBy: "CreatedOn desc" - newest first\n' +
-				'- orderBy: "Amount desc" - highest amount first\n' +
-				'- orderBy: "Name asc, Amount desc" - sort by multiple fields\n\n' +
-				'⚠️ NOTE: You can only sort by direct properties of the entity.\n' +
-				'Sorting by navigation properties (like Account/Name) is NOT supported in Creatio OData.',
-		),
+		.describe('Sort order: "CreatedOn desc", "Name asc, Amount desc".'),
 	top: z.coerce
 		.number()
 		.int()
@@ -276,7 +170,7 @@ const readInputShape = {
 		.max(1000)
 		.optional()
 		.describe(
-			'Max rows to return ($top). Defaults to 50 when omitted (so results are never unbounded); raise it or paginate with skip for more. Use top:0 with count:true for a count-only query. Suggest 25\u2013200.',
+			'Max rows (default 50, max 1000). With `count: true`, `top: 0` returns only the total.',
 		),
 	skip: z.coerce
 		.number()
@@ -284,19 +178,13 @@ const readInputShape = {
 		.min(0)
 		.optional()
 		.describe(
-			'Offset pagination ($skip): skip this many matching rows before returning. ' +
-				'Combine with top to page, e.g. page 3 of 25 \u2192 skip:50, top:25. ' +
-				'Pair with a stable orderBy so pages do not overlap.',
+			'Rows to skip, for paging (page 3 of 25 → skip: 50, top: 25). Use a stable orderBy.',
 		),
 	count: z
 		.boolean()
 		.optional()
 		.describe(
-			'When true, also return the TOTAL number of matching records ($count=true), ignoring top/skip. ' +
-				'The response shape becomes { total, value } instead of a bare array.\n' +
-				'\ud83d\udca1 For a COUNT-ONLY question ("how many opportunities does X have"), set count:true AND top:0 \u2014 ' +
-				'you get { total: N, value: [] } in one request instead of fetching rows. ' +
-				'Filter the same way as a normal read (e.g. lookups via ContactId \u2192 auto Contact/Id).',
+			'Also return the total number of matching rows (ignoring top/skip): the response becomes { total, value }.',
 		),
 } as const;
 /** Which optional read params the active CRUD backend supports (mirrors CrudCapabilities). */
@@ -323,250 +211,176 @@ export function buildReadInput(caps: ReadCapabilities) {
 }
 
 export function buildReadDescriptor(caps: ReadCapabilities) {
-	const advanced = caps.rawFilter
-		? 'Advanced (OData backend): a raw `filter` string and `expand` are also available. '
+	// The backend decides how related data is read: DataService by column path in `select`,
+	// OData through `expand` (its `select` takes direct columns only).
+	const related = caps.expand
+		? '`select` takes the entity\'s own columns (a lookup as its id, `AccountId`); load related records with `expand: ["Account"]`. '
+		: '`select` also takes related columns by path (`Account.Name`); a lookup column (`Account`) returns { value, displayValue }. ';
+	const rawFilter = caps.rawFilter
+		? 'A raw OData `filter` string is also accepted (prefer `filters`). '
 		: '';
 	return makeToolDescriptor({
-		title: 'Read records in Creatio',
+		title: 'Read records',
 		description:
-			'Query Creatio records. Workflow: 1) list-entities 2) describe-entity 3) read with select, filters, orderBy, top. ' +
-			'Key params: select (fields to return), filters (conditions — recommended), orderBy (sorting), top (limit), skip (pagination offset), count (return total). ' +
-			'Always include fields used in filters in select when select is provided. ' +
-			'Filter related records via navigation (Contact/Name, Contact/Id) — a scalar lookup `XxxId` with a GUID is handled for you. ' +
-			advanced +
-			'Paginate with skip+top (+ a stable orderBy). To COUNT, set count:true (response becomes { total, value }); for count-only use count:true + top:0. ' +
-			'An empty value is null (text may be ""); a lookup column reads as { value, displayValue }. ' +
-			'For date/time filtering see /datetime-guide prompt. For Contact/Owner filtering see /contactid-guide prompt. ' +
-			"Examples: entity:'Order', select:['Id','Number','Amount'], filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, orderBy:'Amount desc', top:25, skip:0. " +
-			"count-only: entity:'Opportunity', filters:{ all:[{ field:'ContactId', op:'eq', value:'<guid>' }] }, count:true, top:0.",
+			'Query records of one entity: filter, pick columns, sort, page, count. ' +
+			'Find the entity first if unsure (dataforge-similar-tables, global-search, list-entities) and check its columns with describe-entity. ' +
+			related +
+			'`filters` take a column, a lookup id (`OwnerId` = a GUID) or a related column (`Account.Name`). ' +
+			rawFilter +
+			'`top` defaults to 50; page with `skip` + a stable `orderBy`; `count: true` adds the total ({ total, value }), with `top: 0` for the total alone. ' +
+			'Response: an array of rows; a missing value is null (text may be ""). ' +
+			'An unknown entity or column fails as "unknown_column:Emial (Contact). Did you mean: Email?" — retry with the suggestion. ' +
+			'Example: { entity: "Opportunity", select: ["Title", "Amount", "Stage"], filters: { all: [{ field: "OwnerId", op: "eq", value: "<contactId>" }] }, orderBy: "Amount desc", top: 10 }. ' +
+			'More patterns: /query-guide. Dates in filters: /datetime-guide.',
 		inputShape: buildReadInputShape(caps),
+		annotations: READ_ONLY,
 	});
 }
 
+// --- Create / update / delete -------------------------------------------------------------------
+
+const RECORD_DATA_RULES =
+	'Values: text, numbers, booleans; a lookup by its id — `AccountId: "<guid>"` (find ids with read, dataforge-lookup-values or global-search; never guess them). ' +
+	DATES_RULE;
+
 const createInputShape = {
-	entity: z
-		.string()
-		.min(1)
-		.describe(
-			'Entity set to create a record in (e.g., Contact, Account). Tip: use "describe-entity" to find required fields and types before creating.',
-		),
+	entity: entityName('"Contact", "Account", "Activity"'),
 	data: z
 		.record(z.string(), z.any())
-		.describe(
-			'Field map for new record.\n\n' +
-				DATA_TYPES_DESC.BASIC +
-				'\n\n' +
-				DATA_TYPES_DESC.LOOKUPS +
-				'\n\n' +
-				DATA_TYPES_DESC.DATES +
-				'\n\n' +
-				"💡 TIP: Call 'describe-entity' first to see required fields and their types!",
-		),
+		.describe(`Column values of the new record. ${RECORD_DATA_RULES}`),
 } as const;
 export const createInput = z.object(createInputShape);
 
 export const createDescriptor = makeToolDescriptor({
-	title: 'Create record in Creatio',
+	title: 'Create a record',
 	description:
-		"Create a single Creatio record. Use 'describe-entity' first to confirm required fields & types. " +
-		'Provide entity and data map. Only include fields you need. ' +
-		'ALL DATE/TIME FIELDS: For ANY date/time field (StartDate, DueDate, RemindToOwnerDate, CreatedOn overrides, custom date columns) ALWAYS use /datetime-guide for UTC conversion & formatting. ' +
-		'ALL CONTACT / USER LOOKUP FIELDS: For ANY field pointing to a user/contact (OwnerId, AuthorId, CreatedById, ModifiedById, ResponsibleId, ManagerId, SupervisorId, and similar *Id fields referencing sys users) use /contactid-guide to resolve correct ContactId. Avoid guessing IDs. ' +
-		'🎯 DEFAULT OWNER/AUTHOR: Activities and tasks are ALWAYS created for the CURRENT USER by default! Set OwnerId and AuthorId to current user\'s ContactId (from get-current-user-info or SysAdminUnit.ContactId) unless user EXPLICITLY says "for [another person]". Don\'t ask "for whom?" - default to current user! ' +
-		'Activities (Task/Meeting/Call/Email): HARD RULE → Always set TypeId to Task (fbe0acdc-cfc0-df11-b00f-001d60e938c6) and vary only ActivityCategoryId for meeting/call/email intent unless user explicitly says phrases like: "real meeting type", "true call type", "not a task", "use Visit type". Do NOT look up ActivityType for ordinary meeting/call/email requests. To intentionally allow a non-Task type, caller must add meta flag __allowNonTaskType=true. See /create-activity-guide prompt. ' +
-		'Tagging: use /tagging-guide prompt. ' +
-		"Examples: Account → data={ Name:'Acme Corp', Phone:'+1-234-567' }; Contact → data={ Name:'John Doe', Email:'john@example.com' }",
+		"Create one record: { entity, data } → the new record's id. Check required columns and types with describe-entity first; send only the columns you set. " +
+		'Owner/author lookups (OwnerId, AuthorId, …) of records the user creates for themselves get their contact id — `userInfo.contactId` from get-current-user-info — unless the user names someone else (/contactid-guide). ' +
+		'Activities (tasks, meetings, calls): follow /create-activity-guide. Tags: /tagging-guide. ' +
+		'An unknown column fails as "unknown_column:X (Entity). Did you mean: …?". ' +
+		'Example: { entity: "Account", data: { Name: "Acme Corp", Phone: "+1 234 567", OwnerId: "<contactId>" } }.',
 	inputShape: createInputShape,
+	annotations: ADDS,
 });
 
 const updateInputShape = {
-	entity: z.string().min(1).describe('Entity set to update (e.g., Contact, Account).'),
-	id: z
-		.string()
-		.min(1)
-		.describe(
-			'Primary key of the record. Pass GUIDs as-is (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx). Non-GUID strings will be quoted automatically.',
-		),
+	entity: entityName('"Contact", "Account", "Activity"'),
+	id: z.string().min(1).describe('Id of the record to update.'),
 	data: z
 		.record(z.string(), z.any())
-		.describe(
-			'Partial fields to change. Only include properties that should be updated.\n\n' +
-				DATA_TYPES_DESC.BASIC +
-				' (same as create)\n\n' +
-				DATA_TYPES_DESC.DATES +
-				'\n\n' +
-				'COMMON UPDATE SCENARIOS:\n' +
-				'- Change Activity time: { StartDate: "2025-10-09T14:00:00Z" }\n' +
-				'- Update status: { StatusId: "<GUID from ActivityStatus>" }\n' +
-				'- Reschedule with reminder: { StartDate: "...", RemindToOwnerDate: "..." }\n' +
-				'- Change account: { AccountId: "guid..." }\n\n' +
-				'💡 For Activities: Query lookup tables (ActivityStatus, ActivityPriority) to get new IDs dynamically!',
-		),
+		.describe(`Only the columns to change. ${RECORD_DATA_RULES}`),
 } as const;
 export const updateInput = z.object(updateInputShape);
 
 export const updateDescriptor = makeToolDescriptor({
-	title: 'Update record in Creatio',
+	title: 'Update a record',
 	description:
-		'Update a record by Id (PATCH). Supply entity, id, and partial data containing only changed fields. ' +
-		"Examples: Account → data={ Name:'Updated Name' }; Contact → data={ Email:'new@example.com' }. " +
-		'DATE/TIME: For ANY date/time modifications (reschedule StartDate, set DueDate, reminders, custom date columns, CreatedOn override when allowed) consult /datetime-guide prompt (always send UTC). ' +
-		'CONTACT/USER FIELDS: When changing OwnerId, AuthorId, ModifiedById (rare), ResponsibleId, ManagerId, etc use /contactid-guide prompt to resolve valid ContactId. Do NOT invent or reuse unrelated IDs. ' +
-		'Activities: /create-activity-guide prompt (overall), /datetime-guide prompt (time changes), /contactid-guide prompt (participants/Owner).',
+		'Change columns of one record by id; columns you leave out keep their values. ' +
+		'Resolve lookup ids instead of guessing them (e.g. a new StatusId from ActivityStatus via read); owner/user lookups take a contact id (/contactid-guide). ' +
+		'Example: { entity: "Activity", id: "<id>", data: { StartDate: "2026-03-02T12:00:00Z", DueDate: "2026-03-02T12:30:00Z" } }.',
 	inputShape: updateInputShape,
+	annotations: CHANGES,
 });
 
 const deleteInputShape = {
-	entity: z.string().min(1).describe('Entity set to delete from (e.g., Contact, Account).'),
-	id: z
-		.string()
-		.min(1)
-		.describe(
-			'Primary key of the record to delete. GUIDs can be passed as-is; non-GUID strings will be quoted automatically.',
-		),
+	entity: entityName('"Contact", "Account", "Activity"'),
+	id: z.string().min(1).describe('Id of the record to delete.'),
 } as const;
 export const deleteInput = z.object(deleteInputShape);
 
 export const deleteDescriptor = makeToolDescriptor({
-	title: 'Delete record in Creatio',
+	title: 'Delete a record',
 	description:
-		'Delete a single record by Id.\n\n' +
-		'⚠️ ALWAYS confirm with user before deleting!\n' +
-		'1. Show what will be deleted (entity, ID, identifying info)\n' +
-		'2. Ask: "Are you sure you want to delete this record?"\n' +
-		'3. Wait for explicit confirmation\n\n' +
-		'💡 SAFER ALTERNATIVE - Soft Delete:\n' +
-		'Instead of permanent deletion, update status: IsActive=false, IsDeleted=true\n' +
-		"Example: Use 'update' tool with data={ IsActive: false }",
+		'Permanently delete one record by id. Confirm with the user first: say which record (entity, name, id) will be deleted and wait for an explicit yes. ' +
+		'Related records may block the delete (Creatio then reports a reference error) or be removed with it, depending on the object.',
 	inputShape: deleteInputShape,
+	annotations: CHANGES,
 });
+
+// --- Schema discovery ----------------------------------------------------------------------------
 
 export const listEntitiesInput = z.object({});
 
 export const listEntitiesDescriptor = makeToolDescriptor({
-	title: 'Get entities from Creatio',
+	title: 'List entities',
 	description:
-		'Return all available Creatio OData entity sets. Start here, then use "describe-entity" to inspect fields and keys before performing CRUD.',
+		'All entity (object schema) names available to this server — usually 1000+. ' +
+		'To find an entity by meaning prefer dataforge-similar-tables (when available) or global-search; use this list to check an exact name. Then describe-entity.',
 	inputShape: {},
+	annotations: READ_ONLY,
 });
 
 const describeEntityInputShape = {
-	entitySet: z
-		.string()
-		.min(1)
-		.describe(
-			'Entity set name to describe (e.g., Contact, Account). Returns entity type, key fields, and properties with types/nullable. Use this to plan subsequent read/create/update/delete.',
-		),
+	entitySet: entityName('"Contact", "Account"'),
 } as const;
 export const describeEntityInput = z.object(describeEntityInputShape);
 
 export const describeEntityDescriptor = makeToolDescriptor({
-	title: 'Get entity description from Creatio',
+	title: 'Describe an entity',
 	description:
-		'Inspect schema for the given entity set: entity type, primary key(s), and properties with types/nullable. Use this before CRUD to avoid invalid fields. ' +
-		'When DataForge is enabled on the environment, this tool transparently returns the richer DataForge column details (`source:"dataforge"`); otherwise it falls back to exact OData $metadata (`source:"odata"`). Behaviour and inputs are identical either way.',
+		'Columns of one entity — names, types, required/nullable and its key — to plan a read or a write without guessing column names. ' +
+		'Response: { source, entitySet, ... } where `source` is "dataforge" (richer column details, when DataForge is enabled), "dataservice" or "odata" (the active backend\'s schema). ' +
+		'An unknown entity fails as "unknown_entity:X. Did you mean: …?".',
 	inputShape: describeEntityInputShape,
+	annotations: READ_ONLY,
 });
+
+// --- Business processes ----------------------------------------------------------------------------
 
 const executeProcessInputShape = {
 	processName: z
 		.string()
 		.min(1)
 		.describe(
-			'REQUIRED: Schema name of the Creatio business process (e.g., "RunActualizeProcess").\n' +
-				'IMPORTANT: This parameter accepts ONLY schema names, NOT display names/captions.\n' +
-				'If user provides a display name/caption (e.g., "Actualize Process"), you MUST first use the "read" tool to find the corresponding schema name in VwProcessLib table:\n' +
-				"- Use filter: contains(Caption,'user_provided_name')\n" +
-				'- Select fields: ["Name", "Caption"]\n' +
-				'- Use the "Name" field value as processName parameter.',
+			'Schema name of the process (e.g. "UsrLeadQualification"), not its caption. To find it from a caption, read VwProcessLib: select ["Name", "Caption"], filters { all: [{ field: "Caption", op: "contains", value: "<caption>" }] }, and use `Name`.',
 		),
 	parameters: z
 		.record(z.string(), z.any())
 		.optional()
 		.describe(
-			'Parameters to pass to the business process as key-value pairs. Parameter names typically start with uppercase letter. Examples:\n' +
-				'- ContactId: "2ad0270b-dc4c-4fbf-9219-df32ce4c34fc" (GUID values)\n' +
-				'- Amount: 1000 (numeric values)\n' +
-				'- Text: "SomeText" (string values)\n' +
-				'- BoolParam: true (boolean values)\n' +
-				'Common parameter patterns: ContactId, AccountId, OpportunityId, Amount, Description, etc.',
+			`Process parameters by their codes, e.g. { "ContactId": "<guid>", "Amount": 1000, "SendNotification": true }. ${DATES_RULE}`,
 		),
 } as const;
 export const executeProcessInput = z.object(executeProcessInputShape);
 
 export const executeProcessDescriptor = makeToolDescriptor({
-	title: 'Execute Creatio Business Process',
+	title: 'Run a business process',
 	description:
-		'Execute a Creatio CRM business process with optional parameters. This tool runs server-side business processes in Creatio platform.\n\n' +
-		'WORKFLOW FOR LLM:\n' +
-		'1. If user provides display name/caption (e.g., "Lead Qualification Process"):\n' +
-		'   - First use "read" tool on VwProcessLib entity\n' +
-		"   - Filter: contains(Caption,'user_provided_name')\n" +
-		'   - Select: ["Name", "Caption"]\n' +
-		'   - Use the "Name" field value as processName parameter\n' +
-		'2. If user provides schema name directly (e.g., "UsrLeadQualificationProcess"):\n' +
-		'   - Use it directly as processName parameter\n\n' +
-		'Process Identification:\n' +
-		'- This tool accepts ONLY schema names (e.g., "RunActualizeProcess")\n' +
-		'- Schema names are technical identifiers stored in VwProcessLib.Name column\n' +
-		'- Display names/captions are user-friendly names in VwProcessLib.Caption column\n\n' +
-		'Parameters:\n' +
-		'- Passed as object with key-value pairs\n' +
-		'- Parameter names typically start with uppercase letter\n' +
-		'- Supports all JSON types: strings, numbers, booleans, GUIDs\n\n' +
-		'Common Parameter Patterns:\n' +
-		'- Entity IDs: ContactId, AccountId, OpportunityId, LeadId, CaseId\n' +
-		'- Amounts: Amount, Price, Sum, Cost\n' +
-		'- Text fields: Description, Notes, Text, Comment, Title\n' +
-		'- Flags: IsActive, IsCompleted, SendEmail, CreateActivity\n' +
-		'- Dates: StartDate, EndDate, DueDate (ISO format)\n\n' +
-		'GUID & Date Helpers: /datetime-guide prompt applies to EVERY date/time parameter (convert to UTC). /contactid-guide prompt applies to EVERY user/contact participant parameter (OwnerId, AuthorId, AssigneeId, ResponsibleId, CreatedById overrides, etc).\n\n' +
-		'Example:\n' +
-		'{\n' +
-		'  "processName": "Lead Management Process",\n' +
-		'  "parameters": {\n' +
-		'    "ContactId": "2ad0270b-dc4c-4fbf-9219-df32ce4c34fc",\n' +
-		'    "Amount": 15000,\n' +
-		'    "Description": "High priority lead",\n' +
-		'    "SendNotification": true\n' +
-		'  }\n' +
-		'}\n\n' +
-		'Uses Creatio ProcessEngineService.svc/Execute endpoint for execution.',
+		'Start a Creatio business process by its schema name, with optional parameters, and return its result. ' +
+		'A process can change any data it is designed to — make sure the user wants it run. ' +
+		'User/contact parameters take a contact id (/contactid-guide).',
 	inputShape: executeProcessInputShape,
+	annotations: RUNS,
 });
+
+// --- System settings -----------------------------------------------------------------------------
 
 const querySysSettingsInputShape = {
 	sysSettingCodes: z
 		.array(z.string().min(1))
 		.min(1)
-		.describe(
-			'List of system setting codes to query. Provide at least one Creatio sys setting code (e.g., "EmailDefSendName", "SupportEmail").',
-		),
+		.describe('Setting codes to read, e.g. ["SiteUrl", "EmailDefSendName"].'),
 } as const;
 
 export const querySysSettingsInput = z.object(querySysSettingsInputShape);
 
 export const querySysSettingsDescriptor = makeToolDescriptor({
-	title: 'Query system settings in Creatio',
+	title: 'Read system settings',
 	description:
-		'Retrieve the current values and metadata for one or more Creatio system settings using the QuerySysSettings endpoint. Returns the raw response including success flag, values map, and notFoundSettings array (if any).',
+		"Current values and metadata of system settings by code. Response: the platform's answer — a success flag, a values map by code (each with its `value`) and `notFoundSettings` for unknown codes. See /sys-settings-guide.",
 	inputShape: querySysSettingsInputShape,
+	annotations: READ_ONLY,
 });
 
 const SYS_SETTING_VALUE_TYPE_DESC =
-	'Creatio data value type name. See /sys-settings-guide prompt for the table of supported valueTypeName values (Binary, Boolean, DateTime, etc.) and always send the raw value string.';
+	'Value type name (Text, Boolean, Integer, Lookup, DateTime, …) — the full list is in /sys-settings-guide.';
 
 const SYS_SETTING_REFERENCE_SCHEMA_DESC =
-	'EntitySchema UId for lookup system settings. Required only when valueTypeName="Lookup". See /sys-settings-guide prompt for the recommended VwWorkspaceObjects query to retrieve this UId.';
+	'Entity schema UId the lookup points to; required only when valueTypeName is "Lookup" (how to find it: /sys-settings-guide).';
 
 const sysSettingDefinitionFieldShape = {
-	code: z
-		.string()
-		.min(1)
-		.describe(
-			'Unique system setting code (e.g., "TestSetting"). Must follow Creatio naming rules.',
-		),
-	name: z.string().min(1).describe('Display name rendered in Creatio UI (e.g., "Test setting").'),
+	code: z.string().min(1).describe('Unique setting code (e.g. "UsrMaxRetries").'),
+	name: z.string().min(1).describe('Name shown in the Creatio UI.'),
 	valueTypeName: z.string().min(1).describe(SYS_SETTING_VALUE_TYPE_DESC),
 	description: z.string().optional(),
 	isCacheable: z.boolean().optional(),
@@ -579,9 +393,7 @@ const sysSettingDefinitionFieldShape = {
 const sysSettingDefinitionSchema = z.object(sysSettingDefinitionFieldShape);
 
 const createSysSettingDefinitionSchema = sysSettingDefinitionSchema.extend({
-	id: creatioGuid()
-		.optional()
-		.describe('Optional GUID for the sys setting record. Auto-generated when omitted.'),
+	id: creatioGuid().optional().describe('Id for the new setting; generated when omitted.'),
 });
 
 const updateSysSettingDefinitionSchema = sysSettingDefinitionSchema.partial().extend({
@@ -592,64 +404,55 @@ const updateSysSettingDefinitionSchema = sysSettingDefinitionSchema.partial().ex
 
 const createSysSettingInputShape = {
 	definition: createSysSettingDefinitionSchema,
-	initialValue: z
-		.any()
-		.optional()
-		.describe('Optional initial value to write immediately after creating the system setting.'),
+	initialValue: z.any().optional().describe('Value to set right after creating the setting.'),
 } as const;
 
 export const createSysSettingInput = z.object(createSysSettingInputShape);
 
 export const createSysSettingDescriptor = makeToolDescriptor({
-	title: 'Create a new system setting in Creatio',
+	title: 'Create a system setting',
 	description:
-		'Creates a brand-new system setting (metadata record) using InsertSysSettingRequest and optionally assigns an initial value via PostSysSettingsValues. For full guidance on supported valueTypeName strings and lookup reference resolution, see the /sys-settings-guide prompt.',
+		'Create a new system setting (its definition) and optionally set its first value. Value types and lookup settings: /sys-settings-guide.',
 	inputShape: createSysSettingInputShape,
+	annotations: ADDS,
 });
 
 const setSysSettingsValueInputShape = {
 	sysSettingsValues: z
 		.record(z.string(), z.any())
 		.describe(
-			'Map of system setting codes to their new values. Accepts any JSON-compatible types (string, number, boolean, object, array).\n\n' +
-				'Examples:\n' +
-				"- Single setting: { 'SettingCode': 'value' }\n" +
-				"- Multiple settings: { 'SettingCode1': 'value1', 'SettingCode2': 123, 'SettingCode3': true }\n" +
-				"- Mixed types: { 'EmailEnabled': true, 'MaxRetries': 5, 'ApiKey': 'secret' }",
+			'New values by setting code, e.g. { "UsrMaxRetries": 5, "UsrFeatureOn": true, "UsrSenderName": "Support" }.',
 		),
 } as const;
 
 export const setSysSettingsValueInput = z.object(setSysSettingsValueInputShape);
 
 export const setSysSettingsValueDescriptor = makeToolDescriptor({
-	title: 'Set system settings values in Creatio',
+	title: 'Set system setting values',
 	description:
-		'Update one or more system settings in Creatio in a single request.\n\n' +
-		'Parameters:\n' +
-		'- sysSettingsValues: A map/object of system setting codes to their new values. Supports any JSON-compatible types (string, number, boolean, object, array).\n\n' +
-		'USAGE:\n' +
-		'- Update single setting: { "SettingCode": "value" }\n' +
-		'- Update multiple settings at once: { "SettingCode1": "value1", "SettingCode2": 123, "SettingCode3": true }\n' +
-		'- Mixed data types: { "EmailEnabled": true, "MaxRetries": 5, "ApiKey": "secret" }\n\n' +
-		'Returns the result from the system settings update endpoint.',
+		"Set the values of one or more existing system settings in one request; returns the platform's answer. System settings can change how the whole instance behaves — confirm the change with the user.",
 	inputShape: setSysSettingsValueInputShape,
+	annotations: CHANGES,
 });
 
 const updateSysSettingDefinitionInputShape = {
-	id: creatioGuid().describe('Existing SysSetting Id (Guid) to update.'),
+	id: creatioGuid().describe('Id of the setting to change.'),
 	definition: updateSysSettingDefinitionSchema.describe(
-		'Creatio requires Code, Name, and valueTypeName on every UpdateSysSettingRequest. Always include those fields (existing values are OK) plus any other properties that need updating.',
+		'Changed metadata. Creatio requires `code`, `name` and `valueTypeName` on every update — send the current values for those you do not change.',
 	),
 } as const;
 
 export const updateSysSettingDefinitionInput = z.object(updateSysSettingDefinitionInputShape);
 
 export const updateSysSettingDefinitionDescriptor = makeToolDescriptor({
-	title: 'Update existing system setting definition',
+	title: 'Change a system setting definition',
 	description:
-		'Calls the UpdateSysSettingRequest endpoint to modify metadata such as name, description, valueTypeName, cache flags, personalization flags, and lookup reference schema. IMPORTANT: Creatio validates that Code, Name, and valueTypeName are present on every update, even if they are unchanged—copy the current values when needed. See the /sys-settings-guide prompt for allowed value types and lookup resolution tips.',
+		"Change a setting's metadata (name, description, value type, cache / personal flags, lookup schema) — not its value (use set-sys-settings-value). See /sys-settings-guide.",
 	inputShape: updateSysSettingDefinitionInputShape,
+	annotations: CHANGES,
 });
+
+// --- Feature toggles -------------------------------------------------------------------------------
 
 const refreshFeatureCacheInputShape = {
 	featureCode: z
@@ -657,97 +460,62 @@ const refreshFeatureCacheInputShape = {
 		.min(1)
 		.optional()
 		.describe(
-			'Optional feature code (e.g., "FreedomUIComposableApp"). When provided, only that feature\'s cache is invalidated for all users. Omit to clear the cache for every feature.',
+			'Feature code to refresh (e.g. "FreedomUIComposableApp"); omit to refresh all features.',
 		),
 } as const;
 
 export const refreshFeatureCacheInput = z.object(refreshFeatureCacheInputShape);
 
 export const refreshFeatureCacheDescriptor = makeToolDescriptor({
-	title: 'Refresh Creatio feature toggle cache',
+	title: 'Refresh the feature-toggle cache',
 	description:
-		'Invalidates the in-memory feature-toggle cache for all users. `set-feature-state` already does this; call it only after changing rows in `Feature` or `AdminUnitFeatureState` directly via the generic create/update/delete tools, so the new state becomes visible. Pass `featureCode` to scope to a single feature; omit to refresh all. See /feature-toggle-guide for the full workflow.',
+		'Make Creatio re-read feature-toggle states for all users. set-feature-state already does this; use it after changing `Feature` / `AdminUnitFeatureState` rows with create / update / delete. See /feature-toggle-guide.',
 	inputShape: refreshFeatureCacheInputShape,
-});
-
-const getRecordUrlInputShape = {
-	entity: z
-		.string()
-		.min(1)
-		.describe('Object (schema) name of the record, e.g. "Contact", "Opportunity".'),
-	id: creatioGuid().describe('Record Id.'),
-} as const;
-
-export const getRecordUrlInput = z.object(getRecordUrlInputShape);
-
-export const getRecordUrlDescriptor = makeToolDescriptor({
-	title: 'Get a link to a Creatio record',
-	description:
-		'Returns { url }: a browser link that opens the record in Creatio — Creatio itself picks the record page (classic or Freedom UI). Give it to the user whenever you mention a specific record. A visitor who is not signed in goes through login first; an object without a record page opens the Creatio home page. No request is made to Creatio.',
-	inputShape: getRecordUrlInputShape,
-});
-
-const listRecordFilesInputShape = {
-	entity: z
-		.string()
-		.min(1)
-		.describe('Object (schema) name of the record, e.g. "Account", "Opportunity", "Case".'),
-	id: creatioGuid().describe('Record Id.'),
-	top: z.coerce
-		.number()
-		.int()
-		.min(1)
-		.max(200)
-		.default(50)
-		.describe('Max attachments to return (default 50), newest first.'),
-} as const;
-
-export const listRecordFilesInput = z.object(listRecordFilesInputShape);
-
-export const listRecordFilesDescriptor = makeToolDescriptor({
-	title: "List a Creatio record's attachments",
-	description:
-		"Lists the files and links attached to one record — from both storages Creatio uses (the object's `<Entity>File` table and the generic `SysFile`), newest first. Response: { files: [{ id, name, kind: 'file' | 'link' | 'object-link', size, createdOn, storage, downloadUrl? (files), url? (links) }], hasMore }. Metadata only: the content is never downloaded. `downloadUrl` opens in the user's signed-in Creatio browser session — hand it to the user, it is not fetchable by you.",
-	inputShape: listRecordFilesInputShape,
+	annotations: REFRESHES,
 });
 
 const featureCode = () =>
-	z.string().min(1).describe('Feature code, exact match (e.g., "FreedomUIComposableApp").');
+	z.string().min(1).describe('Feature code, exact match (e.g. "FreedomUIComposableApp").');
 
 const listFeaturesInputShape = {
 	search: z
 		.string()
 		.min(1)
 		.optional()
-		.describe('Case-insensitive substring of the feature code (e.g., "Freedom").'),
+		.describe('Part of the feature code, case-insensitive (e.g. "Freedom").'),
 	source: z
 		.string()
 		.min(1)
 		.optional()
 		.describe(
-			'Only features resolved from this source: `DbFeatureProvider` (a DB row), `web.config`, `Metadata`, `GlobalAppSettings`.',
+			'Only features from this source: "DbFeatureProvider" (a DB row), "web.config", "Metadata", "GlobalAppSettings".',
 		),
 	enabledForCurrentUser: z
 		.boolean()
 		.optional()
-		.describe('Only features currently on (true) or off (false) for the user the MCP acts as.'),
+		.describe(
+			'Only features that are on (true) or off (false) for the user this server acts as.',
+		),
 	top: z.coerce
 		.number()
 		.int()
 		.min(1)
 		.max(500)
 		.default(50)
-		.describe('Max features to return (default 50). Instances define 1000+ features.'),
-	skip: z.coerce.number().int().min(0).optional().describe('Offset for paging, ordered by code.'),
+		.describe('Max features (default 50); instances define 1000+.'),
+	skip: z.coerce.number().int().min(0).optional().describe('Features to skip, for paging.'),
 } as const;
 
 export const listFeaturesInput = z.object(listFeaturesInputShape);
 
 export const listFeaturesDescriptor = makeToolDescriptor({
-	title: 'List Creatio feature toggles',
+	title: 'List feature toggles',
 	description:
-		'Lists feature toggles from EVERY source — not only DB rows but also web.config, metadata and GlobalAppSettings features that the `Feature` table does not contain. Each item: code, name, description, `source`, `enabledByDefault` (state for everyone without an override) and `enabledForCurrentUser` (effective state for the MCP user). Response: { items, hasMore }, ordered by code — page with `skip` while `hasMore` is true. Use `get-feature` for one feature with its per-user/role overrides.',
+		'Feature toggles from every source — DB rows and also web.config, package metadata and GlobalAppSettings features — ordered by code. ' +
+		'Each: { code, name, description?, source, enabledByDefault, enabledForCurrentUser }. Response: { items, hasMore } — page with `skip` while hasMore is true. ' +
+		'Per-user/role overrides of one feature: get-feature. See /feature-toggle-guide.',
 	inputShape: listFeaturesInputShape,
+	annotations: READ_ONLY,
 });
 
 const getFeatureInputShape = { code: featureCode() } as const;
@@ -755,10 +523,11 @@ const getFeatureInputShape = { code: featureCode() } as const;
 export const getFeatureInput = z.object(getFeatureInputShape);
 
 export const getFeatureDescriptor = makeToolDescriptor({
-	title: 'Get a Creatio feature toggle with its overrides',
+	title: 'Get a feature toggle',
 	description:
-		'Returns one feature (same fields as `list-features`) plus `overrides`: the per-user/role states ({ adminUnitId, adminUnitName, enabled }) that take precedence over the default. Fails with `feature_not_found:<code>` for an unknown code.',
+		'One feature (fields as in list-features) plus `overrides`: [{ adminUnitId, adminUnitName, enabled }] — the users/roles whose state differs from the default. Unknown code: feature_not_found:<code>.',
 	inputShape: getFeatureInputShape,
+	annotations: READ_ONLY,
 });
 
 const setFeatureStateInputShape = {
@@ -766,99 +535,130 @@ const setFeatureStateInputShape = {
 	state: z
 		.enum(['enabled', 'disabled', 'inherit'])
 		.describe(
-			'`enabled` / `disabled` set the state; `inherit` removes the override for `adminUnitId` so the default applies again (requires `adminUnitId`).',
+			'"enabled" / "disabled"; "inherit" removes the override of `adminUnitId` so the default applies again (needs adminUnitId).',
 		),
 	adminUnitId: creatioGuid()
 		.optional()
 		.describe(
-			'User or role (`SysAdminUnit` Id) to override the feature for. Omit to change the DEFAULT state for everyone without an override. Find ids with `read` on `SysAdminUnit` (filter by `Name`); the current user is `get-current-user-info`.',
+			'User or role to override for — a SysAdminUnit id (the current user: `userInfo.id` from get-current-user-info; others: read SysAdminUnit by Name). Omit to change the default for everyone without an override.',
 		),
 } as const;
 
 export const setFeatureStateInput = z.object(setFeatureStateInputShape);
 
 export const setFeatureStateDescriptor = makeToolDescriptor({
-	title: 'Enable or disable a Creatio feature toggle',
+	title: 'Turn a feature toggle on or off',
 	description:
-		"Changes a feature the way the Creatio feature page does: the default state, or a per-user/role override. Works for features from any source; the first change to a web.config/metadata feature creates its `Feature` DB row, which from then on takes precedence over the original source (the platform behaves the same). Clears that feature's cache and re-reads it, returning the feature as in `get-feature` plus `cacheCleared`; fails with `feature_state_not_applied:<code>` if Creatio did not save the change. `cacheCleared:false` means the change IS saved but the instance could not clear its feature cache (seen on .NET 8), so it may take effect only after Creatio refreshes it — tell the user.",
+		"Change a feature's default state, or override it for one user/role, for features from any source. The first change to a web.config / metadata feature gives it a DB row, which then takes precedence over that source (the Creatio feature page behaves the same). " +
+		'Returns the feature as in get-feature plus `cacheCleared`. "feature_state_not_applied:<code>" means Creatio did not save it. `cacheCleared: false` means it IS saved but the instance could not refresh its cache (seen on .NET 8), so it may take effect later — tell the user. See /feature-toggle-guide.',
 	inputShape: setFeatureStateInputShape,
+	annotations: CHANGES,
 });
+
+// --- Links and attachments --------------------------------------------------------------------------
+
+const getRecordUrlInputShape = {
+	entity: entityName('"Contact", "Opportunity"'),
+	id: creatioGuid().describe('Record id.'),
+} as const;
+
+export const getRecordUrlInput = z.object(getRecordUrlInputShape);
+
+export const getRecordUrlDescriptor = makeToolDescriptor({
+	title: 'Get a link to a record',
+	description:
+		'{ url } that opens the record in Creatio; Creatio picks the right page (classic or Freedom UI). Give it to the user whenever you refer to a specific record. ' +
+		'A signed-out visitor goes through login first; an object without a record page opens the home page. Built locally — no request to Creatio.',
+	inputShape: getRecordUrlInputShape,
+	annotations: READ_ONLY,
+});
+
+const listRecordFilesInputShape = {
+	entity: entityName('"Account", "Opportunity", "Case"'),
+	id: creatioGuid().describe('Record id.'),
+	top: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(200)
+		.default(50)
+		.describe('Max attachments (default 50), newest first.'),
+} as const;
+
+export const listRecordFilesInput = z.object(listRecordFilesInputShape);
+
+export const listRecordFilesDescriptor = makeToolDescriptor({
+	title: "List a record's attachments",
+	description:
+		"Files and links attached to one record, from both places Creatio keeps them (the object's <Entity>File table and SysFile), newest first. " +
+		'Response: { files: [{ id, name, kind: "file" | "link" | "object-link", size, createdOn, storage, downloadUrl? (files), url? (links) }], hasMore }. ' +
+		"Metadata only — the content is never read. `downloadUrl` works in the user's signed-in Creatio browser session: give it to the user, you cannot fetch it.",
+	inputShape: listRecordFilesInputShape,
+	annotations: READ_ONLY,
+});
+
+// --- System operations -------------------------------------------------------------------------------
 
 const upsertAdminOperationInputShape = {
 	id: creatioGuid()
 		.optional()
-		.describe(
-			'Existing SysAdminOperation Id. Omit to create a new record (a new GUID is generated server-side and returned in the response).',
-		),
-	name: z
-		.string()
-		.min(1)
-		.describe(
-			'Display name of the system operation (e.g., "Can manage administration"). Required for both create and update.',
-		),
+		.describe('Id of the operation to update; omit to create a new one (its id is returned).'),
+	name: z.string().min(1).describe('Name, e.g. "Can manage administration".'),
 	code: z
 		.string()
 		.min(1)
-		.describe(
-			'Code of the system operation (e.g., "CanManageAdministration"). Required and must be unique. Conventionally PascalCase with no spaces.',
-		),
-	description: z
-		.string()
-		.optional()
-		.describe('Optional human-readable description of what the operation gates.'),
+		.describe('Unique code, PascalCase without spaces, e.g. "CanManageAdministration".'),
+	description: z.string().optional().describe('What the operation allows.'),
 } as const;
 
 export const upsertAdminOperationInput = z.object(upsertAdminOperationInputShape);
 
 export const upsertAdminOperationDescriptor = makeToolDescriptor({
-	title: 'Create or update Creatio system operation',
+	title: 'Create or update a system operation',
 	description:
-		'Create a new `SysAdminOperation` (omit `id`) or update an existing one (supply `id`). Use this instead of the generic create/update tools — OData modifications on `SysAdminOperation` are blocked at the platform level. Reads still go through the standard `read` tool. Response contains the operation Id. See /admin-operation-guide for the full workflow.',
+		'Create a system operation (SysAdminOperation) — omit `id` — or update one by `id`. The platform blocks the generic create/update tools for this table; reading it works with read. Returns the operation id. See /admin-operation-guide.',
 	inputShape: upsertAdminOperationInputShape,
+	annotations: CHANGES,
 });
 
 const deleteAdminOperationInputShape = {
 	ids: z
 		.array(creatioGuid())
 		.min(1)
-		.describe(
-			'List of SysAdminOperation Ids to delete (RightsService deletes them and their related grantee rows). Use the standard `read` tool on `SysAdminOperation` to look up Ids by Code first.',
-		),
+		.describe('Ids of the operations (find them with read on SysAdminOperation by Code).'),
 } as const;
 
 export const deleteAdminOperationInput = z.object(deleteAdminOperationInputShape);
 
 export const deleteAdminOperationDescriptor = makeToolDescriptor({
-	title: 'Delete Creatio system operations',
+	title: 'Delete system operations',
 	description:
-		'Delete one or more `SysAdminOperation` rows by Id. Related grantee rows are cleaned up automatically. Use this instead of the generic `delete` tool — OData modifications on `SysAdminOperation` are blocked at the platform level.',
+		'Delete system operations by id, together with their grants. The generic delete tool is blocked for this table. Confirm with the user first. See /admin-operation-guide.',
 	inputShape: deleteAdminOperationInputShape,
+	annotations: CHANGES,
 });
 
 const setAdminOperationGranteeInputShape = {
 	adminOperationId: creatioGuid().describe(
-		'Id of the SysAdminOperation being granted or revoked. Look up via `read` on `SysAdminOperation` filtered by Code.',
+		'Id of the system operation (read SysAdminOperation by Code).',
 	),
 	adminUnitIds: z
 		.array(creatioGuid())
 		.min(1)
 		.describe(
-			'SysAdminUnit Ids (users or roles) that should receive the same grant/revoke state. Resolve via `read` on `SysAdminUnit` filtered by Name. Use SysAdminUnit.Id (NOT ContactId).',
+			'Users or roles to grant/deny — SysAdminUnit ids (read SysAdminUnit by Name), not contact ids.',
 		),
-	canExecute: z
-		.boolean()
-		.describe(
-			'`true` grants the operation (allow) to every listed admin unit; `false` revokes it (deny).',
-		),
+	canExecute: z.boolean().describe('true grants (allow), false denies.'),
 } as const;
 
 export const setAdminOperationGranteeInput = z.object(setAdminOperationGranteeInputShape);
 
 export const setAdminOperationGranteeDescriptor = makeToolDescriptor({
-	title: 'Grant or revoke a system operation for users/roles',
+	title: 'Grant or deny a system operation',
 	description:
-		'Grant (`canExecute=true`) or revoke (`canExecute=false`) a system operation for one or more `SysAdminUnit` ids (users or roles). Repeated calls for the same (operation, unit) pair update the existing grant row instead of duplicating. Use this instead of the generic create/update tools — OData modifications on `SysAdminOperationGrantee` are blocked.',
+		'Allow or deny a system operation for users/roles. Repeating it for the same operation and user/role updates the existing grant instead of adding another. See /admin-operation-guide.',
 	inputShape: setAdminOperationGranteeInputShape,
+	annotations: CHANGES,
 });
 
 const deleteAdminOperationGranteeInputShape = {
@@ -866,18 +666,21 @@ const deleteAdminOperationGranteeInputShape = {
 		.array(creatioGuid())
 		.min(1)
 		.describe(
-			'List of SysAdminOperationGrantee row Ids to delete. Look them up via `read` on `SysAdminOperationGrantee` filtered by `SysAdminOperationId` and/or `SysAdminUnitId`.',
+			'Ids of SysAdminOperationGrantee rows (read them by SysAdminOperationId and/or SysAdminUnitId).',
 		),
 } as const;
 
 export const deleteAdminOperationGranteeInput = z.object(deleteAdminOperationGranteeInputShape);
 
 export const deleteAdminOperationGranteeDescriptor = makeToolDescriptor({
-	title: 'Remove specific system operation grant rows',
+	title: 'Remove system operation grants',
 	description:
-		'Delete individual grant rows by Id when you want to remove a grant entry entirely. To flip allow ↔ deny instead, prefer `set-admin-operation-grantee`.',
+		'Delete grant rows by id, so the operation is neither allowed nor denied explicitly for those users/roles. To switch allow ↔ deny use set-admin-operation-grantee.',
 	inputShape: deleteAdminOperationGranteeInputShape,
+	annotations: CHANGES,
 });
+
+// --- Generic configuration service ----------------------------------------------------------------
 
 const SERVICE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
@@ -885,68 +688,54 @@ const callConfigurationServiceInputShape = {
 	service: z
 		.string()
 		.regex(SERVICE_NAME_PATTERN, 'Service name must match ^[A-Za-z][A-Za-z0-9_-]*$')
-		.describe(
-			'Configuration service name as registered in Creatio (e.g., "RightsService"). The full URL is /0/rest/<service>/<method>.',
-		),
+		.describe('Service name, e.g. "RightsService" (called at /0/rest/<service>/<method>).'),
 	method: z
 		.string()
 		.regex(SERVICE_NAME_PATTERN, 'Method name must match ^[A-Za-z][A-Za-z0-9_-]*$')
-		.describe('Service method name (UriTemplate) to invoke (e.g., "UpsertAdminOperation").'),
+		.describe('Method name, e.g. "GetCanExecuteOperation".'),
 	httpMethod: z
 		.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
 		.default('POST')
-		.describe('HTTP method. Most Creatio configuration services use POST.'),
+		.describe('HTTP method; most Creatio configuration services use POST.'),
 	body: z
 		.record(z.string(), z.any())
 		.optional()
 		.describe(
-			'Request body sent as JSON for POST/PATCH/PUT. Ignored for GET/DELETE. Pass the service parameters as a flat object (e.g., {"recordId":"<guid>","name":"..."}). Creatio configuration services use [WebInvoke BodyStyle=Wrapped], so each parameter becomes a top-level key.',
+			'JSON body for POST/PATCH/PUT: the method\'s parameters as top-level keys, e.g. { "operation": "CanManageAdministration" }.',
 		),
 	query: z
 		.record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
 		.optional()
-		.describe('Optional query-string parameters appended to the URL.'),
+		.describe('Query-string parameters.'),
 } as const;
 
 export const callConfigurationServiceInput = z.object(callConfigurationServiceInputShape);
 
 export const callConfigurationServiceDescriptor = makeToolDescriptor({
-	title: 'Call a Creatio configuration REST service method',
+	title: 'Call a configuration service',
 	description:
-		'Escape hatch for invoking any configuration-package REST service exposed at /0/rest/<service>/<method>. Use this when no dedicated MCP tool covers the operation. Always prefer the specific tools (`upsert-admin-operation`, `refresh-feature-cache`, sys-settings tools, etc.) when they exist — they validate inputs, handle wrapped responses, and document side effects. Returns `{status, contentType, body}`; JSON responses are auto-parsed.',
+		'Escape hatch: call any configuration-package REST method (/0/rest/<service>/<method>) when no dedicated tool covers the task — those validate input and explain their effects, so prefer them. The method may change data. Response: { status, contentType, body } (JSON parsed).',
 	inputShape: callConfigurationServiceInputShape,
+	annotations: RUNS,
 });
 
 // ---------------------------------------------------------------------------
-// DataForge — AI-oriented semantic discovery over the Creatio data model.
-//
-// These tools call the Creatio-hosted DataForge read API
-// (POST /0/rest/DataForgeSchemaReadService/<method>) which forwards to the
-// remote DataForge microservice. They COMPLEMENT, and do not replace,
-// `list-entities`/`describe-entity`:
-//   • describe-entity = authoritative, exact OData $metadata (always available,
-//     needs the exact entity name) → use it to confirm fields before CRUD.
-//   • DataForge       = fuzzy / semantic discovery (natural-language → table),
-//     relationship pathing, and lookup-value search (needs DataForge configured
-//     and synced) → use it to FIND the right table/columns/values first.
-// Typical chain: dataforge-similar-tables → describe-entity → read/create.
-//
-// Requires the MCP user to have the `CanReadDataStructureColumnDetails`
-// operation, and DataForge to be enabled on the environment
-// (DataForgeServiceUrl + IdentityServer settings). Use `dataforge-status` to
-// verify it is online and the data/lookups are synced.
+// DataForge — AI-oriented semantic discovery over the Creatio data model (registered only when
+// DataForge is enabled). These call POST /0/rest/DataForgeSchemaReadService/<method>, which forwards
+// to the DataForge service. They complement describe-entity (the exact schema, always available):
+// DataForge finds the right table / relation / lookup value by meaning.
+// Typical chain: dataforge-similar-tables → describe-entity → read / create.
 // ---------------------------------------------------------------------------
 
-const DATAFORGE_PREREQ_NOTE =
-	'\n\nPrerequisites: DataForge must be enabled on this environment (DataForgeServiceUrl + IdentityServer settings) and the MCP user needs the `CanReadDataStructureColumnDetails` operation. ' +
-	'Run `dataforge-status` first if you are unsure whether DataForge is online. Returns `{status, contentType, body}`; on a disabled/misconfigured service `body.Success` is false with an `ErrorInfo`.';
+const DATAFORGE_RESPONSE_NOTE =
+	' Response: { status, contentType, body }; if DataForge is not ready, body.Success is false with ErrorInfo — check dataforge-status.';
 
 const dataforgeSimilarTablesInputShape = {
 	query: z
 		.string()
 		.min(1)
 		.describe(
-			'Natural-language description of the data you are looking for (e.g. "customer support tickets", "продажі по угодах"). DataForge returns the table names that best match the meaning, not an exact text match.',
+			'What data you are looking for, in any language (e.g. "customer support tickets", "продажі по угодах").',
 		),
 	limit: z.coerce
 		.number()
@@ -954,129 +743,101 @@ const dataforgeSimilarTablesInputShape = {
 		.positive()
 		.max(200)
 		.optional()
-		.describe('Optional max number of candidate tables to return (server default ~50).'),
+		.describe('Max candidate tables (server default about 50).'),
 } as const;
 export const dataforgeSimilarTablesInput = z.object(dataforgeSimilarTablesInputShape);
 
 export const dataforgeSimilarTablesDescriptor = makeToolDescriptor({
-	title: 'DataForge: find tables by meaning',
+	title: 'Find tables by meaning (DataForge)',
 	description:
-		'Semantic search for Creatio tables/entities from a natural-language query. ' +
-		'Use this FIRST when you do not know which entity holds the data the user is talking about — it maps a concept to candidate table names. ' +
-		'Then call `describe-entity` on the chosen table to get the authoritative field list before reading/creating.' +
-		DATAFORGE_PREREQ_NOTE,
+		'Map a concept to the entities (tables) that hold it, by meaning rather than exact name. Use it first when you do not know which entity the user means, then describe-entity on the pick.' +
+		DATAFORGE_RESPONSE_NOTE,
 	inputShape: dataforgeSimilarTablesInputShape,
+	annotations: READ_ONLY,
 });
 
 const dataforgeTableDetailsInputShape = {
-	query: z
-		.string()
-		.min(1)
-		.describe('Natural-language query describing the table(s) you want detailed info about.'),
-	limit: z.coerce
-		.number()
-		.int()
-		.positive()
-		.max(200)
-		.optional()
-		.describe('Optional max number of tables to return with details.'),
+	query: z.string().min(1).describe('What data you are looking for.'),
+	limit: z.coerce.number().int().positive().max(200).optional().describe('Max tables to return.'),
 } as const;
 export const dataforgeTableDetailsInput = z.object(dataforgeTableDetailsInputShape);
 
 export const dataforgeTableDetailsDescriptor = makeToolDescriptor({
-	title: 'DataForge: matching tables with details',
+	title: 'Find tables with details (DataForge)',
 	description:
-		'Like `dataforge-similar-tables`, but returns richer per-table details (description/columns as known to DataForge) for the best semantic matches. ' +
-		'For the canonical, exact field schema still confirm with `describe-entity` before CRUD.' +
-		DATAFORGE_PREREQ_NOTE,
+		"Like dataforge-similar-tables, plus each match's description and columns as DataForge knows them. Confirm the exact columns with describe-entity before a write." +
+		DATAFORGE_RESPONSE_NOTE,
 	inputShape: dataforgeTableDetailsInputShape,
+	annotations: READ_ONLY,
 });
 
 const dataforgeTableRelationshipsInputShape = {
-	sourceTable: z
-		.string()
-		.min(1)
-		.describe(
-			'Source table/entity name (e.g. "Contact"). Resolve it via dataforge-similar-tables if unsure.',
-		),
-	targetTable: z.string().min(1).describe('Target table/entity name (e.g. "Account").'),
+	sourceTable: z.string().min(1).describe('Entity to start from, e.g. "Contact".'),
+	targetTable: z.string().min(1).describe('Entity to reach, e.g. "Account".'),
 	limit: z.coerce
 		.number()
 		.int()
 		.positive()
 		.max(50)
 		.optional()
-		.describe('Optional max number of relationship paths to return (server default ~5).'),
-	bidirectional: z
-		.boolean()
-		.optional()
-		.describe('Search relationships in both directions. Defaults to true server-side.'),
-	skipDetails: z
-		.boolean()
-		.optional()
-		.describe('Return only the path without extra column-level detail.'),
+		.describe('Max relationship paths (server default about 5).'),
+	bidirectional: z.boolean().optional().describe('Search both directions (server default true).'),
+	skipDetails: z.boolean().optional().describe('Return only the paths, without column details.'),
 } as const;
 export const dataforgeTableRelationshipsInput = z.object(dataforgeTableRelationshipsInputShape);
 
 export const dataforgeTableRelationshipsDescriptor = makeToolDescriptor({
-	title: 'DataForge: how two tables are related',
+	title: 'How two tables are related (DataForge)',
 	description:
-		'Find the relationship path(s) between two Creatio tables (which columns/joins connect them). ' +
-		'Use this to figure out how to `$expand` or join entities in a `read`, or to understand the data model around an entity.' +
-		DATAFORGE_PREREQ_NOTE,
+		'The column path(s) connecting two entities — use it to build a related-column path for read (e.g. `Account.Name`) or to understand the data model.' +
+		DATAFORGE_RESPONSE_NOTE,
 	inputShape: dataforgeTableRelationshipsInputShape,
+	annotations: READ_ONLY,
 });
 
 const dataforgeLookupValuesInputShape = {
 	query: z
 		.string()
 		.min(1)
-		.describe(
-			'Natural-language / partial text to match lookup values against (e.g. "in progress", "VIP").',
-		),
+		.describe('The value as the user says it (e.g. "in progress", "VIP", "закрита угода").'),
 	schemaName: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			'Optional lookup schema/entity name to restrict the search to a single lookup (e.g. "CaseStatus").',
-		),
+		.describe('Lookup to search in, e.g. "CaseStatus"; omit to search all lookups.'),
 	limit: z.coerce
 		.number()
 		.int()
 		.positive()
 		.max(100)
 		.optional()
-		.describe('Optional max number of lookup values to return (server default ~5).'),
+		.describe('Max values (server default about 5).'),
 } as const;
 export const dataforgeLookupValuesInput = z.object(dataforgeLookupValuesInputShape);
 
 export const dataforgeLookupValuesDescriptor = makeToolDescriptor({
-	title: 'DataForge: find lookup values by meaning',
+	title: 'Find lookup values by meaning (DataForge)',
 	description:
-		'Fuzzy/semantic search for lookup values across (or within) Creatio lookups — returns matching values and their identifiers. ' +
-		'Useful to resolve a human phrase ("high priority", "закрита угода") to the correct lookup record Id to use in a filter or create/update payload.' +
-		DATAFORGE_PREREQ_NOTE,
+		'Resolve a phrase to lookup records and their ids — e.g. "high priority" to the ActivityPriority id for a filter or a write.' +
+		DATAFORGE_RESPONSE_NOTE,
 	inputShape: dataforgeLookupValuesInputShape,
+	annotations: READ_ONLY,
 });
 
 export const dataforgeStatusInput = z.object({});
 
 export const dataforgeStatusDescriptor = makeToolDescriptor({
-	title: 'DataForge: service status / is it enabled',
+	title: 'DataForge status',
 	description:
-		'Check whether DataForge is enabled and healthy on this environment. ' +
-		'Calls DataForgeMaintenanceService.GetServiceStatus and returns `{ IsOnline, Liveness, Readiness, DataStructureReadiness, LookupsReadinessInfo }`. ' +
-		'Interpretation: IsOnline=false → DataForge is unreachable or DataForgeServiceUrl is not configured (the other dataforge-* tools will fail). ' +
-		'Readiness.HttpStatusCode=200 with non-empty DataStructureReadiness/LookupsReadinessInfo → the data model and lookups have been synced and search will return results. ' +
-		'If you only need a quick on/off signal, you can also query the `DataForgeServiceUrl` system setting (empty = disabled).',
+		'Whether DataForge is online and its data is synced: { IsOnline, Liveness, Readiness, DataStructureReadiness, LookupsReadinessInfo }. ' +
+		'IsOnline false: the other dataforge-* tools will fail. Readiness 200 with non-empty DataStructureReadiness / LookupsReadinessInfo: searches return results.',
 	inputShape: {},
+	annotations: READ_ONLY,
 });
 
 // ---------------------------------------------------------------------------
-// Global Search — Creatio's cross-entity record search (Elasticsearch-backed),
-// the same engine behind the UI search box. Registered only when Global Search
-// is enabled on the environment (non-empty `GlobalSearchUrl`).
+// Global Search — Creatio's cross-entity record search (the UI search box), registered only when
+// Global Search is enabled on the environment (non-empty `GlobalSearchUrl`).
 // ---------------------------------------------------------------------------
 
 const globalSearchInputShape = {
@@ -1084,13 +845,13 @@ const globalSearchInputShape = {
 		.string()
 		.min(1)
 		.describe(
-			'Free-text search across indexed records, exactly like the Creatio UI search box (e.g. "andrew baker", "acme invoice 2024"). Matches names, numbers and other indexed columns.',
+			'Words to search for, like in the Creatio search box (e.g. "andrew baker", "acme invoice 2024").',
 		),
 	entities: z
 		.array(z.string().min(1))
 		.optional()
 		.describe(
-			'Optional list of entity schema names to restrict the search to (e.g. ["Contact","Account"]). Omit to search all indexed sections. Maps to the service `type` filter.',
+			'Entities to search in, e.g. ["Contact", "Account"]; omit to search all indexed sections.',
 		),
 	limit: z.coerce
 		.number()
@@ -1098,23 +859,22 @@ const globalSearchInputShape = {
 		.positive()
 		.max(100)
 		.optional()
-		.describe('Max records to return (server default ~15).'),
+		.describe('Max records (server default about 15).'),
 	from: z.coerce
 		.number()
 		.int()
 		.min(0)
 		.optional()
-		.describe('Pagination offset (skip this many results). Use with the response `nextFrom`.'),
+		.describe("Results to skip, for paging — pass the previous response's `nextFrom`."),
 } as const;
 export const globalSearchInput = z.object(globalSearchInputShape);
 
 export const globalSearchDescriptor = makeToolDescriptor({
-	title: 'Global Search: find records across entities',
+	title: 'Search records across entities',
 	description:
-		'Search Creatio records the way the UI search box does — full-text across all indexed entities (Elasticsearch-backed). ' +
-		'Use this to locate specific records by name/number/keyword when you do not know the exact entity or filter (e.g. "find Andrew Baker", "the Acme renewal opportunity"). ' +
-		'Calls GlobalSearchService.Search; returns matched records with `entityName`, `id`, `columnValues`, and highlighted `foundColumns`, plus `total`/`nextFrom` for paging. ' +
-		'Differs from `read`: `read` needs an exact entity + OData filter; global-search is fuzzy and cross-entity. ' +
-		'Prerequisites: Global Search must be enabled on the environment (non-empty `GlobalSearchUrl` + the `GlobalSearch_V2` feature). This tool is only registered when enabled.',
+		'Full-text search over all indexed records, the way the Creatio search box works: find a record by name, number or keyword without knowing its entity ("find Andrew Baker", "the Acme renewal"). ' +
+		'Response: records with { entityName, id, columnValues, foundColumns }, plus total / nextFrom for paging. ' +
+		'For exact conditions on one entity use read.',
 	inputShape: globalSearchInputShape,
+	annotations: READ_ONLY,
 });

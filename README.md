@@ -388,16 +388,22 @@ Ask for exactly the data you need — the AI doesn't have to know OData:
 
 - **Filter any way** — equals / not-equals, ranges, text match (`contains`, `starts/ends with`),
   `AND` / `OR` groups, and "in this list".
-- **Filter by related records naturally** — by name (`Contact/Name = "Andrew Baker"`) or by id.
+- **Filter by related records naturally** — by name (`Contact.Name = "Andrew Baker"`) or by id.
 - **Sort**, **paginate** (page size + offset), and **count** matches in one call.
 - **Pull in related data** in a single request (e.g. an order with its account and contact).
+- **Readable results** — an empty value is `null`, a lookup reads as `{ value, displayValue }`, and a
+  mistyped entity or column comes back with "Did you mean …?".
+
+The `/query-guide` prompt walks an agent through finding the entity, its columns, and the common query
+patterns; every tool also carries MCP annotations (read-only / destructive / idempotent) so clients can
+run reads without asking and confirm destructive calls.
 
 ### DataForge tools (registered only when DataForge is enabled)
 
 DataForge is Creatio's AI-oriented semantic layer over the data model. These tools are **probed once**
 and registered **only when the environment has DataForge configured** (a non-empty
 `DataForgeServiceUrl` system setting). When DataForge is absent the tools are not exposed, and
-`describe-entity` silently uses OData metadata.
+`describe-entity` uses the active backend's schema.
 
 | Tool                            | Description                                                                                       |
 | ------------------------------- | ------------------------------------------------------------------------------------------------- |

@@ -203,8 +203,13 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 ## 5. Adding a New Tool (Checklist)
 
 1. Define input shape in `tools-data.ts` using `zod`.
-2. Provide rich description (include examples, edge cases, warnings).
-3. Export descriptor & input schema.
+2. Write the description for the model, not for humans skimming: what it does, when to use it (and
+   what to use instead), key inputs, the response shape, notable errors, and the /…-guide prompt for
+   longer workflows. State only verified behavior; no shouting / emoji noise. Put multi-step cases in
+   a prompt (`prompts-data.ts`) rather than in parameter descriptions.
+3. Export descriptor & input schema. `makeToolDescriptor` requires MCP `annotations` (`READ_ONLY`,
+   `ADDS`, `CHANGES`, `RUNS`, `REFRESHES`); `tool-surface.test.ts` enforces that `readOnlyHint`
+   matches readonly-mode registration and that every `/…-guide` link resolves.
 4. Add a row to the declarative tool table in `server.ts` (`_clientToolDefs()` → `core` for reads, `mutating` for writes — only `mutating` tools are gated out in readonly mode). Each row is `{ name, descriptor, input, run }`.
 5. Implement `run` by calling the appropriate engine on the `CreatioEngineManager` (`crud`, `process`, …); if functionality is missing, extend or add a provider under `src/creatio/services` (+ its `contracts/` interface) rather than issuing raw fetch calls. New mutating engine methods must route through `BaseEngine._mutate`.
 6. Return **raw domain data** from `run` — the single `_normalizeToToolHandler` wraps it into `{ content: [{ type: 'text', text }] }` (objects/arrays are `JSON.stringify`-ed, strings passed through, a genuine `{ content: [...] }` envelope passed through as-is). Do not hand-wrap.

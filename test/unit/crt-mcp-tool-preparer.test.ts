@@ -36,6 +36,16 @@ function makeClient(over?: Partial<CrtMcpPublishingClient>): CrtMcpPublishingCli
 }
 
 describe('CrtMcpPublishingToolPreparer', () => {
+	it("passes the app's MCP annotations through", async () => {
+		const annotations = { readOnlyHint: true, openWorldHint: false };
+		const client = makeClient({
+			listTools: vi.fn(async () => [{ name: 'get-thing', inputSchema: {}, annotations }]),
+		} as never);
+		const { registrar, registered } = makeRegistrar();
+		await new CrtMcpPublishingToolPreparer(client, true).prepare(registrar);
+		expect(registered.get('pub-Srv-get-thing')!.descriptor.annotations).toEqual(annotations);
+	});
+
 	it('registers nothing when disabled (flag off)', async () => {
 		const client = makeClient();
 		const { registrar, registered } = makeRegistrar();
@@ -65,6 +75,7 @@ describe('CrtMcpPublishingToolPreparer', () => {
 		expect(entry!.descriptor.description).toBe('Get a thing');
 		// input schema was converted into a zod raw shape (has the `id` property)
 		expect(Object.keys(entry!.descriptor.inputSchema)).toEqual(['id']);
+		expect(entry!.descriptor.annotations).toBeUndefined(); // none published, none invented
 
 		// the handler proxies straight to callTool(server, originalName, args)
 		await entry!.handler({ id: '42' });

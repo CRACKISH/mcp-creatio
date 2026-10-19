@@ -57,6 +57,17 @@ Email?`. Each backend recognizes its own messages; the suggestions are computed 
 
 ### Changed
 
+- **Tool descriptions and prompts rewritten for the model** — every tool now states what it does,
+  when to use it, its inputs, response shape and errors, verified live on both backends; removed
+  misleading or false guidance (an invented `__allowNonTaskType` flag, "always select filtered
+  fields", "related paths are not supported in select", OData-only `filter` strings in prompts that
+  are not available on the default DataService backend, a wrong `get-current-user-info` response
+  shape). New **`/query-guide`** prompt (finding entities and columns, filters, related columns,
+  sorting, paging, counting, links and attachments); `/contactid-guide` rewritten.
+- **MCP tool annotations** — every tool declares `readOnlyHint` / `destructiveHint` /
+  `idempotentHint` / `openWorldHint`, so clients can run reads without confirmation and flag
+  destructive calls; published tools pass the app's own annotations through.
+
 - **`read` returns normalized values on both backends** — a cell without a value is `null`
   instead of DataService's `""` or OData's empty-GUID / `0001-01-01` placeholders (text columns
   still read as `""`), and a DataService lookup is a compact `{ value, displayValue }` without the

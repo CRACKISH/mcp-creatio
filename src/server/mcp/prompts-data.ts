@@ -17,17 +17,9 @@ const ACTIVITY_TYPE_TABLE = `
 `.trim();
 
 const CREATE_ACTIVITY_WORKFLOW = `
-# 🆕 Create Activity in Creatio (Optimized 99% Case)
+# Create an activity in Creatio
 
-⚠️⚠️⚠️ FIRST STEP - ALWAYS CALL get-current-user-info FIRST! ⚠️⚠️⚠️
-
-Before creating ANY activity, you MUST:
-1. Call 'get-current-user-info' tool (no parameters)
-2. Extract contactId from response
-3. Store contactId in memory
-4. Use contactId as OwnerId and AuthorId in the activity
-
-DO NOT skip this step! Activities require valid OwnerId and AuthorId (both = contactId).
+First get the current user once with \`get-current-user-info\` and reuse it: an activity needs \`OwnerId\` and \`AuthorId\`, both \`userInfo.contactId\` (the contact id, not \`userInfo.id\`) unless the user names someone else.
 
 ## Why Simplified?
 Business usage: almost all activities should just appear in calendar quickly. So we hardcode **Type = Task** and only adjust the **Category** to reflect intent (meeting / call / email / todo). This minimizes API calls and cognitive load.
@@ -59,7 +51,7 @@ GUIDs we already have (hardcoded):
 - Default Priority (Medium): ${DEFAULT_ACTIVITY_IDS.PRIORITY_MEDIUM}
 
 If category ≠ To do (e.g. Meeting / Call / Email) and you don't have its GUID cached:
-1. Query ActivityCategory by Name (e.g. filter: "Name eq 'Meeting'") select Id top 1
+1. \`read\` ActivityCategory: \`select: ["Id"], filters: { all: [{ field: "Name", op: "eq", value: "Meeting" }] }, top: 1\`
 2. Use returned Id as ActivityCategoryId
 
 Do NOT query ActivityType unless user demands non-Task type explicitly.
@@ -74,13 +66,7 @@ Unless the user **explicitly** requests to create an activity for someone else (
 
 ### Get Current User ContactId:
 
-**MANDATORY FIRST CALL:** Use \`get-current-user-info\` tool:
-
-STEP 1: Call \`get-current-user-info\` (no parameters) ← DO THIS NOW if not done yet!
-STEP 2: Extract \`contactId\` from response
-STEP 3: Use contactId for OwnerId & AuthorId
-
-**Alternative (Legacy):** Query SysAdminUnit once for ContactId (NOT Id!). Store and reuse.
+Call \`get-current-user-info\` (no parameters) once and use \`userInfo.contactId\` for OwnerId and AuthorId.
 
 ⚠️ CRITICAL: 
 - Never use SysAdminUnit.Id for Owner/Author fields. Always use ContactId!
@@ -133,9 +119,9 @@ If user requests to add participants to a meeting/call/activity:
    \`\`\`json
    {
      "entity": "Contact",
-     "filter": "contains(Name, 'John')",
+     "filters": { "all": [{ "field": "Name", "op": "contains", "value": "John" }] },
      "select": ["Id", "Name"],
-     "top": 1
+     "top": 5
    }
    \`\`\`
 
@@ -168,7 +154,7 @@ User: "Add John and Mary to tomorrow's meeting"
 ## ✅ Example (Meeting intent, fast mode)
 
 User: "Schedule meeting tomorrow 14:00" → ask timezone → user: "UTC+2" → 14:00 UTC+2 = 12:00Z.
-1. Resolve ContactId (SysAdminUnit query once)
+1. Resolve the owner: \`get-current-user-info\` → \`userInfo.contactId\` (once)
 2. Lookup ActivityCategory 'Meeting' (if not cached)
 3. Create with Type=Task, Category=Meeting
 
@@ -310,224 +296,34 @@ If all ✅ → Good to go!
 `.trim();
 
 const CONTACTID_GUIDE = `
-# 👤 ContactId Rule - UNIVERSAL for ALL Creatio Entities
+# People in Creatio: contact id vs user id
 
-## 🚨 CRITICAL RULE (Read This First!)
+A person who uses Creatio has two records, and each kind of field wants a different one:
 
-In Creatio, there are TWO types of IDs:
+| Record | Id | Used by |
+|--------|----|---------|
+| **Contact** (the person in the CRM) | \`userInfo.contactId\` | Owner, Author, Responsible, Manager, CreatedBy, ParticipantId — every CRM lookup to a person |
+| **SysAdminUnit** (the login account / role) | \`userInfo.id\` | users and roles in permissions: \`set-feature-state\`, \`set-admin-operation-grantee\` |
 
-1. **SysAdminUnit.Id** = User account ID (for login/permissions)
-2. **SysAdminUnit.ContactId** = Contact ID (for CRM records)
+Putting a user id into an owner field fails (or points at nobody) — owner/author fields always take the **contact** id.
 
-### For CRM fields, ALWAYS use ContactId!
-
-This applies to **ALL entities**, not just Activity:
-- Activity.OwnerId = ContactId ✅
-- Activity.AuthorId = ContactId ✅
-- Lead.OwnerId = ContactId ✅
-- Opportunity.OwnerId = ContactId ✅
-- Case.OwnerId = ContactId ✅
-- Account.OwnerId = ContactId ✅
-
----
-
-## 🎯 The Workflow (RECOMMENDED!)
-
-### 🔑 DEFAULT RULE: Current User by Default!
-
-**ALWAYS assume activities/tasks/leads/opportunities are for the CURRENT USER unless explicitly told otherwise!**
-
-Examples:
-- ❌ "Create task" → DO NOT ask "for whom?" → Create for current user!
-- ❌ "Schedule meeting tomorrow" → DO NOT ask "whose meeting?" → Current user's meeting!
-- ✅ "Create task for John" → Only THEN create for someone else
-- ✅ "Schedule meeting with Anna as owner" → Only THEN change owner
-
-**This is the expected behavior! Don't annoy users by asking obvious questions.**
-
-### Step 1: Use get-current-user-info Tool (BEST METHOD!)
-
-**RECOMMENDED:** Use the dedicated tool to get user information:
-
-Call \`get-current-user-info\` tool (no parameters needed)
-
-**Returns:**
-\`\`\`json
-{
-  "userId": "410006e1-ca4e-4502-a9ec-e54d922d2c00",
-  "contactId": "76929f8c-7e15-4c64-bdb0-adc62d383727",  // ← USE THIS!
-  "userName": "Current User",
-  "cultureName": "en-US"
-}
-\`\`\`
-
-**Why this is better:**
-- ✅ Single call, all info
-- ✅ No need to know username
-- ✅ Gets ContactId directly
-- ✅ More reliable
-- ✅ Use contactId for ALL Owner/Author fields by default
-
-### Alternative: Query SysAdminUnit (Legacy Method)
-
-If you need to query manually:
+## The current user
+Call \`get-current-user-info\` once and reuse the answer for the conversation:
 
 \`\`\`json
-{
-  "entity": "SysAdminUnit",
-  "filter": "Name eq '<your_username>'",
-  "select": ["ContactId"],
-  "top": 1
-}
+{ "success": true, "userInfo": { "id": "<SysAdminUnit id>", "contactId": "<Contact id>", "contactName": "…", "timeZoneOffsetHours": 2, "…": "…" } }
 \`\`\`
 
-**Returns:**
-\`\`\`json
-[{
-  "ContactId": "76929f8c-7e15-4c64-bfb1-40c705d25fcd"
-}]
-\`\`\`
-
-### Step 2: Store ContactId in Memory
-
-Remember the ContactId for the entire conversation:
-
-\`\`\`typescript
-const currentUserContactId = "76929f8c-7e15-4c64-bfb1-40c705d25fcd";
-\`\`\`
-
-### Step 3: Use This ContactId EVERYWHERE
-
-For **ANY** entity that has owner/author/creator fields:
+Records the user creates for themselves (tasks, meetings, leads, opportunities, cases) get their contact id as owner and author. Do not ask "for whom?" — only use someone else when the user says so ("a task for John").
 
 \`\`\`json
-{
-  "entity": "Activity",
-  "data": {
-    "OwnerId": currentUserContactId,    // ← ContactId
-    "AuthorId": currentUserContactId    // ← ContactId
-  }
-}
+{ "entity": "Activity", "data": { "Title": "Call Acme", "OwnerId": "<userInfo.contactId>", "AuthorId": "<userInfo.contactId>" } }
 \`\`\`
 
-\`\`\`json
-{
-  "entity": "Lead",
-  "data": {
-    "OwnerId": currentUserContactId     // ← ContactId
-  }
-}
-\`\`\`
-
-\`\`\`json
-{
-  "entity": "Opportunity", 
-  "data": {
-    "OwnerId": currentUserContactId     // ← ContactId
-  }
-}
-\`\`\`
-
----
-
-## ❌ Common Mistake
-
-### WRONG (using SysAdminUnit.Id):
-\`\`\`json
-// Step 1: Query SysAdminUnit
-read("SysAdminUnit", "Name eq '<your_username>'", ["Id"], 1)
-// → Returns: [{ "Id": "410006e1-ca4e-4502-a9ec-e54d922d2c00" }]
-
-// Step 2: Use .Id (WRONG!)
-create("Activity", {
-  "OwnerId": "410006e1-ca4e-4502-a9ec-e54d922d2c00"  // ❌ This is user ID!
-})
-// → ERROR: Invalid reference or constraint violation!
-\`\`\`
-
-### ✅ CORRECT (using ContactId):
-\`\`\`json
-// Step 1: Query SysAdminUnit  
-read("SysAdminUnit", "Name eq '<your_username>'", ["ContactId"], 1)
-// → Returns: [{ "ContactId": "76929f8c-7e15-4c64-bfb1-40c705d25fcd" }]
-
-// Step 2: Use .ContactId (CORRECT!)
-create("Activity", {
-  "OwnerId": "76929f8c-7e15-4c64-bfb1-40c705d25fcd"  // ✅ This is contact ID!
-})
-// → SUCCESS!
-\`\`\`
-
----
-
-## 🔍 Visual Explanation
-
-\`\`\`
-SysAdminUnit "<your_username>":
-├─ Id: "410006e1..."          ← USER account (for system/permissions)
-│  └─ Used for: Login, roles, access rights
-│
-└─ ContactId: "76929f8c..."   ← CONTACT record (for CRM)
-   └─ Used for: Activities, Leads, Opportunities, Owners, Authors
-
-Contact "John Doe":
-└─ Id: "76929f8c..."           ← Same as SysAdminUnit.ContactId!
-   └─ This is the CRM person record
-\`\`\`
-
----
-
-## 📋 When to Use Each ID
-
-| Field Type                    | Use This        | Example Entity         |
-|-------------------------------|-----------------|------------------------|
-| OwnerId                       | **ContactId**   | Activity, Lead, Case   |
-| AuthorId                      | **ContactId**   | Activity               |
-| CreatedById                   | **ContactId**   | Any entity             |
-| ModifiedById                  | **ContactId**   | Any entity             |
-| ContactId (in Activity)       | **ContactId**   | Activity               |
-| ParticipantId                 | **ContactId**   | ActivityParticipant    |
-| ResponsibleId                 | **ContactId**   | Lead, Opportunity      |
-| System permissions/roles      | **Id**          | SysAdminUnit relations |
-
-**Rule of thumb:** If it's a CRM field → **ContactId**. Always.
-
----
-
-## 🎯 Best Practice
-
-At the **start of any workflow** that needs user identity:
-
-1. Query \`SysAdminUnit\` once
-2. Select \`["ContactId"]\`
-3. Store in variable
-4. Use everywhere
-
-**Don't query multiple times!** One query per session is enough.
-
----
-
-## ⚠️ What If I Used Wrong ID?
-
-You'll see errors like:
-- "Foreign key constraint violation"
-- "Invalid reference"
-- "Record not found"
-- Owner field is empty or points to wrong person
-
-**Solution:** Go back and use ContactId instead of Id!
-
----
-
-## 💡 Summary
-
-- **SysAdminUnit.Id** = User account (system)
-- **SysAdminUnit.ContactId** = Contact person (CRM)
-- **For CRM fields** → ALWAYS use ContactId
-- **Query once** → Use everywhere
-- **This rule applies** → ALL entities in Creatio
-
-Remember: **ContactId, not Id!** 🎯
+## Someone else
+- Their **contact**: \`read\` Contact — \`select: ["Id", "Name"], filters: { all: [{ field: "Name", op: "contains", value: "John" }] }\`. If several match, ask the user which one.
+- Their **user account** (for permissions): \`read\` SysAdminUnit — \`select: ["Id", "Name", "ContactId"], filters: { all: [{ field: "Name", op: "eq", value: "John Smith" }] }\`. Its \`ContactId\` is the same person's contact id.
+- A **role**: \`read\` SysAdminUnit by role \`Name\` (e.g. "All employees").
 `.trim();
 
 const TAGGING_GUIDE = `
@@ -537,16 +333,16 @@ const TAGGING_GUIDE = `
 
 Creatio has TWO tagging systems that may coexist:
 
-### 1️⃣ LEGACY System (Entity-Specific) - **DEFAULT & RECOMMENDED**
+### 1️⃣ LEGACY System (Entity-Specific)
 - Uses: \`<Entity>Tag\` and \`<Entity>InTag\` tables
 - Examples: \`ActivityTag\` + \`ActivityInTag\`, \`AccountTag\` + \`AccountInTag\`
 - Fields: \`TagId\` (from <Entity>Tag), \`EntityId\` (record GUID)
-- **Use this by DEFAULT unless user explicitly asks for universal tags!**
 
 ### 2️⃣ NEW System (Universal)
 - Uses: \`Tag\` and \`TagInRecord\` tables
 - Fields: \`TagId\`, \`RecordId\`, \`RecordSchemaName\`
-- Only use if user specifically says "use universal tags" or "use new tag system"
+
+Which one to use is decided by the flow below: the only system that exists, the one the user named, or — when both exist — the user's answer.
 
 ---
 
@@ -800,6 +596,64 @@ Use the returned \`UId\` as \`referenceSchemaUId\` inside the \`create-sys-setti
 3. For additional updates later, call \`set-sys-settings-value\`.
 `.trim();
 
+const QUERY_GUIDE = `
+# Querying Creatio data
+
+## 1. Find the entity
+- You know the name (\`Contact\`, \`Opportunity\`) → go to step 2.
+- You know the meaning ("support tickets", "invoices") → \`dataforge-similar-tables\` when available; otherwise check names with \`list-entities\` (1000+ names, so search it for a word).
+- You are looking for one specific record by name or number ("Andrew Baker", "INV-1024") → \`global-search\` when available: it finds it in any entity and tells you which.
+
+## 2. Check the columns
+\`describe-entity\` lists the columns, their types and which are required. Use the exact names it returns. A wrong name is rejected with a suggestion — \`unknown_column:Emial (Contact). Did you mean: Email?\` — so retry with the suggestion instead of guessing.
+
+## 3. Read
+Ask for what you need, no more: \`select\` the columns you will use and keep \`top\` small (default 50).
+
+| Need | How |
+|------|-----|
+| A column of a related record | \`select: ["Name", "Account.Name"]\` (on the OData backend: \`expand: ["Account"]\`) |
+| Filter by a related record's id | \`{ field: "AccountId", op: "eq", value: "<guid>" }\` |
+| Filter by a related record's name | \`{ field: "Account.Name", op: "eq", value: "Acme" }\` |
+| Text search in a column | \`{ field: "Name", op: "contains", value: "acme" }\` (case-insensitive) |
+| One of several values | \`{ field: "Stage.Name", in: ["Presentation", "Negotiation"] }\` |
+| Empty / not empty | \`{ field: "Email", op: "eq", value: null }\` / \`op: "ne"\` |
+| A date range | \`{ field: "CreatedOn", op: "ge", value: "2026-01-01T00:00:00Z" }\` + \`op: "lt"\` for the end (UTC, /datetime-guide) |
+| AND / OR | \`filters: { all: [...], any: [...] }\` — \`all\` is AND, \`any\` is OR, and the two groups are combined by AND |
+| Newest / biggest first | \`orderBy: "CreatedOn desc"\`, \`orderBy: "Amount desc, Title asc"\` |
+| "How many …?" | \`count: true, top: 0\` → \`{ total, value: [] }\` — never page through rows to count them |
+| The next page | same query with \`skip\` += \`top\` and a stable \`orderBy\` |
+
+What comes back:
+- A missing value is \`null\` (a text column may also be \`""\`).
+- A lookup column you select by itself (\`Account\`) is \`{ value, displayValue }\` on the DataService backend; on OData select its id (\`AccountId\`) and \`expand\` the record for its name.
+- Ids are GUIDs. Never invent one: resolve a lookup value by reading its table (\`ActivityPriority\` by \`Name\`) or with \`dataforge-lookup-values\`.
+
+## 4. Present the results
+- Mentioning a specific record? Add its link: \`get-record-url { entity, id }\`.
+- The user asks about a record's documents? \`list-record-files { entity, id }\` lists its files and links; hand the user the \`downloadUrl\`.
+- Prefer names over ids in your answer; keep ids for follow-up calls.
+
+## 5. People: user id vs contact id
+Owner / author / responsible columns point to a **Contact**: use \`userInfo.contactId\` from \`get-current-user-info\` for the current user. Tools that take a user or role (\`set-feature-state\`, \`set-admin-operation-grantee\`) want a **SysAdminUnit** id: \`userInfo.id\`. See /contactid-guide.
+`.trim();
+
+export const QUERY_PROMPT = {
+	name: 'query-guide',
+	title: 'Querying Creatio data',
+	description:
+		'How to find the right entity and columns, read with filters / related columns / sorting / paging / counting, and present results with record links and attachments',
+	argsSchema: {},
+	callback: () => ({
+		messages: [
+			{
+				role: 'user' as const,
+				content: { type: 'text' as const, text: QUERY_GUIDE },
+			},
+		],
+	}),
+};
+
 export const CREATE_ACTIVITY_PROMPT = {
 	name: 'create-activity-guide',
 	title: 'Create Activity in Creatio',
@@ -838,9 +692,9 @@ export const DATETIME_PROMPT = {
 
 export const CONTACTID_PROMPT = {
 	name: 'contactid-guide',
-	title: 'ContactId Rule for All Entities',
+	title: 'People: contact id vs user id',
 	description:
-		'CRITICAL: Always use SysAdminUnit.ContactId (not .Id!) for all CRM fields across all entities',
+		'Which id a person field takes (a Contact id for owners/authors, a SysAdminUnit id for users and roles in permissions) and how to get the current user and other people',
 	argsSchema: {},
 	callback: () => ({
 		messages: [
@@ -1153,6 +1007,7 @@ export const ADMIN_OPERATION_PROMPT = {
 };
 
 export const ALL_PROMPTS = [
+	QUERY_PROMPT,
 	CREATE_ACTIVITY_PROMPT,
 	DATETIME_PROMPT,
 	CONTACTID_PROMPT,

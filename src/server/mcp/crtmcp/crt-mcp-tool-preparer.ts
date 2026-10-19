@@ -9,6 +9,10 @@ export const PUBLISHED_TOOLS_CAPABILITY = 'published-tools';
 
 const NAME_PREFIX = 'pub';
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 /**
  * Registers tools published in the Creatio "MCP Publishing" composable app, but only
  * when explicitly enabled (a hidden, opt-in feature) AND the app is installed. Each
@@ -33,6 +37,9 @@ export class CrtMcpPublishingToolPreparer implements ToolPreparer {
 				tool.description ??
 				`Published tool "${tool.name}" from Creatio MCP server "${serverCode}".`,
 			inputSchema: jsonSchemaToZodShape(tool.inputSchema),
+			// The app owns the tool's semantics, so its MCP annotations (read-only, destructive, …)
+			// are passed through for the client to act on.
+			...(isPlainObject(tool.annotations) ? { annotations: tool.annotations } : {}),
 		};
 		// Proxy the call straight through; the app validates args and shapes the result.
 		const handler = (args: Record<string, unknown>) =>
