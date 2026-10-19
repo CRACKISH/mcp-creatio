@@ -108,6 +108,22 @@ export class DataServiceCrudProvider implements CrudProvider {
 		return buildColumnValues(remapped, makeTypeResolver(types));
 	}
 
+	/** DataService ignores sorting in all-columns mode, so an ordered read without `columns` lists
+	 *  the schema's columns explicitly. Without a schema it stays all-columns (unsorted, logged). */
+	private async _sortableQuery(
+		query: ReadQuery,
+	): Promise<{ query: ReadQuery; expanded: boolean }> {
+		if (!query.order?.length || query.columns?.length) {
+			return { query, expanded: false };
+		}
+		const columns = [...(await this._schema.columnTypes(query.entity)).keys()];
+		if (!columns.length) {
+			log.warn('creatio.dataservice.read.order_ignored', { entity: query.entity });
+			return { query, expanded: false };
+		}
+		return { query: { ...query, columns }, expanded: true };
+	}
+
 	/** Keep only the requested columns (DataService auto-adds primary display/image columns
 	 *  like `Photo`); in all-columns mode return rows untouched. */
 	private _project(rows: any[], columns: string[] | undefined): any[] {
@@ -144,7 +160,10 @@ export class DataServiceCrudProvider implements CrudProvider {
 		// rows, so skip the row query entirely and return an empty set.
 		let items: unknown[] = [];
 		if (query.top !== 0) {
-			const select = this._queryBuilder.buildSelectQuery(query);
+			const sortable = await this._sortableQuery(query);
+			const select = this._queryBuilder.buildSelectQuery(sortable.query, {
+				exactColumns: sortable.expanded,
+			});
 			const body = await this._transport.post('SelectQuery', select, {
 				logContext: { entity: query.entity, top: query.top, skip: query.skip },
 			});

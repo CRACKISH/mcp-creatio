@@ -34,6 +34,10 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   404'd), **`client_credentials` / `broker` / `delegated` discovery** without an explicit
   `CREATIO_ID_BASE_URL`, and **schema-cache freshness** (`api/ClientCache`) on .NET 8.
   .NET Framework instances are unchanged.
+- **DataService `orderBy` was silently ignored** when the sort field was not in `select`, or when
+  `select` was omitted (DataService sorts only by columns of the query and ignores sorting in
+  all-columns mode). An order-only column now carries the sort (stripped from the result), and an
+  ordered read without `select` lists the schema's columns explicitly.
 
 ### Changed
 

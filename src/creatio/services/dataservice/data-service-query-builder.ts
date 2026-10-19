@@ -41,25 +41,50 @@ export class DataServiceQueryBuilder {
 		return map;
 	}
 
-	public buildSelectQuery(query: ReadQuery): DataServiceSelectQuery {
+	/** A column keyed by the caller's requested name (the response is keyed by the item KEY), with
+	 *  only the columnPath normalized: OData-style `/` -> DataService `.`, and a scalar lookup FK
+	 *  (`TypeId`) -> its primary-key path (`Type.Id`). A bare lookup (`Type`) is left as-is so
+	 *  DataService returns its display value. */
+	private _column(
+		requested: string,
+		hint: { dir: OrderDirection; pos: number } | undefined,
+		exact = false,
+	): DataServiceSelectColumn {
+		const columnPath = exact ? requested : lookupIdPath(requested.replace(/\//g, '.'), '.');
+		const column: DataServiceSelectColumn = {
+			expression: { expressionType: ExpressionType.SchemaColumn, columnPath },
+		};
+		if (hint) {
+			column.orderDirection = hint.dir;
+			column.orderPosition = hint.pos;
+		}
+		return column;
+	}
+
+	/**
+	 * @param opts.exactColumns `columns` are real schema column names (an expanded all-columns
+	 *   read), used as-is: a genuine column like `TimeZoneId` must not be rewritten to `TimeZone.Id`.
+	 */
+	public buildSelectQuery(
+		query: ReadQuery,
+		opts: { exactColumns?: boolean } = {},
+	): DataServiceSelectQuery {
 		const orderByPath = this._orderMap(query.order);
 		const items: Record<string, DataServiceSelectColumn> = {};
 		const selected = query.columns && query.columns.length > 0 ? query.columns : [];
 		for (const requested of selected) {
-			// The response is keyed by the item KEY, so keep the caller's requested name as the
-			// alias and normalize only the columnPath: OData-style `/` -> DataService `.`, and a
-			// scalar lookup FK (`TypeId`) -> its primary-key path (`Type.Id`). A bare lookup
-			// (`Type`) is left as-is so DataService returns its display value.
-			const columnPath = lookupIdPath(requested.replace(/\//g, '.'), '.');
-			const column: DataServiceSelectColumn = {
-				expression: { expressionType: ExpressionType.SchemaColumn, columnPath },
-			};
-			const hint = orderByPath.get(requested);
-			if (hint) {
-				column.orderDirection = hint.dir;
-				column.orderPosition = hint.pos;
+			items[requested] = this._column(
+				requested,
+				orderByPath.get(requested),
+				opts.exactColumns,
+			);
+		}
+		// DataService sorts only by columns of the query, so an order term on an unselected field
+		// gets its own column (the provider's projection strips it from the result again).
+		for (const [field, hint] of orderByPath) {
+			if (selected.length > 0 && !items[field]) {
+				items[field] = this._column(field, hint);
 			}
-			items[requested] = column;
 		}
 
 		const select: DataServiceSelectQuery = {
