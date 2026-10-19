@@ -5,6 +5,7 @@ import {
 	FeatureListQuery,
 	FeatureListResult,
 	FeatureProvider,
+	FeatureStateChangeResult,
 	SetFeatureStateRequest,
 } from '../contracts';
 
@@ -53,7 +54,7 @@ export class FeatureEngine extends BaseEngine {
 		return this._requireCatalog().getFeature(code);
 	}
 
-	public setFeatureState(request: SetFeatureStateRequest): Promise<FeatureDetails> {
+	public setFeatureState(request: SetFeatureStateRequest): Promise<FeatureStateChangeResult> {
 		const { code, state, adminUnitId } = request;
 		return this._mutate(
 			'feature.set-state',

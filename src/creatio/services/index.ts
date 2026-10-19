@@ -1,5 +1,4 @@
 export * from './admin-operation-service-provider';
-export * from './app-feature-store';
 export * from './client-cache-hash-client';
 export * from './configuration-service-provider';
 export * from './creatio-service-context';
@@ -18,6 +17,7 @@ export * from './dataservice/data-service-schema';
 export * from './dataservice/data-service-crud-provider';
 export * from './feature-catalog-service';
 export * from './feature-service-provider';
+export * from './feature-store';
 export * from './http-client';
 export * from './navigation-service-provider';
 export * from './odata/metadata-store';

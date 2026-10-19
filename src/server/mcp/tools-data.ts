@@ -756,7 +756,7 @@ export const setFeatureStateInput = z.object(setFeatureStateInputShape);
 export const setFeatureStateDescriptor = makeToolDescriptor({
 	title: 'Enable or disable a Creatio feature toggle',
 	description:
-		"Changes a feature the way the Creatio feature page does: the default state, or a per-user/role override. Works for features from any source; the first change to a web.config/metadata feature creates its `Feature` DB row, which from then on takes precedence over the original source (the platform behaves the same). Clears that feature's cache and re-reads it, returning the feature as in `get-feature`; fails with `feature_state_not_applied:<code>` if Creatio did not apply the change.",
+		"Changes a feature the way the Creatio feature page does: the default state, or a per-user/role override. Works for features from any source; the first change to a web.config/metadata feature creates its `Feature` DB row, which from then on takes precedence over the original source (the platform behaves the same). Clears that feature's cache and re-reads it, returning the feature as in `get-feature` plus `cacheCleared`; fails with `feature_state_not_applied:<code>` if Creatio did not save the change. `cacheCleared:false` means the change IS saved but the instance could not clear its feature cache (seen on .NET 8), so it may take effect only after Creatio refreshes it — tell the user.",
 	inputShape: setFeatureStateInputShape,
 });
 

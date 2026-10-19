@@ -61,16 +61,23 @@ export interface FeatureProvider {
 	clearFeaturesCache(featureCode?: string): Promise<ClearFeatureCacheResult>;
 }
 
+export interface FeatureStateChangeResult extends FeatureDetails {
+	/** Whether Creatio's feature cache was cleared for the feature. `false` when the instance
+	 *  failed the clear (seen on .NET 8): the change is saved, but may take effect only once
+	 *  Creatio's cache refreshes. */
+	cacheCleared: boolean;
+}
+
 /**
- * The feature-toggle catalog. Reads and writes go through the same virtual entities the Freedom
- * UI feature page uses, so every source is visible and the platform's own listeners persist
- * changes. Those entities are DataService-only, so this port exists only on that backend.
+ * The feature-toggle catalog: features from every source, read through the virtual entity the
+ * Freedom UI feature page uses (DataService-only, so this port exists only on that backend), and
+ * changed in the persisted Feature / AdminUnitFeatureState rows.
  */
 export interface FeatureCatalogProvider {
 	readonly kind: string;
 	listFeatures(query: FeatureListQuery): Promise<FeatureListResult>;
 	/** Throws `feature_not_found:<code>` when Creatio does not know the code. */
 	getFeature(code: string): Promise<FeatureDetails>;
-	/** Applies the change, clears the feature cache, and returns the re-read feature. */
-	setFeatureState(request: SetFeatureStateRequest): Promise<FeatureDetails>;
+	/** Saves the change, clears the feature's cache, and returns the re-read feature. */
+	setFeatureState(request: SetFeatureStateRequest): Promise<FeatureStateChangeResult>;
 }

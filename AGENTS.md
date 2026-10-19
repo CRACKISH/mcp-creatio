@@ -97,10 +97,11 @@ CreatioServiceContext
   ├─ ProcessServiceProvider → POSTs to ProcessEngineService
   ├─ SysSettingsServiceProvider → DataService JSON endpoint
   ├─ FeatureServiceProvider → /rest/FeatureService/ClearFeaturesCacheForAllUsers
-  ├─ featureCatalog? (DataService backend only) → FeatureCatalogService over AppFeatureStore:
-  │     the AppFeature / AppFeatureState virtual entities the Freedom UI feature page uses
-  │     (every source; platform listeners persist writes; overrides are readable ONLY via the
-  │     `[AppFeature:Id:Feature].Id` filter; no aggregation, so lists page by `hasMore`)
+  ├─ featureCatalog? (DataService backend only) → FeatureCatalogService over FeatureStore:
+  │     READS the AppFeature virtual entity the Freedom UI feature page uses (every source; no
+  │     aggregation, so lists page by `hasMore`); WRITES the persisted Feature /
+  │     AdminUnitFeatureState rows (writing via AppFeature/AppFeatureState is a silent no-op /
+  │     500 on .NET 8 — temporary per-session ids). Cache clear is best-effort (`cacheCleared`)
   ├─ AdminOperationServiceProvider → /rest/RightsService/{Upsert,Delete}AdminOperation[,Grantee]
   ├─ ConfigurationServiceProvider → generic /rest/<service>/<method> caller
   ├─ NavigationServiceProvider → record links via /0/rest/NavigationService/Redirect (pure; the

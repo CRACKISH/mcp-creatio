@@ -9,11 +9,13 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 ### Added
 
 - **Feature toggles from every source (DataService backend)** — `list-features`, `get-feature` and
-  `set-feature-state` work through the `AppFeature` / `AppFeatureState` virtual entities the Creatio
-  feature page uses, so features defined in `web.config`, package metadata or `GlobalAppSettings`
-  are visible and switchable, not only `Feature` table rows. Change the default state or a
-  per-user/role override (`inherit` removes it); the tool clears that feature's cache, re-reads it
-  and fails with `feature_state_not_applied` instead of reporting a false success. On the OData
+  `set-feature-state` read the `AppFeature` virtual entity the Creatio feature page uses, so
+  features defined in `web.config`, package metadata or `GlobalAppSettings` are visible and
+  switchable, not only `Feature` table rows. Change the default state or a per-user/role override
+  (`inherit` removes it): saved to the `Feature` / `AdminUnitFeatureState` rows (the same rows the
+  platform writes; identical on .NET Framework and .NET 8), then the feature's cache is cleared and
+  the rows re-read — `feature_state_not_applied` instead of a false success, and
+  `cacheCleared: false` when an instance fails the cache clear (seen on .NET 8). On the OData
   backend the table-based workflow (`Feature` / `AdminUnitFeatureState` + `refresh-feature-cache`)
   is unchanged.
 - **`get-record-url`** — a browser link to any record (`{ entity, id }` → `{ url }`) through

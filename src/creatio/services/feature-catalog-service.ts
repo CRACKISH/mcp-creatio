@@ -2,62 +2,63 @@ import log from '../../log';
 import {
 	FeatureCatalogProvider,
 	FeatureDetails,
+	FeatureInfo,
 	FeatureListQuery,
 	FeatureListResult,
 	FeatureProvider,
-	FeatureStateChange,
+	FeatureStateChangeResult,
 	SetFeatureStateRequest,
 } from '../contracts';
 
-import { AppFeatureStore, FeatureRecord, withoutId } from './app-feature-store';
-
-function sameId(a: string, b: string): boolean {
-	return a.toLowerCase() === b.toLowerCase();
-}
+import { FeatureStore, withoutId } from './feature-store';
 
 function findOverride<T extends { adminUnitId: string }>(
 	items: readonly T[],
 	adminUnitId: string,
 ): T | undefined {
-	return items.find((item) => sameId(item.adminUnitId, adminUnitId));
+	const id = adminUnitId.toLowerCase();
+	return items.find((item) => item.adminUnitId.toLowerCase() === id);
 }
 
 /**
- * Feature-toggle catalog over {@link AppFeatureStore}. A state change follows the Freedom UI feature
- * page: write the virtual entity, clear that feature's cache (so the new state is effective
- * immediately), then re-read and verify — a write the platform silently ignored surfaces as an
- * error instead of a false success.
+ * Feature-toggle catalog over {@link FeatureStore}. A change is saved to the persisted rows (the
+ * same rows the Creatio feature page ends up writing), the feature's cache is cleared so it takes
+ * effect immediately, and the rows are re-read to verify it — a write Creatio silently ignored
+ * surfaces as `feature_state_not_applied` instead of a false success.
  */
 export class FeatureCatalogService implements FeatureCatalogProvider {
-	private readonly _store: AppFeatureStore;
+	private readonly _store: FeatureStore;
 	private readonly _cache: FeatureProvider;
 
-	public readonly kind = 'creatio-app-feature';
+	public readonly kind = 'creatio-feature-catalog';
 
-	constructor(store: AppFeatureStore, cache: FeatureProvider) {
+	constructor(store: FeatureStore, cache: FeatureProvider) {
 		this._store = store;
 		this._cache = cache;
 	}
 
-	private async _require(code: string): Promise<FeatureRecord> {
-		const record = await this._store.findByCode(code);
-		if (!record) {
+	private async _require(code: string): Promise<FeatureInfo> {
+		const feature = await this._store.findByCode(code);
+		if (!feature) {
 			throw new Error(`feature_not_found:${code}`);
 		}
-		return record;
+		return feature;
 	}
 
-	private async _details(record: FeatureRecord): Promise<FeatureDetails> {
-		const overrides = await this._store.overrides(record.id);
-		return { ...withoutId(record), overrides: overrides.map(withoutId) };
+	private async _setDefault(feature: FeatureInfo, enabled: boolean): Promise<void> {
+		const row = await this._store.featureRow(feature.code);
+		if (!row) {
+			await this._store.createFeature(feature, enabled);
+		} else if (row.enabledByDefault !== enabled) {
+			await this._store.setDefault(row.id, enabled);
+		}
 	}
 
-	private async _applyOverride(
-		featureId: string,
-		adminUnitId: string,
-		state: FeatureStateChange,
+	private async _setOverride(
+		feature: FeatureInfo,
+		{ state, adminUnitId }: SetFeatureStateRequest & { adminUnitId: string },
 	): Promise<void> {
-		const existing = findOverride(await this._store.overrides(featureId), adminUnitId);
+		const existing = findOverride(await this._store.overrides(feature.code), adminUnitId);
 		if (state === 'inherit') {
 			if (existing) {
 				await this._store.removeOverride(existing.id);
@@ -65,20 +66,45 @@ export class FeatureCatalogService implements FeatureCatalogProvider {
 			return;
 		}
 		const enabled = state === 'enabled';
-		if (!existing) {
-			await this._store.addOverride(featureId, adminUnitId, enabled);
-		} else if (existing.enabled !== enabled) {
-			await this._store.updateOverride(existing.id, enabled);
+		if (existing) {
+			if (existing.enabled !== enabled) {
+				await this._store.updateOverride(existing.id, enabled);
+			}
+			return;
+		}
+		// An override needs the feature's DB row; create it with the CURRENT default so the
+		// override never changes the default as a side effect (the platform does the same).
+		const row = await this._store.featureRow(feature.code);
+		const featureId = row
+			? row.id
+			: await this._store.createFeature(feature, feature.enabledByDefault);
+		await this._store.addOverride(featureId, adminUnitId, enabled);
+	}
+
+	/** Best effort: the change is already saved, so a failed clear is reported, not thrown — a
+	 *  throw would read as "not done" and invite a retry. */
+	private async _clearCache(code: string): Promise<boolean> {
+		try {
+			await this._cache.clearFeaturesCache(code);
+			return true;
+		} catch (err) {
+			log.warn('creatio.feature.cache_clear_failed', { code, error: String(err) });
+			return false;
 		}
 	}
 
-	private _isApplied(request: SetFeatureStateRequest, feature: FeatureDetails): boolean {
-		const enabled = request.state === 'enabled';
-		if (!request.adminUnitId) {
-			return feature.enabledByDefault === enabled;
+	/** Verified against the persisted rows, which (unlike the resolved state) do not depend on
+	 *  the feature cache. */
+	private async _isSaved(
+		{ code, state, adminUnitId }: SetFeatureStateRequest,
+		feature: FeatureDetails,
+	): Promise<boolean> {
+		const enabled = state === 'enabled';
+		if (!adminUnitId) {
+			return (await this._store.featureRow(code))?.enabledByDefault === enabled;
 		}
-		const override = findOverride(feature.overrides, request.adminUnitId);
-		return request.state === 'inherit' ? !override : override?.enabled === enabled;
+		const override = findOverride(feature.overrides, adminUnitId);
+		return state === 'inherit' ? !override : override?.enabled === enabled;
 	}
 
 	public listFeatures(query: FeatureListQuery): Promise<FeatureListResult> {
@@ -86,27 +112,32 @@ export class FeatureCatalogService implements FeatureCatalogProvider {
 	}
 
 	public async getFeature(code: string): Promise<FeatureDetails> {
-		return this._details(await this._require(code));
+		const [feature, overrides] = await Promise.all([
+			this._require(code),
+			this._store.overrides(code),
+		]);
+		return { ...feature, overrides: overrides.map(withoutId) };
 	}
 
-	public async setFeatureState(request: SetFeatureStateRequest): Promise<FeatureDetails> {
+	public async setFeatureState(
+		request: SetFeatureStateRequest,
+	): Promise<FeatureStateChangeResult> {
 		const { code, state, adminUnitId } = request;
 		if (state === 'inherit' && !adminUnitId) {
 			throw new Error('feature_inherit_requires_admin_unit');
 		}
-		// Read right before writing: a feature without a DB row has a per-session temporary id.
-		const record = await this._require(code);
+		const feature = await this._require(code);
 		if (adminUnitId) {
-			await this._applyOverride(record.id, adminUnitId, state);
+			await this._setOverride(feature, { ...request, adminUnitId });
 		} else {
-			await this._store.setDefault(record.id, state === 'enabled');
+			await this._setDefault(feature, state === 'enabled');
 		}
-		await this._cache.clearFeaturesCache(code);
-		const feature = await this.getFeature(code);
-		if (!this._isApplied(request, feature)) {
+		const cacheCleared = await this._clearCache(code);
+		const updated = await this.getFeature(code);
+		if (!(await this._isSaved(request, updated))) {
 			log.error('creatio.feature.state_not_applied', { code, state, adminUnitId });
 			throw new Error(`feature_state_not_applied:${code}`);
 		}
-		return feature;
+		return { ...updated, cacheCleared };
 	}
 }

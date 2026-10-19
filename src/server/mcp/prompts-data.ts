@@ -913,7 +913,7 @@ If \`list-features\` is available, use it — it is the same data the Creatio fe
 4. **Override for a user/role:** \`set-feature-state { code, state, adminUnitId }\` — \`adminUnitId\` is \`SysAdminUnit.Id\` (NOT a ContactId); resolve it with \`read\` on \`SysAdminUnit\` filtered by \`Name\`.
 5. **Remove an override:** \`set-feature-state { code, state: "inherit", adminUnitId }\`.
 
-\`set-feature-state\` clears that feature's cache and returns the re-read feature, so no \`refresh-feature-cache\` is needed. Changing a \`web.config\` / \`Metadata\` / \`GlobalAppSettings\` feature creates its \`Feature\` DB row; from then on the DB value takes precedence over the original source — exactly what the Creatio feature page does.
+\`set-feature-state\` clears that feature's cache and returns the re-read feature, so no \`refresh-feature-cache\` is needed. If the result has \`cacheCleared: false\`, the change is saved but the instance could not clear its cache (seen on .NET 8): it may take effect only after Creatio refreshes — tell the user. Changing a \`web.config\` / \`Metadata\` / \`GlobalAppSettings\` feature creates its \`Feature\` DB row; from then on the DB value takes precedence over the original source — exactly what the Creatio feature page does.
 
 To create a brand-new feature, \`create\` a \`Feature\` row (\`Code\`, \`Name\`, \`DefaultState\`), then use the tools above.
 
