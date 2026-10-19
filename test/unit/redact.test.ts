@@ -40,8 +40,22 @@ describe('redactSecrets', () => {
 
 	it('masks access_token, refresh_token and BPMCSRF', () => {
 		expect(redactSecrets('access_token=AAA.BBB.CCC')).toBe('access_token=[REDACTED]');
-		expect(redactSecrets('"refresh_token": "rt-123"')).toContain('"refresh_token": "[REDACTED]"');
+		expect(redactSecrets('"refresh_token": "rt-123"')).toContain(
+			'"refresh_token": "[REDACTED]"',
+		);
 		expect(redactSecrets('Cookie: BPMCSRF=xyz123')).toContain('BPMCSRF=[REDACTED]');
+	});
+
+	// get-current-user-info relayed the caller's Creatio session id (`userInfo.sessionId`) to the
+	// LLM; it is never needed there and identifies a live session.
+	it('masks a Creatio session id in a tool result', () => {
+		const out = redactSecrets(
+			'{"userInfo":{"contactId":"c1","sessionId":"zmaqy2me1jnfrfmq4lvf2zos"}}',
+		);
+		expect(out).not.toContain('zmaqy2me1jnfrfmq4lvf2zos');
+		expect(out).toContain('"sessionId":"[REDACTED]"');
+		expect(out).toContain('"contactId":"c1"');
+		expect(() => JSON.parse(out)).not.toThrow();
 	});
 
 	it('leaves non-secret text untouched', () => {

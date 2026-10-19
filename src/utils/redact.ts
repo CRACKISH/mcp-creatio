@@ -30,7 +30,7 @@ const AUTHORIZATION_HEADER_RE = /\b(Authorization)(\s*[:=]\s*)[^\s,;"']+/gi;
  * the next delimiter/closing quote is masked. Stops before a closing `"` so JSON stays well-formed.
  */
 const SECRET_PARAM_RE =
-	/("?\b(?:client_secret|client_id_secret|api_key|apikey|password|passwd|pwd|access_token|refresh_token|id_token|session_token|secret|bpmcsrf)\b"?\s*[:=]\s*)("?)[^"\s,;&}]+/gi;
+	/("?\b(?:client_secret|client_id_secret|api_key|apikey|password|passwd|pwd|access_token|refresh_token|id_token|session_token|sessionid|session_id|secret|bpmcsrf)\b"?\s*[:=]\s*)("?)[^"\s,;&}]+/gi;
 
 /**
  * Mask credential-looking substrings in arbitrary text. Idempotent (re-running yields the same
