@@ -4,7 +4,9 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.8]
+
+OAuth scope fix for older Creatio versions ([#2](https://github.com/CRACKISH/mcp-creatio/issues/2)).
 
 ### Added
 
@@ -312,6 +314,9 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.6.8]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.8
+[0.6.7]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.7
+[0.6.6]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.6
 [0.6.5]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.5
 [0.6.4]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.4
 [0.6.3]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.3
