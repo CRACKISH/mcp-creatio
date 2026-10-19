@@ -8,6 +8,7 @@ import {
 	FeatureProvider,
 	NavigationProvider,
 	ProcessProvider,
+	RecordFilesProvider,
 	SysSettingsProvider,
 	UserProvider,
 } from '../contracts';
@@ -25,6 +26,7 @@ import { CreatioHttpClient } from './http-client';
 import { NavigationServiceProvider } from './navigation-service-provider';
 import { ODataMetadataStore } from './odata/metadata-store';
 import { ProcessServiceProvider } from './process-service-provider';
+import { RecordFilesService } from './record-files-service';
 import { SchemaFreshnessGate } from './schema-freshness-gate';
 import { SysSettingsServiceProvider } from './sys-settings-service-provider';
 import { UserInfoProvider } from './user-info-provider';
@@ -43,6 +45,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 	public readonly featureCatalog?: FeatureCatalogProvider;
 	public readonly navigation: NavigationProvider;
 	public readonly process: ProcessProvider;
+	public readonly recordFiles: RecordFilesProvider;
 	public readonly sysSettings: SysSettingsProvider;
 	public readonly user: UserProvider;
 
@@ -75,6 +78,7 @@ export class CreatioServiceContext implements CreatioProviderContext {
 		}
 		this.navigation = new NavigationServiceProvider(this._httpClient);
 		this.process = new ProcessServiceProvider(this._httpClient);
+		this.recordFiles = new RecordFilesService(this.crud, this.navigation);
 		this.sysSettings = new SysSettingsServiceProvider(this._httpClient);
 		this.user = new UserInfoProvider(this._httpClient);
 	}

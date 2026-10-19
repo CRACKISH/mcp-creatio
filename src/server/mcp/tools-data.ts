@@ -687,6 +687,30 @@ export const getRecordUrlDescriptor = makeToolDescriptor({
 	inputShape: getRecordUrlInputShape,
 });
 
+const listRecordFilesInputShape = {
+	entity: z
+		.string()
+		.min(1)
+		.describe('Object (schema) name of the record, e.g. "Account", "Opportunity", "Case".'),
+	id: creatioGuid().describe('Record Id.'),
+	top: z.coerce
+		.number()
+		.int()
+		.min(1)
+		.max(200)
+		.default(50)
+		.describe('Max attachments to return (default 50), newest first.'),
+} as const;
+
+export const listRecordFilesInput = z.object(listRecordFilesInputShape);
+
+export const listRecordFilesDescriptor = makeToolDescriptor({
+	title: "List a Creatio record's attachments",
+	description:
+		"Lists the files and links attached to one record — from both storages Creatio uses (the object's `<Entity>File` table and the generic `SysFile`), newest first. Response: { files: [{ id, name, kind: 'file' | 'link' | 'object-link', size, createdOn, storage, downloadUrl? (files), url? (links) }], hasMore }. Metadata only: the content is never downloaded. `downloadUrl` opens in the user's signed-in Creatio browser session — hand it to the user, it is not fetchable by you.",
+	inputShape: listRecordFilesInputShape,
+});
+
 const featureCode = () =>
 	z.string().min(1).describe('Feature code, exact match (e.g., "FreedomUIComposableApp").');
 

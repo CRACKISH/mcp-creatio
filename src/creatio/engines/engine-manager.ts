@@ -6,6 +6,7 @@ import {
 	FeatureProvider,
 	NavigationProvider,
 	ProcessProvider,
+	RecordFilesProvider,
 	SysSettingsProvider,
 	UserProvider,
 } from '../contracts';
@@ -19,6 +20,7 @@ import { EngineRegistry, EngineType } from './engine-registry';
 import { FeatureEngine } from './feature-engine';
 import { NavigationEngine } from './navigation-engine';
 import { ProcessEngine } from './process-engine';
+import { RecordFilesEngine } from './record-files-engine';
 import { SysSettingsEngine } from './sys-settings-engine';
 import { UserEngine } from './user-engine';
 
@@ -29,6 +31,7 @@ export interface EngineManagerOptions {
 	featureProvider?: FeatureProvider;
 	navigationProvider?: NavigationProvider;
 	processProvider?: ProcessProvider;
+	recordFilesProvider?: RecordFilesProvider;
 	sysSettingsProvider?: SysSettingsProvider;
 	userProvider?: UserProvider;
 	enableAdminOperation?: boolean;
@@ -37,6 +40,7 @@ export interface EngineManagerOptions {
 	enableFeature?: boolean;
 	enableNavigation?: boolean;
 	enableProcess?: boolean;
+	enableRecordFiles?: boolean;
 	enableSysSettings?: boolean;
 	enableUser?: boolean;
 	/** When true, every mutating engine operation throws {@link ReadonlyModeError}. */
@@ -85,6 +89,10 @@ export class CreatioEngineManager {
 
 	public get process(): ProcessEngine {
 		return this._registry.require<ProcessEngine>(EngineType.Process);
+	}
+
+	public get recordFiles(): RecordFilesEngine {
+		return this._registry.require<RecordFilesEngine>(EngineType.RecordFiles);
 	}
 
 	public get sysSettings(): SysSettingsEngine {
@@ -156,6 +164,15 @@ export class CreatioEngineManager {
 					this._env,
 				),
 			this._options?.enableProcess ?? true,
+		);
+		this._registerEngine(
+			EngineType.RecordFiles,
+			() =>
+				new RecordFilesEngine(
+					this._options?.recordFilesProvider ?? this._context.recordFiles,
+					this._env,
+				),
+			this._options?.enableRecordFiles ?? true,
 		);
 		this._registerEngine(
 			EngineType.SysSettings,

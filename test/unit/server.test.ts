@@ -110,6 +110,18 @@ describe('get-record-url', () => {
 	});
 });
 
+describe('list-record-files', () => {
+	it('is a read-only tool (registered in readonly mode) that delegates with a default top', async () => {
+		const { handlers, context } = buildServer(true);
+		await callTool(handlers, 'list-record-files', { entity: 'Account', id: GUID });
+		expect(context.recordFiles.listRecordFiles).toHaveBeenCalledWith({
+			entity: 'Account',
+			id: GUID,
+			top: 50,
+		});
+	});
+});
+
 describe('Feature catalog tools (DataService backend only)', () => {
 	const FEATURE_TOOLS = ['list-features', 'get-feature', 'set-feature-state'];
 

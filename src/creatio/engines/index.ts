@@ -7,5 +7,6 @@ export * from './crud-engine';
 export * from './feature-engine';
 export * from './navigation-engine';
 export * from './process-engine';
+export * from './record-files-engine';
 export * from './sys-settings-engine';
 export * from './user-engine';

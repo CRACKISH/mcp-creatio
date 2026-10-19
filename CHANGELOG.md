@@ -23,6 +23,11 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   on both .NET Framework and .NET 8, sends a signed-out visitor through login and back, and falls
   back to the home page for objects without a record page. Built locally (no request); honors the
   gateway tenant override; available in readonly mode.
+- **`list-record-files`** — a record's attachments from both places Creatio keeps them (the
+  object's `<Entity>File` table and the generic `SysFile`), newest first: name, kind (`file` /
+  `link` / `object-link`), size, date, and a `downloadUrl` for files (opens in a signed-in Creatio
+  browser) or the target `url` for links. Metadata only — the content is never read. Objects
+  without an `<Entity>File` table are handled; works on both backends and runtimes.
 - **"Did you mean …?" for unknown entities and columns** — when Creatio rejects a name (in
   `select`, filters, `orderBy`, or a create/update body), the error now names the closest known
   ones from the cached schema or entity list, e.g. `unknown_column:Emial (Contact). Did you mean:

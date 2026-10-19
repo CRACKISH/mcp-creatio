@@ -7,6 +7,7 @@ import {
 	FeatureProvider,
 	NavigationProvider,
 	ProcessProvider,
+	RecordFilesProvider,
 	SysSettingsProvider,
 	UserProvider,
 } from './contracts';
@@ -21,6 +22,7 @@ export interface CreatioProviderContext {
 	featureCatalog?: FeatureCatalogProvider;
 	navigation: NavigationProvider;
 	process: ProcessProvider;
+	recordFiles: RecordFilesProvider;
 	sysSettings: SysSettingsProvider;
 	user: UserProvider;
 	/** Optional: proactively refresh the schema-freshness snapshot (implemented by

@@ -55,6 +55,8 @@ import {
 	listEntitiesInput,
 	listFeaturesDescriptor,
 	listFeaturesInput,
+	listRecordFilesDescriptor,
+	listRecordFilesInput,
 	querySysSettingsDescriptor,
 	querySysSettingsInput,
 	refreshFeatureCacheDescriptor,
@@ -403,6 +405,7 @@ export class Server {
 			adminOperation,
 			configuration,
 			navigation,
+			recordFiles,
 		} = this._engines;
 		const featureCatalog = this._featureCatalogToolDefs();
 		const core: ClientToolDef[] = [
@@ -441,6 +444,12 @@ export class Server {
 				descriptor: getRecordUrlDescriptor,
 				input: getRecordUrlInput,
 				run: async ({ entity, id }) => ({ url: navigation.recordUrl(entity, id) }),
+			},
+			{
+				name: 'list-record-files',
+				descriptor: listRecordFilesDescriptor,
+				input: listRecordFilesInput,
+				run: (query) => recordFiles.listRecordFiles(query),
 			},
 			...featureCatalog.core,
 		];

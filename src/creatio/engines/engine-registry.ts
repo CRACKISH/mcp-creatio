@@ -7,6 +7,7 @@ export enum EngineType {
 	Feature = 'feature',
 	Navigation = 'navigation',
 	Process = 'process',
+	RecordFiles = 'record-files',
 	SysSettings = 'sys-settings',
 	User = 'user',
 }

@@ -115,8 +115,11 @@ CreatioServiceContext
   │     500 on .NET 8 — temporary per-session ids). Cache clear is best-effort (`cacheCleared`)
   ├─ AdminOperationServiceProvider → /rest/RightsService/{Upsert,Delete}AdminOperation[,Grantee]
   ├─ ConfigurationServiceProvider → generic /rest/<service>/<method> caller
-  ├─ NavigationServiceProvider → record links via /0/rest/NavigationService/Redirect (pure; the
-  │     platform resolves the classic / Freedom UI page on open, on .NET Framework and .NET 8)
+  ├─ NavigationServiceProvider → record links via /0/rest/NavigationService/Redirect and file
+  │     links via /0/rest/FileService/Download/<FileEntity>/<id> (pure; both runtimes)
+  ├─ RecordFilesService → a record's attachments over the CrudProvider: `<Entity>File` (FK
+  │     `<Entity>`, skipped when the table does not exist) + `SysFile` (RecordSchemaName +
+  │     RecordId); never selects `Data`
   └─ UserInfoProvider → UserInfoService for current user data
 ```
 

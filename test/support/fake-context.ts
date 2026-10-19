@@ -68,8 +68,16 @@ export function makeFakeContext(authType: AuthProviderType = AuthProviderType.Le
 			kind: 'feature',
 			clearFeaturesCache: vi.fn().mockResolvedValue({ success: true, message: 'ok' }),
 		},
+		recordFiles: {
+			kind: 'record-files',
+			listRecordFiles: vi.fn().mockResolvedValue({ files: [], hasMore: false }),
+		},
 		navigation: {
 			kind: 'navigation',
+			fileDownloadUrl: vi.fn(
+				(entity: string, id: string) =>
+					`https://tenant/0/rest/FileService/Download/${entity}/${id}`,
+			),
 			recordUrl: vi.fn(
 				(entity: string, id: string) =>
 					`https://tenant/0/rest/NavigationService/Redirect?schemaName=${entity}&recordId=${id}`,

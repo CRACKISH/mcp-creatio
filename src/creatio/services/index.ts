@@ -24,5 +24,6 @@ export * from './odata/metadata-store';
 export * from './odata/odata-crud-provider';
 export * from './odata/odata-query-translator';
 export * from './process-service-provider';
+export * from './record-files-service';
 export * from './sys-settings-service-provider';
 export * from './user-info-provider';
