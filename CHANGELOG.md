@@ -4,7 +4,10 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0]
+
+Record links, attachments, feature toggles from every source, "did you mean" errors, full support
+for Creatio on .NET 8, and tool descriptions rewritten for the model.
 
 ### Added
 
@@ -30,10 +33,12 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   without an `<Entity>File` table are handled; works on both backends and runtimes.
 - **"Did you mean …?" for unknown entities and columns** — when Creatio rejects a name (in
   `select`, filters, `orderBy`, or a create/update body), the error now names the closest known
-  ones from the cached schema or entity list, e.g. `unknown_column:Emial (Contact). Did you mean:
-Email?`. Each backend recognizes its own messages; the suggestions are computed once in the CRUD
+  ones from the cached schema or entity list, e.g.
+  `unknown_column:Emial (Contact). Did you mean: Email?`. Each backend recognizes its own messages; the suggestions are computed once in the CRUD
   engine and never replace the original error when they cannot be computed. DataService used to
   drop an unknown `select` column silently; it is now reported like OData does.
+- **Dotted related-column paths on the OData backend** — `Account.Name` in filters and `orderBy` now
+  works on both backends (OData used to accept only `Account/Name`).
 
 ### Fixed
 
@@ -402,6 +407,7 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.7.0]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.7.0
 [0.6.8]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.8
 [0.6.7]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.7
 [0.6.6]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.6
