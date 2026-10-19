@@ -60,16 +60,18 @@ describe('DataService ordering on fields that are not selected', () => {
 		expect(projected.items).toEqual([{ Id: '1' }]);
 	});
 
-	it('uses expanded schema column names as-is (a real `TimeZoneId` is not a lookup path)', () => {
+	it('rewrites XxxId only for a known lookup Xxx (a real `FacebookId` column stays as-is)', () => {
 		const builder = new DataServiceQueryBuilder();
-		const query = { entity: 'Contact', columns: ['TimeZoneId'] };
-		expect(
-			builder.buildSelectQuery(query).columns.items.TimeZoneId!.expression.columnPath,
-		).toBe('TimeZone.Id');
-		expect(
-			builder.buildSelectQuery(query, { exactColumns: true }).columns.items.TimeZoneId!
-				.expression.columnPath,
-		).toBe('TimeZoneId');
+		const query = { entity: 'Contact', columns: ['FacebookId', 'AccountId'] };
+		const paths = (lookups?: Set<string>) => {
+			const items = builder.buildSelectQuery(query, lookups ? { lookups } : {}).columns.items;
+			return [
+				items.FacebookId!.expression.columnPath,
+				items.AccountId!.expression.columnPath,
+			];
+		};
+		expect(paths()).toEqual(['Facebook.Id', 'Account.Id']); // no schema: the heuristic
+		expect(paths(new Set(['Account']))).toEqual(['FacebookId', 'Account.Id']);
 	});
 
 	it('leaves an unordered all-columns read in all-columns mode (no schema fetch)', async () => {

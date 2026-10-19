@@ -216,8 +216,26 @@ describe('DataServiceCrudProvider.read (transport)', () => {
 		expect(Object.keys(calls[0].body.columns.items)).toEqual(['Id']);
 	});
 
-	it('translates a structured filter into the SelectQuery Filters tree', async () => {
-		const { client, calls } = makeClient([{ rows: [] }]);
+	const schemaWith = (columns: Record<string, DataValueType>) => ({
+		success: true,
+		schema: {
+			name: 'X',
+			columns: {
+				Items: Object.fromEntries(
+					Object.entries(columns).map(([name, dataValueType]) => [
+						name,
+						{ name, dataValueType },
+					]),
+				),
+			},
+		},
+	});
+
+	it('translates a structured filter into the SelectQuery Filters tree (lookup FK -> Contact.Id)', async () => {
+		const { client, calls } = makeClient([
+			schemaWith({ Contact: DataValueType.Lookup }),
+			{ rows: [] },
+		]);
 		const provider = new DataServiceCrudProvider(client as never);
 		await provider.read({
 			entity: 'Opportunity',
@@ -227,10 +245,28 @@ describe('DataServiceCrudProvider.read (transport)', () => {
 				items: [{ kind: 'condition', field: 'ContactId', op: 'eq', value: GUID2 }],
 			},
 		});
-		expect(calls[0].body.filters.rootSchemaName).toBe('Opportunity');
-		expect(calls[0].body.filters.rightExpression.parameter.dataValueType).toBe(
-			DataValueType.Guid,
-		);
+		expect(calls[0].url).toContain('/RuntimeEntitySchemaRequest');
+		const select = calls[1].body;
+		expect(select.filters.rootSchemaName).toBe('Opportunity');
+		expect(select.filters.leftExpression.columnPath).toBe('Contact.Id');
+		expect(select.filters.rightExpression.parameter.dataValueType).toBe(DataValueType.Guid);
+	});
+
+	// Live-found: SysFile.RecordId is a real GUID column; rewriting it to Record.Id made the
+	// column "not found" (select) and broke the filter.
+	it('keeps a real GUID column ending in Id (no lookup of that name) as-is', async () => {
+		const { client, calls } = makeClient([
+			schemaWith({ RecordId: DataValueType.Guid, Name: DataValueType.Text }),
+			{ rows: [] },
+		]);
+		await new DataServiceCrudProvider(client as never).read({
+			entity: 'SysFile',
+			columns: ['Name', 'RecordId'],
+			filter: { kind: 'condition', field: 'RecordId', op: 'eq', value: GUID2 },
+		});
+		const select = calls[1].body;
+		expect(select.columns.items.RecordId.expression.columnPath).toBe('RecordId');
+		expect(select.filters.leftExpression.columnPath).toBe('RecordId');
 	});
 
 	it('issues a second COUNT aggregation query when count is requested', async () => {

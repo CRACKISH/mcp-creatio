@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser';
 import log from '../../../log';
 import { EntitySchemaDescription } from '../../contracts';
 import { CreatioHttpClient } from '../http-client';
+import { LookupNames } from '../lookup-path';
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
 import { VersionedTtlCache } from '../versioned-ttl-cache';
 
@@ -190,6 +191,23 @@ export class ODataMetadataStore {
 			const serviceSets = await this._tryGetEntitySetsFromService();
 			return serviceSets ?? (await this._getEntitySetsFromMetadata());
 		});
+	}
+
+	/** The entity's navigation properties (its lookups, e.g. `Account`), from the cached
+	 *  `$metadata`; `undefined` for an unknown entity set. */
+	public async lookupNames(entitySet: string): Promise<LookupNames | undefined> {
+		const doc = await this._getDoc();
+		this._ensureIndexes(doc);
+		const typeName = doc.entityTypeBySet!.get(entitySet)?.split('.').pop();
+		const typeNode = typeName ? doc.typeNodeByName!.get(typeName) : undefined;
+		if (!typeNode) {
+			return undefined;
+		}
+		return new Set(
+			this._arrayify<any>(typeNode.NavigationProperty)
+				.map((nav) => String(nav?.['@_Name'] ?? ''))
+				.filter(Boolean),
+		);
 	}
 
 	public async describeEntity(entitySet: string): Promise<EntitySchemaDescription> {

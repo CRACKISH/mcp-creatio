@@ -1,6 +1,6 @@
 import { FilterCondition, FilterInCondition, FilterNode, ReadQuery } from '../../contracts';
 import { isGuid, isIsoDateLike } from '../identifiers';
-import { lookupIdPath } from '../lookup-path';
+import { LookupNames, lookupIdPath } from '../lookup-path';
 
 /**
  * Projects a neutral {@link ReadQuery} onto OData query-string parameters. This is the
@@ -70,11 +70,18 @@ export class ODataQueryTranslator {
 
 	/** Navigate a lookup compared to a GUID to its `Id` path (`ContactId`/`Owner`/`Contact/Type`
 	 *  -> `…/Id`); non-GUID values and already-`Id` paths are left untouched. */
-	private _lookupNavField(field: string, value: unknown): string {
-		return isGuid(value) ? lookupIdPath(field, '/') : field;
+	private _lookupNavField(
+		field: string,
+		value: unknown,
+		lookups: LookupNames | undefined,
+	): string {
+		return isGuid(value) ? lookupIdPath(field, '/', lookups) : field;
 	}
 
-	private _condition(node: FilterCondition): string | undefined {
+	private _condition(
+		node: FilterCondition,
+		lookups: LookupNames | undefined,
+	): string | undefined {
 		const field = this._assertPath(String(node.field));
 		const { op } = node;
 		if (op === 'isNull') {
@@ -91,31 +98,35 @@ export class ODataQueryTranslator {
 			return `${field} ${op} null`;
 		}
 		// Lookup-nav rewrite only applies to equality/inequality against a GUID.
-		const f = op === 'eq' || op === 'ne' ? this._lookupNavField(field, node.value) : field;
+		const f =
+			op === 'eq' || op === 'ne' ? this._lookupNavField(field, node.value, lookups) : field;
 		return `${f} ${op} ${this._literalFor(f, node.value)}`;
 	}
 
-	private _inCondition(node: FilterInCondition): string | undefined {
+	private _inCondition(
+		node: FilterInCondition,
+		lookups: LookupNames | undefined,
+	): string | undefined {
 		if (!node.values.length) {
 			return undefined;
 		}
 		this._assertPath(String(node.field));
 		const parts = node.values.map((v) => {
-			const f = this._lookupNavField(node.field, v);
+			const f = this._lookupNavField(node.field, v, lookups);
 			return `${f} eq ${this._literalFor(f, v)}`;
 		});
 		return parts.length === 1 ? parts[0] : `(${parts.join(' or ')})`;
 	}
 
-	private _node(node: FilterNode): string | undefined {
+	private _node(node: FilterNode, lookups: LookupNames | undefined): string | undefined {
 		if (node.kind === 'condition') {
-			return this._condition(node);
+			return this._condition(node, lookups);
 		}
 		if (node.kind === 'in') {
-			return this._inCondition(node);
+			return this._inCondition(node, lookups);
 		}
 		const rendered = node.items
-			.map((n) => this._node(n))
+			.map((n) => this._node(n, lookups))
 			.filter((s): s is string => Boolean(s));
 		if (!rendered.length) {
 			return undefined;
@@ -127,8 +138,8 @@ export class ODataQueryTranslator {
 	}
 
 	/** Combine the structured filter with an optional raw `$filter` escape hatch (AND-joined). */
-	private _resolveFilter(query: ReadQuery): string | undefined {
-		const structured = this.translateFilter(query.filter);
+	private _resolveFilter(query: ReadQuery, lookups: LookupNames | undefined): string | undefined {
+		const structured = this.translateFilter(query.filter, lookups);
 		const raw = query.odata?.rawFilter?.trim() || undefined;
 		if (raw && structured) {
 			return `(${raw}) and (${structured})`;
@@ -143,15 +154,20 @@ export class ODataQueryTranslator {
 		return query.order.map((o) => `${this._assertPath(o.field)} ${o.dir}`).join(', ');
 	}
 
-	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty). */
-	public translateFilter(node: FilterNode | undefined): string | undefined {
-		return node ? this._node(node) : undefined;
+	/** Render a {@link FilterNode} into an OData `$filter` expression (or undefined if empty).
+	 *  `lookups` (the entity's navigation properties, when known) decide whether a top-level
+	 *  `XxxId` compared to a GUID is a lookup FK (`Xxx/Id`) or a real GUID column. */
+	public translateFilter(
+		node: FilterNode | undefined,
+		lookups?: LookupNames,
+	): string | undefined {
+		return node ? this._node(node, lookups) : undefined;
 	}
 
 	/** Build the encoded OData query-string params for a read. */
-	public buildQueryParams(query: ReadQuery): string[] {
+	public buildQueryParams(query: ReadQuery, lookups?: LookupNames): string[] {
 		const params: string[] = [];
-		const filter = this._resolveFilter(query);
+		const filter = this._resolveFilter(query, lookups);
 		if (filter) {
 			params.push(`$filter=${encodeURIComponent(filter)}`);
 		}

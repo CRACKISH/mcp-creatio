@@ -40,6 +40,11 @@ Email?`. Each backend recognizes its own messages; the suggestions are computed 
   404'd), **`client_credentials` / `broker` / `delegated` discovery** without an explicit
   `CREATIO_ID_BASE_URL`, and **schema-cache freshness** (`api/ClientCache`) on .NET 8.
   .NET Framework instances are unchanged.
+- **A real column ending in `Id` was mistaken for a lookup FK** — the `XxxId → Xxx.Id` rewrite
+  (needed for lookup filters) also hit genuine columns such as `SysFile.RecordId` or
+  `Contact.FacebookId`, which then failed or, on DataService, silently vanished from `select`. The
+  rewrite now applies only when `Xxx` is a lookup of the entity (from the cached schema / OData
+  metadata, fetched only for queries that use such a field), on both backends.
 - **DataService `orderBy` was silently ignored** when the sort field was not in `select`, or when
   `select` was omitted (DataService sorts only by columns of the query and ignores sorting in
   all-columns mode). An order-only column now carries the sort (stripped from the result), and an

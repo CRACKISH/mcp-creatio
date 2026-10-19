@@ -1,5 +1,5 @@
 import { OrderSpec, ReadQuery } from '../../contracts';
-import { lookupIdPath } from '../lookup-path';
+import { LookupNames, lookupIdPath } from '../lookup-path';
 
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import {
@@ -48,9 +48,9 @@ export class DataServiceQueryBuilder {
 	private _column(
 		requested: string,
 		hint: { dir: OrderDirection; pos: number } | undefined,
-		exact = false,
+		lookups: LookupNames | undefined,
 	): DataServiceSelectColumn {
-		const columnPath = exact ? requested : lookupIdPath(requested.replace(/\//g, '.'), '.');
+		const columnPath = lookupIdPath(requested.replace(/\//g, '.'), '.', lookups);
 		const column: DataServiceSelectColumn = {
 			expression: { expressionType: ExpressionType.SchemaColumn, columnPath },
 		};
@@ -62,28 +62,25 @@ export class DataServiceQueryBuilder {
 	}
 
 	/**
-	 * @param opts.exactColumns `columns` are real schema column names (an expanded all-columns
-	 *   read), used as-is: a genuine column like `TimeZoneId` must not be rewritten to `TimeZone.Id`.
+	 * @param opts.lookups the entity's lookup columns, when known: a top-level `XxxId` is then
+	 *   rewritten to `Xxx.Id` only for a real lookup `Xxx` (a genuine `FacebookId` / `RecordId`
+	 *   column stays as-is); without them the `Id`-suffix heuristic applies.
 	 */
 	public buildSelectQuery(
 		query: ReadQuery,
-		opts: { exactColumns?: boolean } = {},
+		opts: { lookups?: LookupNames } = {},
 	): DataServiceSelectQuery {
 		const orderByPath = this._orderMap(query.order);
 		const items: Record<string, DataServiceSelectColumn> = {};
 		const selected = query.columns && query.columns.length > 0 ? query.columns : [];
 		for (const requested of selected) {
-			items[requested] = this._column(
-				requested,
-				orderByPath.get(requested),
-				opts.exactColumns,
-			);
+			items[requested] = this._column(requested, orderByPath.get(requested), opts.lookups);
 		}
 		// DataService sorts only by columns of the query, so an order term on an unselected field
 		// gets its own column (the provider's projection strips it from the result again).
 		for (const [field, hint] of orderByPath) {
 			if (selected.length > 0 && !items[field]) {
-				items[field] = this._column(field, hint);
+				items[field] = this._column(field, hint, opts.lookups);
 			}
 		}
 
@@ -93,7 +90,7 @@ export class DataServiceQueryBuilder {
 			columns: { items },
 			allColumns: selected.length === 0,
 		};
-		const filters = this._filters.translate(query.entity, query.filter);
+		const filters = this._filters.translate(query.entity, query.filter, opts.lookups);
 		if (filters) {
 			select.filters = filters;
 		}
@@ -112,7 +109,10 @@ export class DataServiceQueryBuilder {
 	/** Build a COUNT(*) SelectQuery over the same filters (ignores paging), used to resolve
 	 *  the total when a read requests `count`. The aggregate is returned under
 	 *  {@link COUNT_COLUMN_ALIAS} in the single response row. */
-	public buildCountQuery(query: ReadQuery): DataServiceSelectQuery {
+	public buildCountQuery(
+		query: ReadQuery,
+		opts: { lookups?: LookupNames } = {},
+	): DataServiceSelectQuery {
 		const countColumn: DataServiceSelectColumn = {
 			expression: {
 				expressionType: ExpressionType.Function,
@@ -128,7 +128,7 @@ export class DataServiceQueryBuilder {
 			columns: { items: { [COUNT_COLUMN_ALIAS]: countColumn } },
 			allColumns: false,
 		};
-		const filters = this._filters.translate(query.entity, query.filter);
+		const filters = this._filters.translate(query.entity, query.filter, opts.lookups);
 		if (filters) {
 			select.filters = filters;
 		}

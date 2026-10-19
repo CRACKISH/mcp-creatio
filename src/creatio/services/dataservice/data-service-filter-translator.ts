@@ -1,5 +1,5 @@
 import { FilterComparison, FilterCondition, FilterInCondition, FilterNode } from '../../contracts';
-import { lookupIdPath } from '../lookup-path';
+import { LookupNames, lookupIdPath } from '../lookup-path';
 
 import {
 	DataServiceExpression,
@@ -54,15 +54,19 @@ export class DataServiceFilterTranslator {
 	 * to a GUID we navigate it to its primary key (`Owner` -> `Owner.Id`,
 	 * `Contact/Type` -> `Contact.Type.Id`). Non-GUID values keep the plain (dotted) path.
 	 */
-	private _columnPath(field: string, value?: unknown): string {
+	private _columnPath(field: string, value: unknown, lookups: LookupNames | undefined): string {
 		const path = field.replace(/\//g, '.');
-		return isGuid(value) ? lookupIdPath(path, '.') : path;
+		return isGuid(value) ? lookupIdPath(path, '.', lookups) : path;
 	}
 
-	private _column(field: string, value?: unknown): DataServiceExpression {
+	private _column(
+		field: string,
+		value: unknown,
+		lookups: LookupNames | undefined,
+	): DataServiceExpression {
 		return {
 			expressionType: ExpressionType.SchemaColumn,
-			columnPath: this._columnPath(field, value),
+			columnPath: this._columnPath(field, value, lookups),
 		};
 	}
 
@@ -74,16 +78,21 @@ export class DataServiceFilterTranslator {
 		};
 	}
 
-	private _compare(field: string, op: FilterComparison, value: unknown): DataServiceFilter {
+	private _compare(
+		field: string,
+		op: FilterComparison,
+		value: unknown,
+		lookups: LookupNames | undefined,
+	): DataServiceFilter {
 		return {
 			filterType: FilterType.CompareFilter,
 			comparisonType: COMPARISON[op as Exclude<FilterComparison, 'isNull' | 'isNotNull'>],
-			leftExpression: this._column(field, value),
+			leftExpression: this._column(field, value, lookups),
 			rightExpression: this._parameter(field, value),
 		};
 	}
 
-	private _condition(node: FilterCondition): DataServiceFilter {
+	private _condition(node: FilterCondition, lookups: LookupNames | undefined): DataServiceFilter {
 		if (node.op === 'isNull' || node.op === 'isNotNull') {
 			const isNull = node.op === 'isNull';
 			return {
@@ -94,10 +103,10 @@ export class DataServiceFilterTranslator {
 				// The platform's Filter.IsNull defaults to TRUE, so an IsNullFilter without this
 				// flag is always treated as IS NULL (inverting isNotNull). Set it explicitly.
 				isNull,
-				leftExpression: this._column(node.field),
+				leftExpression: this._column(node.field, undefined, lookups),
 			};
 		}
-		return this._compare(node.field, node.op, node.value);
+		return this._compare(node.field, node.op, node.value, lookups);
 	}
 
 	private _group(
@@ -120,35 +129,43 @@ export class DataServiceFilterTranslator {
 		return { filterType: FilterType.Group, logicalOperation: logic, items };
 	}
 
-	private _in(node: FilterInCondition): DataServiceFilter | undefined {
+	private _in(
+		node: FilterInCondition,
+		lookups: LookupNames | undefined,
+	): DataServiceFilter | undefined {
 		return this._group(
 			LogicalOperation.Or,
-			node.values.map((v) => this._compare(node.field, 'eq', v)),
+			node.values.map((v) => this._compare(node.field, 'eq', v, lookups)),
 		);
 	}
 
-	private _node(node: FilterNode): DataServiceFilter | undefined {
+	private _node(
+		node: FilterNode,
+		lookups: LookupNames | undefined,
+	): DataServiceFilter | undefined {
 		if (node.kind === 'condition') {
-			return this._condition(node);
+			return this._condition(node, lookups);
 		}
 		if (node.kind === 'in') {
-			return this._in(node);
+			return this._in(node, lookups);
 		}
 		return this._group(
 			node.logic === 'or' ? LogicalOperation.Or : LogicalOperation.And,
-			node.items.map((n) => this._node(n)),
+			node.items.map((n) => this._node(n, lookups)),
 		);
 	}
 
-	/** Build the root `Filters` for a schema, or undefined when the tree is empty. */
+	/** Build the root `Filters` for a schema, or undefined when the tree is empty. `lookups` (the
+	 *  schema's lookup columns, when known) decide whether a top-level `XxxId` is a lookup FK. */
 	public translate(
 		rootSchemaName: string,
 		node: FilterNode | undefined,
+		lookups?: LookupNames,
 	): DataServiceFilters | undefined {
 		if (!node) {
 			return undefined;
 		}
-		const filter = this._node(node);
+		const filter = this._node(node, lookups);
 		if (!filter) {
 			return undefined;
 		}

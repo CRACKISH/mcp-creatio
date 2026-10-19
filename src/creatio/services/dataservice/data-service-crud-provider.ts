@@ -12,6 +12,7 @@ import {
 } from '../../contracts';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
+import { LookupNames, needsLookupNames } from '../lookup-path';
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
 
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
@@ -24,8 +25,10 @@ import { DataServiceTransport } from './data-service-transport';
 import {
 	DataServiceFilters,
 	DataServiceSelectQuery,
+	DataValueType,
 	QueryOperationType,
 } from './data-service-types';
+import { toParameterDataValueType } from './data-service-value-type';
 
 const PRIMARY_KEY = 'Id';
 
@@ -110,20 +113,33 @@ export class DataServiceCrudProvider implements CrudProvider {
 		return buildColumnValues(remapped, makeTypeResolver(types));
 	}
 
-	/** DataService ignores sorting in all-columns mode, so an ordered read without `columns` lists
-	 *  the schema's columns explicitly. Without a schema it stays all-columns (unsorted, logged). */
-	private async _sortableQuery(
+	/**
+	 * The schema facts a read needs, from the cached schema and only when relevant: the lookup
+	 * columns that decide whether a top-level `XxxId` is a lookup FK, and — for an ordered read
+	 * without `columns`, since DataService ignores sorting in all-columns mode — the full column
+	 * list. Without a schema the read keeps the `Id`-suffix heuristic (and an unsorted all-columns
+	 * read, logged).
+	 */
+	private async _resolveRead(
 		query: ReadQuery,
-	): Promise<{ query: ReadQuery; expanded: boolean }> {
-		if (!query.order?.length || query.columns?.length) {
-			return { query, expanded: false };
+	): Promise<{ query: ReadQuery; lookups?: LookupNames }> {
+		const expand = Boolean(query.order?.length) && !query.columns?.length;
+		if (!expand && !needsLookupNames(query)) {
+			return { query };
 		}
-		const columns = [...(await this._schema.columnTypes(query.entity)).keys()];
-		if (!columns.length) {
-			log.warn('creatio.dataservice.read.order_ignored', { entity: query.entity });
-			return { query, expanded: false };
+		const types = await this._schema.columnTypes(query.entity);
+		if (!types.size) {
+			if (expand) {
+				log.warn('creatio.dataservice.read.order_ignored', { entity: query.entity });
+			}
+			return { query };
 		}
-		return { query: { ...query, columns }, expanded: true };
+		const lookups = new Set(
+			[...types]
+				.filter(([, type]) => toParameterDataValueType(type) === DataValueType.Lookup)
+				.map(([name]) => name),
+		);
+		return { query: expand ? { ...query, columns: [...types.keys()] } : query, lookups };
 	}
 
 	/** Keep only the requested columns (DataService auto-adds primary display/image columns
@@ -160,12 +176,11 @@ export class DataServiceCrudProvider implements CrudProvider {
 		assertEntityName(query.entity);
 		// top:0 means "no rows" (typically a count-only request). DataService cannot FETCH 0
 		// rows, so skip the row query entirely and return an empty set.
+		const resolved = await this._resolveRead(query);
+		const opts = resolved.lookups ? { lookups: resolved.lookups } : {};
 		let items: unknown[] = [];
 		if (query.top !== 0) {
-			const sortable = await this._sortableQuery(query);
-			const select = this._queryBuilder.buildSelectQuery(sortable.query, {
-				exactColumns: sortable.expanded,
-			});
+			const select = this._queryBuilder.buildSelectQuery(resolved.query, opts);
 			const body = await this._transport.post('SelectQuery', select, {
 				logContext: { entity: query.entity, top: query.top, skip: query.skip },
 			});
@@ -184,7 +199,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 		}
 		const countBody = await this._transport.post(
 			'SelectQuery',
-			this._queryBuilder.buildCountQuery(query),
+			this._queryBuilder.buildCountQuery(query, opts),
 			{ logContext: { entity: query.entity, count: true } },
 		);
 		const totalCount = this._extractCount(countBody);

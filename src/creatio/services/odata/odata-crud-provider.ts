@@ -1,3 +1,4 @@
+import log from '../../../log';
 import {
 	CrudCapabilities,
 	CrudDeleteParams,
@@ -11,6 +12,7 @@ import {
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { GUID_RE } from '../identifiers';
+import { LookupNames, needsLookupNames } from '../lookup-path';
 
 import { ODataMetadataStore } from './metadata-store';
 import { toUnknownNameError } from './odata-errors';
@@ -49,6 +51,22 @@ export class ODataCrudProvider implements CrudProvider {
 		// Validate to prevent path/segment injection into the request URL (CWE-20 / CWE-943).
 		const name = assertEntityName(entity);
 		return `${await odataRoot(this._client.normalizedBaseUrl)}/${name}`;
+	}
+
+	/** Only a top-level `XxxId` filter needs them; a metadata failure keeps the heuristic. */
+	private async _lookupNames(query: ReadQuery): Promise<LookupNames | undefined> {
+		if (!needsLookupNames(query)) {
+			return undefined;
+		}
+		try {
+			return await this._metadataStore.lookupNames(query.entity);
+		} catch (err) {
+			log.warn('creatio.odata.lookup_names_unavailable', {
+				entity: query.entity,
+				error: String(err),
+			});
+			return undefined;
+		}
 	}
 
 	private _formatEntityKey(id: string): string {
@@ -90,7 +108,10 @@ export class ODataCrudProvider implements CrudProvider {
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		const { entity, count } = query;
-		const queryParams = this._translator.buildQueryParams(query);
+		const queryParams = this._translator.buildQueryParams(
+			query,
+			await this._lookupNames(query),
+		);
 		const url = (await this._buildEntityUrl(entity)) + this._buildQueryString(queryParams);
 		return this._client.request(
 			'read',
