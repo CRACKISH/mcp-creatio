@@ -54,10 +54,7 @@ export interface BrokerAuthConfig extends ICreatioAuthConfig, CreatioIdentityOpt
 }
 
 export type CreatioClientAuthConfig =
-	| LegacyAuthConfig
-	| OAuth2AuthConfig
-	| BearerAuthConfig
-	| BrokerAuthConfig;
+	LegacyAuthConfig | OAuth2AuthConfig | BearerAuthConfig | BrokerAuthConfig;
 
 /**
  * Which Creatio data API backs the CRUD provider. Selected per-deployment (env), the same

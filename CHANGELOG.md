@@ -24,6 +24,15 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   still read as `""`), and a DataService lookup is a compact `{ value, displayValue }` without the
   UI-only image/colour hints. Types come from the response's own column metadata, not guessing.
 
+### Security
+
+- **Dependencies updated within their ranges; `npm audit` is clean (was 9 advisories, 1 critical).**
+  Minimum versions raised so installs cannot resolve a vulnerable release: `@modelcontextprotocol/sdk`
+  ^1.32.1 (OAuth client could send credentials to a server-chosen authorization server), `undici`
+  ^6.29.1 (response desynchronization / CRLF injection), `fast-xml-parser` ^5.11.2 (entity-expansion
+  limit reset), `express` ^5.3.0 (pulls patched `proxy-addr` — IP spoofing behind a trusted proxy —
+  and `qs`). Dev tooling refreshed (vitest, eslint, typescript-eslint, prettier).
+
 ## [0.6.8]
 
 OAuth scope fix for older Creatio versions ([#2](https://github.com/CRACKISH/mcp-creatio/issues/2)).
