@@ -38,6 +38,17 @@ src/
 > implementations. The per-process session store lives in top-level `sessions/` (distinct
 > from `creatio/services/`).
 
+### .NET Framework vs .NET 8 routing (workspace mount)
+
+.NET Framework mounts the app at `/0`; .NET 8 at the site root. `/0/rest`, `/0/DataService` and
+`/0/ServiceModel` answer on BOTH, but `odata`, `connect/*`, `.well-known/*` and `api/*` exist only
+at the real mount (verified live). Build those URLs with `workspaceBaseUrl(base)` /
+`odataRoot(base)` / `resolveIdentityBase(...)` (`src/creatio/workspace-mount.ts`), never a literal
+`/0`. Detection is one anonymous probe per base URL (`/0/ServiceModel/AuthService.svc/Login` 404s
+only on .NET 8), cached + single-flight, not cached on a network failure. It is switched on by the
+entry points (`installWorkspaceMountDetection()`, like `installHttpAgent()`); without it — e.g. in
+unit tests — the mount is the legacy fixed `/0`.
+
 ### Run modes & deployment
 
 Two entry points, one `Server` core:

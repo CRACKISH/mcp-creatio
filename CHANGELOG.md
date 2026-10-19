@@ -24,6 +24,17 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   back to the home page for objects without a record page. Built locally (no request); honors the
   gateway tenant override; available in readonly mode.
 
+### Fixed
+
+- **.NET 8 (Creatio on .NET Core) instances** — the app is mounted at the site root there, so
+  `/0/odata`, `/0/connect/*`, `/0/.well-known/*` and `/0/api/*` do not exist (only `/0/rest`,
+  `/0/DataService` and `/0/ServiceModel` answer on both runtimes). The server now detects the
+  runtime once per instance (one anonymous probe, cached, single-flight, retried after a network
+  blip) and routes those calls to the real mount. This fixes the **OData backend** (every request
+  404'd), **`client_credentials` / `broker` / `delegated` discovery** without an explicit
+  `CREATIO_ID_BASE_URL`, and **schema-cache freshness** (`api/ClientCache`) on .NET 8.
+  .NET Framework instances are unchanged.
+
 ### Changed
 
 - **`read` returns normalized values on both backends** — a cell without a value is `null`

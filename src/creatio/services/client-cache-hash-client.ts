@@ -1,4 +1,5 @@
 import log from '../../log';
+import { workspaceBaseUrl } from '../workspace-mount';
 
 import { CreatioHttpClient } from './http-client';
 
@@ -11,7 +12,7 @@ export interface ClientCacheHashes {
 }
 
 /**
- * Thin transport for Creatio's client-cache hash endpoint (`GET /0/api/ClientCache/Hashes`) — the
+ * Thin transport for Creatio's client-cache hash endpoint (`GET {workspace}/api/ClientCache/Hashes`) — the
  * same stamp the Freedom UI polls to learn when its cached schemas/settings went stale (see core
  * `ClientCacheController` + `CacheHashBuilder`). Pure transport: it fetches and shapes the
  * response and NEVER throws (returns `null` on any failure) so the freshness policy can degrade
@@ -24,13 +25,14 @@ export class ClientCacheHashClient {
 		this._client = client;
 	}
 
-	private _url(): string {
-		// `/api/…` (not `/rest/…`), under the same `/0` workspace prefix the rest of our calls use.
-		return `${this._client.normalizedBaseUrl}/0/api/ClientCache/Hashes`;
+	/** `/api/…` (not `/rest/…`) lives only at the real workspace mount: `/0/api` on .NET Framework,
+	 *  `/api` on .NET 8. */
+	private async _url(): Promise<string> {
+		return `${await workspaceBaseUrl(this._client.normalizedBaseUrl)}/api/ClientCache/Hashes`;
 	}
 
 	public async getHashes(): Promise<ClientCacheHashes | null> {
-		const url = this._url();
+		const url = await this._url();
 		try {
 			const headers = await this._client.getJsonHeaders();
 			const response = await this._client.fetchWithAuth(url, async () => ({ headers }));

@@ -1,4 +1,9 @@
-import { BearerAuthConfig, BearerAuthMode, withOfflineAccess } from '../../creatio';
+import {
+	BearerAuthConfig,
+	BearerAuthMode,
+	withOfflineAccess,
+	workspaceBaseUrl,
+} from '../../creatio';
 import log from '../../log';
 import { InjectedCredential, env, extractBpmcsrf } from '../../utils';
 import { resolvePublicOrigin } from '../http/public-origin';
@@ -59,16 +64,19 @@ export class BearerEdge {
 		return this._config.mode === BearerAuthMode.Delegated;
 	}
 
-	/** Identity Service base advertised to clients. */
-	private get _identityBase(): string {
-		return this._config.idBaseUrl ?? `${this._baseUrl.replace(/\/$/, '')}/0`;
-	}
-
 	constructor(config: BearerAuthConfig, baseUrl: string) {
 		this._config = config;
 		this._baseUrl = baseUrl;
 		this._allowedBaseUrls = parseAllowedBaseUrls(env('CREATIO_MCP_ALLOWED_BASE_URLS'));
 		this._scopes = withOfflineAccess(config.scopes);
+	}
+
+	/** Identity Service base advertised to clients: the configured one, else the instance's
+	 *  workspace base (`/0` on .NET Framework, the root on .NET 8). */
+	private _identityBase(): Promise<string> {
+		return this._config.idBaseUrl
+			? Promise.resolve(this._config.idBaseUrl)
+			: workspaceBaseUrl(this._baseUrl);
 	}
 
 	/** Pull the per-request credential the client/gateway supplied: a Bearer token, or a forwarded
@@ -129,9 +137,10 @@ export class BearerEdge {
 		if (!this._isDelegated) {
 			return;
 		}
-		app.get(PROTECTED_RESOURCE_METADATA_PATH, (req: Request, res: Response) => {
+		app.get(PROTECTED_RESOURCE_METADATA_PATH, async (req: Request, res: Response) => {
 			const resource = `${resolvePublicOrigin(req)}/mcp`;
-			res.json(buildProtectedResourceMetadata(resource, this._identityBase, this._scopes));
+			const identityBase = await this._identityBase();
+			res.json(buildProtectedResourceMetadata(resource, identityBase, this._scopes));
 		});
 	}
 

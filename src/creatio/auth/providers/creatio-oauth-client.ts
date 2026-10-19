@@ -25,14 +25,14 @@ export class CreatioOAuthClient {
 	/** Space-delimited wire scope, resolved once (config is immutable for the client's lifetime). */
 	private readonly _scope: string;
 
-	private get _identityBase(): string {
-		return resolveIdentityBase(this._baseUrl, this._auth.idBaseUrl);
-	}
-
 	constructor(baseUrl: string, auth: BrokerAuthConfig) {
 		this._baseUrl = baseUrl;
 		this._auth = auth;
 		this._scope = withOfflineAccess(auth.scopes).join(' ');
+	}
+
+	private _identityBase(): Promise<string> {
+		return resolveIdentityBase(this._baseUrl, this._auth.idBaseUrl);
 	}
 
 	private _baseBody(): URLSearchParams {
@@ -49,7 +49,7 @@ export class CreatioOAuthClient {
 		body: URLSearchParams,
 		op: 'exchange' | 'refresh',
 	): Promise<UserTokens> {
-		const url = this._identityBase + TOKEN_ENDPOINT;
+		const url = (await this._identityBase()) + TOKEN_ENDPOINT;
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -81,8 +81,12 @@ export class CreatioOAuthClient {
 	}
 
 	/** Builds the Creatio consent URL for the brokered login (always with S256 PKCE). */
-	public buildAuthorizeUrl(redirectUri: string, state: string, codeChallenge: string): string {
-		const url = new URL(this._identityBase + AUTHORIZE_ENDPOINT);
+	public async buildAuthorizeUrl(
+		redirectUri: string,
+		state: string,
+		codeChallenge: string,
+	): Promise<string> {
+		const url = new URL((await this._identityBase()) + AUTHORIZE_ENDPOINT);
 		url.searchParams.set('client_id', this._auth.clientId);
 		url.searchParams.set('redirect_uri', redirectUri);
 		url.searchParams.set('response_type', 'code');
@@ -124,7 +128,7 @@ export class CreatioOAuthClient {
 		const body = this._baseBody();
 		body.set('token', token);
 		try {
-			const res = await fetch(this._identityBase + REVOCATION_ENDPOINT, {
+			const res = await fetch((await this._identityBase()) + REVOCATION_ENDPOINT, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: body.toString(),

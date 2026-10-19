@@ -23,9 +23,9 @@ const BASE = 'https://t.creatio.local';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('CreatioOAuthClient.buildAuthorizeUrl', () => {
-	it('builds the Creatio authorize URL with S256 PKCE + scope', () => {
+	it('builds the Creatio authorize URL with S256 PKCE + scope', async () => {
 		const url = new URL(
-			new CreatioOAuthClient(BASE, publicAuth()).buildAuthorizeUrl(
+			await new CreatioOAuthClient(BASE, publicAuth()).buildAuthorizeUrl(
 				'http://localhost:3000/oauth/callback',
 				'BROKER-STATE',
 				'CHALLENGE',
@@ -43,9 +43,9 @@ describe('CreatioOAuthClient.buildAuthorizeUrl', () => {
 
 	// Issue #2: Creatio without AddApplicationAccessScopeAutomatically 401s on a token lacking
 	// the app's ApplicationAccess_<id> scope, so the configured scope must reach /connect/authorize.
-	it('requests the configured resource scopes alongside offline_access', () => {
+	it('requests the configured resource scopes alongside offline_access', async () => {
 		const url = new URL(
-			new CreatioOAuthClient(
+			await new CreatioOAuthClient(
 				BASE,
 				publicAuth({ scopes: ['ApplicationAccess_abc'] }),
 			).buildAuthorizeUrl('http://localhost:3000/oauth/callback', 'S', 'C'),

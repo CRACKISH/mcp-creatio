@@ -1,14 +1,19 @@
+import { workspaceBaseUrl } from '../workspace-mount';
+
+const ENDS_WITH_MOUNT = /\/0$/;
+
 /**
- * Canonical Creatio identity base: an explicit `idBaseUrl` when given, otherwise the instance base
- * URL, in both cases normalized to end with the `/0` workspace segment (where Creatio hosts the
- * OAuth/OIDC endpoints, e.g. `/0/connect/token`, `/0/.well-known/openid-configuration`). Shared by
- * the client-credentials provider and the delegated-mode JWKS validator so they target the same host.
+ * Canonical Creatio identity base, where Creatio hosts the OAuth/OIDC endpoints (`connect/token`,
+ * `.well-known/openid-configuration`). An explicit `idBaseUrl` is normalized to end with `/0` (its
+ * long-standing contract). Otherwise it is the instance's workspace base — `{base}/0` on .NET
+ * Framework, `{base}` on .NET 8, where `/0/connect/*` does not exist (see {@link workspaceBaseUrl}).
+ * Shared by the client-credentials provider and the broker's Creatio OAuth client.
  */
-export function resolveIdentityBase(baseUrl: string, idBaseUrl?: string): string {
-	const raw = idBaseUrl ? String(idBaseUrl) : baseUrl;
-	let base = raw.replace(/\/$/, '');
-	if (!/\/0$/.test(base)) {
-		base = base + '/0';
+export async function resolveIdentityBase(baseUrl: string, idBaseUrl?: string): Promise<string> {
+	if (idBaseUrl) {
+		const base = String(idBaseUrl).replace(/\/$/, '');
+		return ENDS_WITH_MOUNT.test(base) ? base : `${base}/0`;
 	}
-	return base;
+	const base = baseUrl.replace(/\/$/, '');
+	return ENDS_WITH_MOUNT.test(base) ? base : workspaceBaseUrl(base);
 }

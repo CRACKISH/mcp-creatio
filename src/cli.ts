@@ -3,7 +3,12 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { getCreatioClientConfig } from './config-builder';
-import { AuthProviderType, CreatioEngineManager, CreatioServiceContext } from './creatio';
+import {
+	AuthProviderType,
+	CreatioEngineManager,
+	CreatioServiceContext,
+	installWorkspaceMountDetection,
+} from './creatio';
 import log from './log';
 import { Server, SessionKeepAlive, installHttpAgent, keepAliveIntervalMs } from './server';
 import { envBool } from './utils';
@@ -134,6 +139,7 @@ async function main(): Promise<void> {
 
 	log.useStderrOnlyLogs();
 	installHttpAgent();
+	installWorkspaceMountDetection();
 	applyCliEnv(opts);
 	const cfg = getCreatioClientConfig();
 

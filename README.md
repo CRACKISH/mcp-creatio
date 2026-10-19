@@ -312,7 +312,7 @@ nothing works without it; the rest depend on the auth method and the features yo
 | `CREATIO_MCP_JWT_SECRET`             | broker        | Secret signing the tokens the MCP issues to clients. **Min 32 chars; required in production.** Random if unset outside prod (set a stable value for prod / multi-instance) |
 | `CREATIO_MCP_ALLOWED_BASE_URLS`      | gateway       | _Optional_ — comma-separated allowlist of Creatio origins the `X-Creatio-Base-Url` override may target (SSRF guard). Unset ⇒ any http(s) host except cloud-metadata        |
 | `CREATIO_LOGIN` / `CREATIO_PASSWORD` | legacy        | Username / password                                                                                                                                                        |
-| `CREATIO_ID_BASE_URL`                | any           | _Optional_ — Identity Service URL; defaults to deriving from `CREATIO_BASE_URL`                                                                                            |
+| `CREATIO_ID_BASE_URL`                | any           | _Optional_ — Identity Service URL; defaults to `CREATIO_BASE_URL` (`/0` on .NET Framework, the root on .NET 8 — detected automatically)                                    |
 | `CREATIO_OAUTH_SCOPE`                | OAuth modes   | _Optional_ — extra Creatio OAuth scopes (space/comma-separated), e.g. `ApplicationAccess_<id>` on older Creatio — see [OAuth scope](#oauth-scope-older-creatio-versions)   |
 
 ### Data & behavior (optional)

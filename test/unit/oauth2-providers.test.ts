@@ -123,6 +123,7 @@ describe('OAuth2Provider (client credentials)', () => {
 		const all = Promise.all(
 			Array.from({ length: 5 }, () => provider.getHeaders('application/json', true)),
 		);
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 		resolveFetch(jsonOk({ access_token: 'CC', expires_in: 3600 }));
 		const results = await all;
 		expect(fetchMock).toHaveBeenCalledTimes(1);

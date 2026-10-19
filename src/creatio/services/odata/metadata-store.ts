@@ -70,7 +70,7 @@ export class ODataMetadataStore {
 		const version = await this._version();
 		return this._docs.getOrLoad(baseUrl, version, async () => {
 			const headers = await this._client.getXmlHeaders();
-			const metadataUrl = `${odataRoot(baseUrl)}/$metadata`;
+			const metadataUrl = `${await odataRoot(baseUrl)}/$metadata`;
 			const xml = await this._client.fetchText(metadataUrl, async () => ({ headers }));
 			return { xml };
 		});
@@ -93,8 +93,8 @@ export class ODataMetadataStore {
 	}
 
 	private async _tryGetEntitySetsFromService(): Promise<string[] | null> {
+		const serviceUrl = `${await odataRoot(this._client.normalizedBaseUrl)}/`;
 		try {
-			const serviceUrl = `${odataRoot(this._client.normalizedBaseUrl)}/`;
 			const headers = await this._client.getJsonHeaders();
 			const response = await this._client.fetchWithAuth(serviceUrl, async () => ({
 				headers,
@@ -113,7 +113,7 @@ export class ODataMetadataStore {
 			}
 		} catch (error: any) {
 			log.error('creatio.metadata.list_entity_sets.error', {
-				url: `${odataRoot(this._client.normalizedBaseUrl)}/`,
+				url: serviceUrl,
 				error: String(error?.message ?? error),
 			});
 		}

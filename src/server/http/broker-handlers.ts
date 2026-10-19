@@ -181,7 +181,7 @@ export class BrokerHandlers {
 			client_state: q.state,
 			creatio_verifier: verifier,
 		});
-		const creatioUrl = this._creatio.buildAuthorizeUrl(
+		const creatioUrl = await this._creatio.buildAuthorizeUrl(
 			this._callbackUrl(req),
 			brokerState,
 			challenge,

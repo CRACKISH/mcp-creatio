@@ -1,6 +1,11 @@
 import { getCreatioClientConfig, getTokenStoreConfig } from './config-builder';
 import { HTTP_MCP_PORT } from './consts';
-import { AuthProviderType, CreatioEngineManager, CreatioServiceContext } from './creatio';
+import {
+	AuthProviderType,
+	CreatioEngineManager,
+	CreatioServiceContext,
+	installWorkspaceMountDetection,
+} from './creatio';
 import log from './log';
 import {
 	HttpServer,
@@ -24,6 +29,7 @@ function isSingleSessionMode(kind: AuthProviderType): boolean {
 
 async function main() {
 	installHttpAgent();
+	installWorkspaceMountDetection();
 	log.appStart({ env: { node: process.version, HTTP_MCP_PORT } });
 	// Auth mode is resolved in config-builder: explicit CREATIO_MCP_AUTH_MODE, else inferred
 	// (legacy/client_credentials from creds, otherwise delegated for this multi-user HTTP server).

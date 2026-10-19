@@ -44,7 +44,7 @@ export abstract class BaseOAuth2Provider<
 		return this.accessToken;
 	}
 
-	protected getIdentityBase(): string {
+	protected getIdentityBase(): Promise<string> {
 		return resolveIdentityBase(this.config.baseUrl, this.authConfig.idBaseUrl);
 	}
 

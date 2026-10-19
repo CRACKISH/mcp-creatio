@@ -15,7 +15,7 @@ export class OAuth2Provider extends BaseOAuth2Provider<OAuth2AuthConfig> {
 	}
 
 	protected async fetchToken(): Promise<FetchedToken | undefined> {
-		const url = `${this.getIdentityBase()}${TOKEN_ENDPOINT}`;
+		const url = `${await this.getIdentityBase()}${TOKEN_ENDPOINT}`;
 		const body = new URLSearchParams();
 		body.set('grant_type', 'client_credentials');
 		body.set('client_id', this.authConfig.clientId);

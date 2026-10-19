@@ -44,9 +44,10 @@ export class ODataCrudProvider implements CrudProvider {
 		return body && typeof body === 'object' && 'value' in body ? body.value : body;
 	}
 
-	private _buildEntityUrl(entity: string): string {
+	private async _buildEntityUrl(entity: string): Promise<string> {
 		// Validate to prevent path/segment injection into the request URL (CWE-20 / CWE-943).
-		return `${odataRoot(this._client.normalizedBaseUrl)}/${assertEntityName(entity)}`;
+		const name = assertEntityName(entity);
+		return `${await odataRoot(this._client.normalizedBaseUrl)}/${name}`;
 	}
 
 	private _formatEntityKey(id: string): string {
@@ -66,7 +67,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async create({ entity, data }: CrudWriteParams) {
-		const url = this._buildEntityUrl(entity);
+		const url = await this._buildEntityUrl(entity);
 		return this._client.request(
 			'create',
 			url,
@@ -89,7 +90,7 @@ export class ODataCrudProvider implements CrudProvider {
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		const { entity, count } = query;
 		const queryParams = this._translator.buildQueryParams(query);
-		const url = this._buildEntityUrl(entity) + this._buildQueryString(queryParams);
+		const url = (await this._buildEntityUrl(entity)) + this._buildQueryString(queryParams);
 		return this._client.request(
 			'read',
 			url,
@@ -125,7 +126,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async update({ entity, id, data }: CrudUpdateParams) {
-		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
+		const url = `${await this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
 		return this._client.request(
 			'update',
 			url,
@@ -146,7 +147,7 @@ export class ODataCrudProvider implements CrudProvider {
 	}
 
 	public async delete({ entity, id }: CrudDeleteParams) {
-		const url = `${this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
+		const url = `${await this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
 		return this._client.request(
 			'delete',
 			url,
