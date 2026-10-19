@@ -361,7 +361,11 @@ keep real credentials there; `*.example.json` is the committed schema). One targ
 (or take a literal `bearer`); `gateway` sets `baseUrlOverride` (and run two targets with different
 overrides to prove per-tenant isolation in one process). `broker` does DCR + PKCE + a local
 callback catcher and **prints the authorize URL, then waits** — open it and log in (the interactive
-consent is the point of broker mode). Use `expect` (`{dataforge, published, baseOnly}`) to assert
+consent is the point of broker mode). Without an OAuth app, `delegated`/`gateway` targets can log in with `cookieLogin` (the forwarded
+Forms-auth session); point `baseUrlOverride` at a second instance to exercise per-tenant isolation
+(and the per-tenant .NET Framework / .NET 8 mount detection) in one server. Every target also runs a
+read-only capability smoke (links, attachments, feature catalog, did-you-mean, normalized values,
+ordering, annotations, prompts). Use `expect` (`{dataforge, published, baseOnly}`) to assert
 the per-instance capability surface. Add `NODE_TLS_REJECT_UNAUTHORIZED=0` to a target's env when the
 instance has a weak dev cert (it must also be in the broker `serverEnv`, since the server itself
 calls Creatio's token endpoint).

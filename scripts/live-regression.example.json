@@ -7,7 +7,10 @@
 			"baseUrl": "https://your-instance.creatio.com",
 			"login": "Supervisor",
 			"password": "Supervisor",
-			"env": { "NODE_TLS_REJECT_UNAUTHORIZED": "0", "CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true" },
+			"env": {
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0",
+				"CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true"
+			},
 			"crud": true,
 			"crudEntity": "Contact"
 		},
@@ -24,7 +27,44 @@
 				"CREATIO_MCP_ENABLE_PUBLISHED_TOOLS": "true",
 				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
 			},
-			"expect": { "dataforge": true, "published": true },
+			"expect": {
+				"dataforge": true,
+				"published": true
+			},
+			"crud": true
+		},
+		{
+			"label": "http-delegated-cookie",
+			"kind": "http",
+			"mode": "delegated",
+			"port": 3001,
+			"serverEnv": {
+				"CREATIO_MCP_AUTH_MODE": "delegated",
+				"CREATIO_BASE_URL": "https://your-instance.creatio.com",
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
+			},
+			"cookieLogin": {
+				"login": "Supervisor",
+				"password": "Supervisor"
+			},
+			"crud": true
+		},
+		{
+			"label": "http-gateway-cross-tenant",
+			"kind": "http",
+			"mode": "gateway",
+			"port": 3002,
+			"serverEnv": {
+				"CREATIO_MCP_AUTH_MODE": "gateway",
+				"CREATIO_BASE_URL": "https://tenant-a.creatio.com",
+				"CREATIO_MCP_ALLOWED_BASE_URLS": "https://tenant-a.creatio.com,https://tenant-b.creatio.com",
+				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
+			},
+			"baseUrlOverride": "https://tenant-b.creatio.com",
+			"cookieLogin": {
+				"login": "Supervisor",
+				"password": "Supervisor"
+			},
 			"crud": true
 		},
 		{
@@ -44,7 +84,9 @@
 				"clientId": "<oauth app id>",
 				"clientSecret": "<oauth app secret>"
 			},
-			"expect": { "dataforge": true },
+			"expect": {
+				"dataforge": true
+			},
 			"crud": true
 		},
 		{
@@ -60,7 +102,10 @@
 				"CREATIO_MCP_PUBLIC_URL": "http://localhost:3000",
 				"NODE_TLS_REJECT_UNAUTHORIZED": "0"
 			},
-			"broker": { "callbackPort": 9876, "waitMs": 240000 },
+			"broker": {
+				"callbackPort": 9876,
+				"waitMs": 240000
+			},
 			"crud": true
 		}
 	]

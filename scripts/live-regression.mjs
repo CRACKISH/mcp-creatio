@@ -13,7 +13,12 @@
  *   stdio:  { baseUrl, login, password, env? }
  *   http:   { mode:"legacy"|"client_credentials"|"delegated"|"gateway"|"broker",
  *             serverEnv:{...}, port?, baseUrlOverride?, bearer?|clientCredentials:{tokenUrl,clientId,clientSecret},
+ *             cookieLogin?:{ login, password, baseUrl? }  (delegated/gateway: forward a Forms-auth
+ *             session in X-Creatio-Cookie — for instances without an OAuth app),
  *             broker?:{ callbackPort?, waitMs?, scope? } }
+ *
+ * Every target also runs a read-only capability smoke (record links, attachments, feature catalog,
+ * "did you mean" for unknown names, normalized values, ordering, MCP annotations, prompts).
  *
  * The server process (dist/index.js) is started/stopped by the harness for http targets, and
  * dist/cli.js is spawned for stdio targets — run `npm run build` first. For broker the harness does
@@ -93,6 +98,70 @@ async function readSmoke(client) {
 	check('describe-entity', d.ok, `source=${src}`);
 	const r = await call(client, 'read', { entity: 'Contact', top: 2, select: ['Id', 'Name'] });
 	check('read Contact', r.ok && /"Id"/.test(r.text), r.text.slice(0, 60));
+}
+
+const parse = (text) => {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+};
+const rowsOf = (json) => (Array.isArray(json) ? json : (json?.value ?? []));
+
+// Read-only checks of the newer tool surface; each skips when its tool is not registered.
+async function capabilitySmoke(client, names) {
+	const tools = (await client.listTools()).tools;
+	const annotation = (n) => tools.find((x) => x.name === n)?.annotations;
+	check(
+		'MCP annotations',
+		annotation('read')?.readOnlyHint === true && annotation('delete')?.destructiveHint !== false,
+		JSON.stringify(annotation('read')),
+	);
+	const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
+	check('query-guide prompt', prompts.includes('query-guide'), `${prompts.length} prompts`);
+
+	const unknown = await call(client, 'read', { entity: 'Contact', select: ['Id', 'Emial'], top: 1 });
+	check('unknown column → suggestion', !unknown.ok && /Did you mean: Email/.test(unknown.text), unknown.text.slice(0, 90));
+	const unknownEntity = await call(client, 'read', { entity: 'Contakt', top: 1 });
+	check('unknown entity → suggestion', !unknownEntity.ok && /Did you mean: Contact/.test(unknownEntity.text));
+
+	const plain = await call(client, 'read', { entity: 'Contact', select: ['Id', 'Name', 'AccountId', 'BirthDate'], top: 10 });
+	check('empty values are null', plain.ok && !/00000000-0000-0000-0000-000000000000|0001-01-01/.test(plain.text));
+	const sorted = await call(client, 'read', { entity: 'Contact', select: ['Id', 'Name'], orderBy: 'Name desc', top: 5 });
+	const unselected = await call(client, 'read', { entity: 'Contact', select: ['Id'], orderBy: 'Name desc', top: 5 });
+	const ids = (r) => rowsOf(parse(r.text)).map((x) => x.Id).join();
+	check('orderBy on an unselected column', sorted.ok && unselected.ok && ids(sorted) === ids(unselected));
+	const related = await call(client, 'read', { entity: 'Contact', select: ['Id'], filters: { all: [{ field: 'Account.Name', op: 'contains', value: 'a' }] }, top: 1 });
+	check('filter by related column (Account.Name)', related.ok, related.text.slice(0, 60));
+
+	const contact = rowsOf(parse(sorted.text))[0];
+	if (contact && names.includes('get-record-url')) {
+		const link = await call(client, 'get-record-url', { entity: 'Contact', id: contact.Id });
+		check('get-record-url', link.ok && /NavigationService\/Redirect/.test(link.text));
+	}
+	if (contact && names.includes('list-record-files')) {
+		const files = await call(client, 'list-record-files', { entity: 'Contact', id: contact.Id });
+		check('list-record-files', files.ok && Array.isArray(parse(files.text)?.files));
+	}
+	if (names.includes('list-features')) {
+		const list = parse((await call(client, 'list-features', { top: 3 })).text);
+		const code = list?.items?.[0]?.code;
+		check('list-features', Boolean(code) && typeof list.hasMore === 'boolean', code);
+		const one = await call(client, 'get-feature', { code });
+		check('get-feature', one.ok && Array.isArray(parse(one.text)?.overrides));
+	}
+}
+
+async function creatioCookie({ baseUrl, login, password }) {
+	const res = await fetch(`${baseUrl.replace(/\/$/, '')}/ServiceModel/AuthService.svc/Login`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ UserName: login, UserPassword: password }),
+	});
+	const cookies = res.headers.getSetCookie().map((c) => c.split(';')[0]);
+	if (!cookies.some((c) => c.startsWith('BPMCSRF='))) throw new Error(`cookie login failed: ${res.status}`);
+	return cookies.join('; ');
 }
 
 // Full create → read-back → update → delete → verify-gone lifecycle. Opt-in (target.crud), uses a
@@ -195,6 +264,10 @@ async function runTarget(t) {
 			if (!bearer && t.clientCredentials) bearer = await mintBearer(t.clientCredentials);
 			if (t.mode === 'broker') bearer = await brokerToken(`http://localhost:${port}`, t.broker ?? {});
 			if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+			if (t.cookieLogin) {
+				const baseUrl = t.cookieLogin.baseUrl ?? t.baseUrlOverride ?? t.serverEnv?.CREATIO_BASE_URL;
+				headers['X-Creatio-Cookie'] = await creatioCookie({ ...t.cookieLogin, baseUrl });
+			}
 			if (t.baseUrlOverride) headers['X-Creatio-Base-Url'] = t.baseUrlOverride;
 			transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } });
 		}
@@ -209,6 +282,7 @@ async function runTarget(t) {
 			if (t.expect.baseOnly) check('expect base-only', c.df.length === 0 && c.gs.length === 0 && c.pub.length === 0);
 		}
 		await readSmoke(client);
+		await capabilitySmoke(client, names);
 		if (t.crud) await crudLifecycle(client, t.crudEntity ?? 'Contact');
 		await client.close();
 	} catch (e) {
