@@ -434,11 +434,15 @@ the full release — never bump without tagging AND publishing:**
 4. Commit: `chore(release): vX.Y.Z`.
 5. **Tag**: `git tag vX.Y.Z` (use the `v` prefix).
 6. **Push** commit + tag: `git push origin main && git push origin vX.Y.Z`.
-7. **Publish to npm**: `npm publish` (public; `prepack` rebuilds `dist`; verify `npm view mcp-creatio version`).
+7. **npm publish happens in CI** on the tag push (`npm-publish.yml`, below) — do NOT run
+   `npm publish` locally (it needs an OTP / browser approval). Verify `npm view mcp-creatio
+version` once the workflow is green; if it failed, fix and re-run it via `workflow_dispatch`.
 
-Skipping the tag or the npm publish leaves the release half-done — always finish all 7 steps.
+Skipping the tag leaves the release half-done — always finish all 7 steps.
 
-**Automated on the tag push** (no manual step): `.github/workflows/release.yml` extracts the
+**Automated on the tag push** (no manual step): `.github/workflows/npm-publish.yml` checks the tag
+matches `package.json`, runs the tests and publishes to npm via **trusted publishing** (OIDC — no
+token or OTP; provenance attached; skips a version already on npm). `.github/workflows/release.yml` extracts the
 CHANGELOG section and creates the **GitHub Release**; `docker-publish.yml` builds the multi-arch
 image (`:latest` + `:vX.Y.Z`) and syncs the README to the Docker Hub overview. (Note: `gh` in
 this dev env is authed to the GHE host, not github.com — creating github.com releases must go
