@@ -9,10 +9,18 @@ import {
 	ReadQuery,
 	ReadResult,
 } from '../../contracts';
+import {
+	UserClock,
+	hasTemporalFilterValue,
+	mapTemporalFilterValues,
+	temporalColumns,
+} from '../../temporal';
+import { ColumnSchemaSource } from '../column-schema-source';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { GUID_RE } from '../identifiers';
 import { LookupNames, needsLookupNames } from '../lookup-path';
+import { UserClockSource, fixedClockSource } from '../user-time-zone';
 
 import { ODataMetadataStore } from './metadata-store';
 import { toUnknownNameError } from './odata-errors';
@@ -20,10 +28,22 @@ import { ODataQueryTranslator } from './odata-query-translator';
 import { odataRoot } from './odata-routes';
 import { normalizeODataValue } from './odata-value-normalizer';
 
+/** What converts dates between the tools' contract and OData's UTC instants (see {@link UserClock}). */
+export interface ODataTemporalDeps {
+	/** Creatio's schema: OData's own metadata cannot tell a Date column from a DateTime one. */
+	schema: ColumnSchemaSource;
+	/** The calling user's zone. */
+	clock?: UserClockSource;
+}
+
+type Row = Record<string, unknown>;
+
 export class ODataCrudProvider implements CrudProvider {
 	private readonly _client: CreatioHttpClient;
 	private readonly _metadataStore: ODataMetadataStore;
 	private readonly _translator: ODataQueryTranslator;
+	private readonly _schema: ColumnSchemaSource | undefined;
+	private readonly _clock: UserClockSource;
 
 	public readonly kind = 'creatio-odata';
 	// OData honors both read escape hatches: a raw `$filter` string and `$expand`.
@@ -33,10 +53,13 @@ export class ODataCrudProvider implements CrudProvider {
 		client: CreatioHttpClient,
 		metadataStore: ODataMetadataStore,
 		translator = new ODataQueryTranslator(),
+		temporal?: ODataTemporalDeps,
 	) {
 		this._client = client;
 		this._metadataStore = metadataStore;
 		this._translator = translator;
+		this._schema = temporal?.schema;
+		this._clock = temporal?.clock ?? fixedClockSource();
 	}
 
 	private _buildQueryString(params: string[]): string {
@@ -69,6 +92,86 @@ export class ODataCrudProvider implements CrudProvider {
 		}
 	}
 
+	/** A write body with its date/time columns as UTC instants (a zone-less value is the user's
+	 *  wall clock; OData itself refuses it). Unchanged without a schema. */
+	private async _toInstants(entity: string, data: Row | undefined): Promise<Row | undefined> {
+		if (!data || !this._schema) {
+			return data;
+		}
+		const kinds = temporalColumns(await this._schema.columnTypes(entity));
+		const columns = Object.keys(data).filter((column) => kinds.has(column));
+		if (!columns.length) {
+			return data;
+		}
+		const clock = await this._clock.current();
+		const out = { ...data };
+		for (const column of columns) {
+			out[column] = clock.toInstant(kinds.get(column)!, out[column]);
+		}
+		return out;
+	}
+
+	/** The read's date/time filter values as UTC instants, by their columns' kinds. */
+	private async _filterToInstants(query: ReadQuery): Promise<ReadQuery> {
+		if (!hasTemporalFilterValue(query.filter)) {
+			return query;
+		}
+		const types = this._schema
+			? await this._schema.columnTypes(query.entity)
+			: new Map<string, number>();
+		const clock = await this._clock.current();
+		return {
+			...query,
+			filter: mapTemporalFilterValues(query.filter!, temporalColumns(types), (kind, v) =>
+				clock.toInstant(kind, v),
+			),
+		};
+	}
+
+	/**
+	 * Records with their date/time values in the tools' contract — the user's wall clock labelled
+	 * with the user's offset, a Date as `YYYY-MM-DD` — recursing into an `$expand`-ed lookup by the
+	 * entity it references. Schema and clock are fetched once per entity / read, and only when used.
+	 */
+	private async _labelTemporal(entity: string, records: unknown[]): Promise<unknown[]> {
+		const schema = this._schema;
+		if (!schema || !records.length) {
+			return records;
+		}
+		const shapes = new Map<
+			string,
+			Promise<[ReadonlyMap<string, number>, ReadonlyMap<string, string>]>
+		>();
+		const shapeOf = (name: string) => {
+			let shape = shapes.get(name);
+			if (!shape) {
+				shape = Promise.all([schema.columnTypes(name), schema.references(name)]);
+				shapes.set(name, shape);
+			}
+			return shape;
+		};
+		let clock: Promise<UserClock> | undefined;
+		const label = async (name: string, record: unknown): Promise<unknown> => {
+			if (!record || typeof record !== 'object' || Array.isArray(record)) {
+				return record;
+			}
+			const [types, references] = await shapeOf(name);
+			const kinds = temporalColumns(types);
+			const out: Row = { ...(record as Row) };
+			for (const [key, value] of Object.entries(out)) {
+				const kind = kinds.get(key);
+				const target = references.get(key);
+				if (kind && value != null) {
+					out[key] = (await (clock ??= this._clock.current())).fromInstant(kind, value);
+				} else if (target && value && typeof value === 'object') {
+					out[key] = await label(target, value);
+				}
+			}
+			return out;
+		};
+		return Promise.all(records.map((record) => label(entity, record)));
+	}
+
 	private _formatEntityKey(id: string): string {
 		// A numeric or GUID key is a bare literal; any other string key is quoted (quotes doubled).
 		if (/^\d+$/.test(id) || GUID_RE.test(id)) {
@@ -87,7 +190,8 @@ export class ODataCrudProvider implements CrudProvider {
 
 	public async create({ entity, data }: CrudWriteParams) {
 		const url = await this._buildEntityUrl(entity);
-		return this._client.request(
+		const body = await this._toInstants(entity, data);
+		const created = await this._client.request(
 			'create',
 			url,
 			async () => {
@@ -95,7 +199,7 @@ export class ODataCrudProvider implements CrudProvider {
 				return this._client.fetchWithAuth(url, async () => ({
 					method: 'POST',
 					headers,
-					body: JSON.stringify(data),
+					body: JSON.stringify(body),
 				}));
 			},
 			async (response, duration) => {
@@ -104,16 +208,18 @@ export class ODataCrudProvider implements CrudProvider {
 			},
 			{ errorPrefix: 'creatio_create_failed', logContext: { entity } },
 		);
+		const [labelled] = await this._labelTemporal(entity, [created]);
+		return labelled;
 	}
 
 	public async read(query: ReadQuery): Promise<ReadResult> {
 		const { entity, count } = query;
 		const queryParams = this._translator.buildQueryParams(
-			query,
+			await this._filterToInstants(query),
 			await this._lookupNames(query),
 		);
 		const url = (await this._buildEntityUrl(entity)) + this._buildQueryString(queryParams);
-		return this._client.request(
+		const result: ReadResult = await this._client.request(
 			'read',
 			url,
 			async () => {
@@ -145,10 +251,12 @@ export class ODataCrudProvider implements CrudProvider {
 			},
 			{ errorPrefix: 'creatio_read_failed', logContext: { entity } },
 		);
+		return { ...result, items: await this._labelTemporal(entity, result.items) };
 	}
 
 	public async update({ entity, id, data }: CrudUpdateParams) {
 		const url = `${await this._buildEntityUrl(entity)}(${this._formatEntityKey(id)})`;
+		const body = await this._toInstants(entity, data);
 		return this._client.request(
 			'update',
 			url,
@@ -157,7 +265,7 @@ export class ODataCrudProvider implements CrudProvider {
 				return this._client.fetchWithAuth(url, async () => ({
 					method: 'PATCH',
 					headers,
-					body: JSON.stringify(data),
+					body: JSON.stringify(body),
 				}));
 			},
 			async (response, duration) => {

@@ -137,4 +137,18 @@ export class DataServiceSchemaProvider {
 			return new Map();
 		}
 	}
+
+	/** Map of lookup column name -> the entity it references (`Account` -> `Account`). Empty on miss. */
+	public async references(entity: string): Promise<Map<string, string>> {
+		try {
+			const schema = await this._getRuntimeSchema(entity);
+			return new Map(
+				this._columns(schema)
+					.filter((c) => c.referenceSchemaName)
+					.map((c) => [c.name, c.referenceSchemaName!]),
+			);
+		} catch {
+			return new Map();
+		}
+	}
 }

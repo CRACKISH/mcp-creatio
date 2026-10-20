@@ -10,16 +10,23 @@ import {
 	ReadResult,
 	UnknownNameError,
 } from '../../contracts';
+import {
+	TemporalKind,
+	hasTemporalFilterValue,
+	mapTemporalFilterValues,
+	temporalColumns,
+} from '../../temporal';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { LookupNames, needsLookupNames } from '../lookup-path';
 import { SchemaFreshnessGate } from '../schema-freshness-gate';
+import { UserClockSource, fixedClockSource } from '../user-time-zone';
 
 import { buildColumnValues, makeTypeResolver } from './data-service-column-values';
 import { toUnknownNameError } from './data-service-errors';
 import { DataServiceFilterTranslator } from './data-service-filter-translator';
 import { COUNT_COLUMN_ALIAS, DataServiceQueryBuilder } from './data-service-query-builder';
-import { normalizeDataServiceRows } from './data-service-row-normalizer';
+import { hasTemporalColumn, normalizeDataServiceRows } from './data-service-row-normalizer';
 import { DataServiceSchemaProvider } from './data-service-schema';
 import { DataServiceTransport } from './data-service-transport';
 import {
@@ -48,6 +55,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 	private readonly _queryBuilder: DataServiceQueryBuilder;
 	private readonly _filters: DataServiceFilterTranslator;
 	private readonly _schema: DataServiceSchemaProvider;
+	private readonly _clock: UserClockSource;
 
 	public readonly kind = 'creatio-dataservice';
 	// DataService has no raw-string filter and no $expand; related data is read by column
@@ -62,6 +70,8 @@ export class DataServiceCrudProvider implements CrudProvider {
 			filters?: DataServiceFilterTranslator;
 			schema?: DataServiceSchemaProvider;
 			freshness?: SchemaFreshnessGate;
+			/** The calling user's zone, which DataService reads and writes every DateTime in. */
+			clock?: UserClockSource;
 		} = {},
 	) {
 		this._transport = deps.transport ?? new DataServiceTransport(client);
@@ -70,6 +80,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 		this._schema =
 			deps.schema ??
 			new DataServiceSchemaProvider(this._transport, undefined, undefined, deps.freshness);
+		this._clock = deps.clock ?? fixedClockSource();
 	}
 
 	private _rows(body: any): any[] {
@@ -110,24 +121,51 @@ export class DataServiceCrudProvider implements CrudProvider {
 					: key;
 			remapped[column] = value;
 		}
+		await this._toWallClocks(remapped, temporalColumns(types));
 		return buildColumnValues(remapped, makeTypeResolver(types));
+	}
+
+	/** Date/time values in place → the user's zone-less wall clock DataService expects. */
+	private async _toWallClocks(
+		data: Record<string, unknown>,
+		kinds: ReadonlyMap<string, TemporalKind>,
+	): Promise<void> {
+		const columns = Object.keys(data).filter((column) => kinds.has(column));
+		if (!columns.length) {
+			return;
+		}
+		const clock = await this._clock.current();
+		for (const column of columns) {
+			data[column] = clock.toWallClock(kinds.get(column)!, data[column]);
+		}
 	}
 
 	/**
 	 * The schema facts a read needs, from the cached schema and only when relevant: the lookup
-	 * columns that decide whether a top-level `XxxId` is a lookup FK, and — for an ordered read
-	 * without `columns`, since DataService ignores sorting in all-columns mode — the full column
-	 * list. Without a schema the read keeps the `Id`-suffix heuristic (and an unsorted all-columns
-	 * read, logged).
+	 * columns that decide whether a top-level `XxxId` is a lookup FK, the column kinds that convert
+	 * date/time filter values to the user's wall clock, and — for an ordered read without
+	 * `columns`, since DataService ignores sorting in all-columns mode — the full column list.
+	 * Without a schema the read keeps the `Id`-suffix heuristic (and an unsorted all-columns read,
+	 * logged).
 	 */
 	private async _resolveRead(
 		query: ReadQuery,
 	): Promise<{ query: ReadQuery; lookups?: LookupNames }> {
 		const expand = Boolean(query.order?.length) && !query.columns?.length;
-		if (!expand && !needsLookupNames(query)) {
+		const temporal = hasTemporalFilterValue(query.filter);
+		if (!expand && !temporal && !needsLookupNames(query)) {
 			return { query };
 		}
 		const types = await this._schema.columnTypes(query.entity);
+		if (temporal) {
+			const clock = await this._clock.current();
+			query = {
+				...query,
+				filter: mapTemporalFilterValues(query.filter!, temporalColumns(types), (kind, v) =>
+					clock.toWallClock(kind, v),
+				),
+			};
+		}
 		if (!types.size) {
 			if (expand) {
 				log.warn('creatio.dataservice.read.order_ignored', { entity: query.entity });
@@ -196,8 +234,11 @@ export class DataServiceCrudProvider implements CrudProvider {
 			if (body?.notFoundColumns?.length) {
 				throw new UnknownNameError('column', String(body.notFoundColumns[0]), query.entity);
 			}
+			const clock = hasTemporalColumn(body?.rowConfig)
+				? await this._clock.current()
+				: undefined;
 			items = this._project(
-				normalizeDataServiceRows(this._rows(body), body?.rowConfig),
+				normalizeDataServiceRows(this._rows(body), body?.rowConfig, clock),
 				query.columns,
 			);
 		}
@@ -206,7 +247,7 @@ export class DataServiceCrudProvider implements CrudProvider {
 		}
 		const countBody = await this._transport.post(
 			'SelectQuery',
-			this._queryBuilder.buildCountQuery(query, opts),
+			this._queryBuilder.buildCountQuery(resolved.query, opts),
 			{ logContext: { entity: query.entity, count: true } },
 		);
 		const totalCount = this._extractCount(countBody);

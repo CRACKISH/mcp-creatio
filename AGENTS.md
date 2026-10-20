@@ -9,7 +9,7 @@ An implementation of a Model Context Protocol (MCP) server that exposes Creatio 
 Primary goals:
 
 - Provide stable tool surface for CRUD, schema discovery, business process execution.
-- Enforce safe data operations (especially Activities ownership rules, date/time UTC handling).
+- Enforce safe data operations (especially Activities ownership rules, dates in the user's time zone).
 - Offer prompts that guide LLMs to use Creatio correctly.
 
 ## 2. High-Level Architecture
@@ -120,7 +120,9 @@ CreatioServiceContext
   ├─ RecordFilesService → a record's attachments over the CrudProvider: `<Entity>File` (FK
   │     `<Entity>`, skipped when the table does not exist) + `SysFile` (RecordSchemaName +
   │     RecordId); never selects `Data`
-  └─ UserInfoProvider → UserInfoService for current user data
+  ├─ UserInfoProvider → UserInfoService for current user data
+  └─ UserTimeZoneResolver → the caller's UserClock (profile zone), cached per tenant + caller
+        (credential hash in the passthrough modes); injected into both CRUD providers
 ```
 
 Usage pattern:
@@ -150,9 +152,14 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 - **`IsNullFilter` needs an explicit `isNull` boolean** (`true` for is-null, `false` for
   is-not-null). The platform `Filter.IsNull` defaults to TRUE, so omitting it makes every
   null-check an IS NULL (inverts `isNotNull`).
-- **DateTime parameter value** = JSON-quoted local-ISO WITHOUT `Z`/offset (`"2026-06-01T00:00:00"`,
-  mirrors devkit `ɵencodeDate`); the server interprets it in the user-profile timezone. A raw
-  `…Z` string 500s. (OData is the opposite: bare `Edm.DateTimeOffset` WITH `Z`.)
+- **DateTime parameter value** = JSON-quoted INSIDE the string, zone-less user wall clock
+  (`"\"2026-06-01T00:00:00\""`, mirrors devkit `ɵencodeDate`; unquoted 500s). Core reads it in
+  the user's PROFILE zone and converts to UTC itself (`DateTimeDataValueType.GetValueForSave`), and
+  returns reads as that zone's wall clock with no suffix. Never send a zone: an offset is applied in
+  the SERVER's zone, and an UpdateQuery silently skips a `Z` value whose UTC digits equal the stored
+  local digits (both measured live, .NET Framework + .NET 8). `UserClock.toWallClock` converts first.
+  (OData is the opposite: true UTC instants both ways, and its `$metadata` types DateTime, Date and
+  Time all as `Edm.DateTimeOffset` — the column kind comes from `RuntimeEntitySchemaRequest`.)
 - **Write coercion**: `RuntimeEntitySchemaRequest` returns EXTENDED column `dataValueType`
   codes (e.g. MediumText=28); a Parameter must use the BASE type — map via
   `toParameterDataValueType` (extended→base), else 500 "NotSupportedException".
@@ -191,7 +198,13 @@ Contain=11, EndWith=13`. (Getting these wrong silently inverts gt/ge/lt/le.)
 
 ## 4. Invariants & Rules (Do NOT Break)
 
-1. All date/time fields passed to Creatio MUST be UTC ISO8601 with `Z` suffix.
+1. Record dates follow the user's Creatio profile time zone, like the Creatio UI (`src/creatio/temporal/`).
+   Tools take a zone-less DateTime as the user's wall clock and `Z`/offset as an exact instant;
+   reads return the wall clock labelled with the user's offset (`2026-11-10T15:00:00-01:00`), a Date
+   as `YYYY-MM-DD`, a Time as `HH:mm:ss`. Both CRUD providers convert through `UserClock` (zone from
+   `GetCurrentUserInfo` via `UserTimeZoneResolver`, Windows id → IANA from the CLDR table generated
+   by `scripts/generate-windows-zones.mjs`, daylight saving per date from the runtime's ICU). Date
+   and Time columns are never shifted. Never strip or append a zone anywhere else.
 2. Activity creation: Always set `OwnerId` and `AuthorId` to current user's ContactId obtained via `get-current-user-info` unless user explicitly specifies another owner.
 3. Avoid adding blocking network calls in tool descriptors—descriptors must be static; logic belongs in handlers.
 4. Never silently swallow errors coming from Creatio—log via `log.error` then rethrow.

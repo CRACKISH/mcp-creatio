@@ -1,3 +1,4 @@
+import { UserClock, temporalKindOf } from '../../temporal';
 import { isEmptyPlaceholder } from '../identifiers';
 
 import { DataValueType } from './data-service-types';
@@ -28,7 +29,11 @@ function normalizeLookup(cell: unknown): unknown {
 	return { value: cell.value, displayValue: cell.displayValue ?? '' };
 }
 
-function normalizeCell(cell: unknown, dataValueType: number | undefined): unknown {
+function normalizeCell(
+	cell: unknown,
+	dataValueType: number | undefined,
+	clock: UserClock | undefined,
+): unknown {
 	if (dataValueType === undefined) {
 		return cell;
 	}
@@ -41,19 +46,30 @@ function normalizeCell(cell: unknown, dataValueType: number | undefined): unknow
 	if (type !== DataValueType.Text && (cell === '' || isEmptyPlaceholder(cell))) {
 		return null;
 	}
-	return cell;
+	const kind = temporalKindOf(dataValueType);
+	return kind && clock ? clock.fromWallClock(kind, cell) : cell;
+}
+
+/** Whether a response returns any date/time column — only then does a read need the user's zone. */
+export function hasTemporalColumn(rowConfig: DataServiceRowConfig = {}): boolean {
+	return Object.values(rowConfig).some((c) => temporalKindOf(c?.dataValueType) !== undefined);
 }
 
 /**
  * Normalizes SelectQuery rows by the response's `rowConfig` types, so a missing value reads as
- * `null` (not `""`) and a lookup as a compact `{ value, displayValue }`. Columns absent from
- * `rowConfig` pass through untouched.
+ * `null` (not `""`), a lookup as a compact `{ value, displayValue }`, and — with the user's
+ * `clock` — a date/time in the tools' contract (DataService returns the user's zone-less wall
+ * clock; see {@link UserClock}). Columns absent from `rowConfig` pass through untouched.
  */
-export function normalizeDataServiceRows(rows: Row[], rowConfig: DataServiceRowConfig = {}): Row[] {
+export function normalizeDataServiceRows(
+	rows: Row[],
+	rowConfig: DataServiceRowConfig = {},
+	clock?: UserClock,
+): Row[] {
 	return rows.map((row) => {
 		const out: Row = {};
 		for (const [column, cell] of Object.entries(row)) {
-			out[column] = normalizeCell(cell, rowConfig[column]?.dataValueType);
+			out[column] = normalizeCell(cell, rowConfig[column]?.dataValueType, clock);
 		}
 		return out;
 	});

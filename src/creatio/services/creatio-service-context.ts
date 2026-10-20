@@ -30,6 +30,7 @@ import { RecordFilesService } from './record-files-service';
 import { SchemaFreshnessGate } from './schema-freshness-gate';
 import { SysSettingsServiceProvider } from './sys-settings-service-provider';
 import { UserInfoProvider } from './user-info-provider';
+import { UserTimeZoneResolver } from './user-time-zone';
 
 export class CreatioServiceContext implements CreatioProviderContext {
 	private readonly _config: CreatioClientConfig;
@@ -64,10 +65,12 @@ export class CreatioServiceContext implements CreatioProviderContext {
 		const metadataStore = new ODataMetadataStore(this._httpClient, this._freshness);
 		this.adminOperation = new AdminOperationServiceProvider(this._httpClient);
 		this.configuration = new ConfigurationServiceProvider(this._httpClient);
+		this.user = new UserInfoProvider(this._httpClient);
 		this.crud = createCrudProvider(config.crudBackend, {
 			client: this._httpClient,
 			metadataStore,
 			freshness: this._freshness,
+			clock: new UserTimeZoneResolver(this.user, () => this._httpClient.normalizedBaseUrl),
 		});
 		this.feature = new FeatureServiceProvider(this._httpClient);
 		if (this.crud instanceof DataServiceCrudProvider) {
@@ -80,7 +83,6 @@ export class CreatioServiceContext implements CreatioProviderContext {
 		this.process = new ProcessServiceProvider(this._httpClient);
 		this.recordFiles = new RecordFilesService(this.crud, this.navigation);
 		this.sysSettings = new SysSettingsServiceProvider(this._httpClient);
-		this.user = new UserInfoProvider(this._httpClient);
 	}
 
 	/** Proactively refresh the schema-freshness snapshot for the current base URL. Lets the

@@ -24,6 +24,7 @@ import { buildFilterNode, parseOrderBy } from './filters';
 import { GlobalSearchClient } from './globalsearch/globalsearch-client';
 import { GlobalSearchToolPreparer } from './globalsearch/globalsearch-tool-preparer';
 import { ALL_PROMPTS } from './prompts-data';
+import { SERVER_INSTRUCTIONS } from './server-instructions';
 import { DEFAULT_TENANT_KEY, TenantToolRegistry, TenantToolState } from './tenant-tool-registry';
 import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
 import {
@@ -579,7 +580,10 @@ export class Server {
 	 * `X-Creatio-Base-Url`) selects the tenant; absent ⇒ the single default tenant.
 	 */
 	public createSessionServer(baseUrlOverride?: string): McpServer {
-		const mcp = new McpServer({ name: this._serverName, version: this._serverVersion });
+		const mcp = new McpServer(
+			{ name: this._serverName, version: this._serverVersion },
+			{ instructions: SERVER_INSTRUCTIONS },
+		);
 		this._registerAllInto(mcp);
 		const state = this._registry.getState(this._tenantKey(baseUrlOverride));
 		for (const [name, tool] of state.dynamicTools) {

@@ -161,15 +161,20 @@ describe('DataServiceCrudProvider.create coercion + FK column mapping', () => {
 });
 
 describe('encodeParameterValue date/time encoding (devkit ɵencodeDate parity)', () => {
-	it('quotes and strips Z/offset for date-time values', async () => {
+	// Stripping the zone used to store a UTC input as the user's wall clock (shifted by the user's
+	// offset). The zone is now resolved before encoding (UserClock.toWallClock); encoding only quotes.
+	it('JSON-quotes date-time values inside the string, without altering them', async () => {
 		const { encodeParameterValue } = await import('../../src/creatio');
-		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T00:00:00Z')).toBe(
-			'"2026-06-01T00:00:00"',
-		);
-		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T10:00:00+03:00')).toBe(
+		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T10:00:00')).toBe(
 			'"2026-06-01T10:00:00"',
 		);
+		expect(encodeParameterValue(DataValueType.DateTime, '2026-06-01T00:00:00Z')).toBe(
+			'"2026-06-01T00:00:00Z"',
+		);
 		expect(encodeParameterValue(DataValueType.Date, '2026-06-01')).toBe('"2026-06-01"');
+		expect(encodeParameterValue(DataValueType.DateTime, new Date('2026-06-01T10:00:00Z'))).toBe(
+			'"2026-06-01T10:00:00.000Z"',
+		);
 	});
 	it('leaves non-temporal values untouched', async () => {
 		const { encodeParameterValue } = await import('../../src/creatio');

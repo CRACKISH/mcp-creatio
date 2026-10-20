@@ -76,9 +76,9 @@ Call \`get-current-user-info\` (no parameters) once and use \`userInfo.contactId
 See /contactid-guide prompt for detailed explanation.
 
 ---
-## ⏰ STEP 3: Timezone Handling
+## ⏰ STEP 3: Dates and times
 
-Always confirm timezone → convert to UTC → ISO 8601 with Z. See /datetime-guide for full details.
+Send times as the user says them, in their Creatio time zone ("2026-11-10T14:00:00") — the server applies the zone; do not ask for it. See /datetime-guide.
 
 ---
 ## 🔨 STEP 4: Construct Payload
@@ -91,8 +91,8 @@ Base payload:
     "Title": "<title>",
     "TypeId": "${DEFAULT_ACTIVITY_IDS.TYPE_TASK}",
     "ActivityCategoryId": "<category-guid>",
-    "StartDate": "<utc-start>",
-    "DueDate": "<utc-due>",
+    "StartDate": "<start, e.g. 2026-11-10T14:00:00>",
+    "DueDate": "<due>",
     "StatusId": "${DEFAULT_ACTIVITY_IDS.STATUS_NOT_STARTED}",
     "OwnerId": "<contactId>",
     "AuthorId": "<contactId>",
@@ -153,7 +153,7 @@ User: "Add John and Mary to tomorrow's meeting"
 ---
 ## ✅ Example (Meeting intent, fast mode)
 
-User: "Schedule meeting tomorrow 14:00" → ask timezone → user: "UTC+2" → 14:00 UTC+2 = 12:00Z.
+User: "Schedule meeting tomorrow 14:00" → StartDate "<tomorrow>T14:00:00" (the user's Creatio time zone).
 1. Resolve the owner: \`get-current-user-info\` → \`userInfo.contactId\` (once)
 2. Lookup ActivityCategory 'Meeting' (if not cached)
 3. Create with Type=Task, Category=Meeting
@@ -170,8 +170,7 @@ If triggered:
 ## 🚨 Common Mistakes
 ❌ Unnecessary lookups for Meeting/Call when fast mode sufficient
 ❌ Using SysAdminUnit.Id instead of ContactId
-❌ Skipping timezone confirmation
-❌ Forgetting Z suffix
+❌ Converting times to UTC yourself (send the user's time as is; an offset only for another zone)
 ❌ Mismatching explicit non-Task request (ignore only if user accepts fast mode)
 ❌ Adding extra fields to ActivityParticipant (only ActivityId + ParticipantId needed!)
 ❌ Forgetting to create ActivityParticipant records when user asks to add participants
@@ -188,111 +187,62 @@ Return the minimal number of read calls (cache category GUIDs when first resolve
 `.trim();
 
 const DATETIME_GUIDE = `
-# ⏰ DateTime and Timezone Guide for Creatio
+# Dates and time zones in Creatio
 
-## The Problem
-You do NOT automatically know the user's timezone! 
-Dates in Creatio must be stored in UTC with ISO 8601 format.
+Every Creatio user has a profile time zone, and Creatio shows and stores dates in it: a meeting at
+14:00 is at 14:00 in the user's zone. The record tools (read, create, update, filters) work the same
+way, so you do not need to ask the user for a time zone or convert anything yourself.
 
----
+## Which zone
 
-## ✅ The Solution: Always Ask!
+\`get-current-user-info\` returns it: \`userInfo.timeZone\` (IANA, e.g. "Europe/Kyiv") and
+\`userInfo.utcOffset\` (today's offset, e.g. "+03:00"). Daylight saving is applied per date by the
+server, so a date in winter may carry a different offset than today.
 
-### Step 1: Identify Date/Time from User
-User says: "Create meeting tomorrow at 2pm"
-- Tomorrow = calculate date
-- 2pm = time in **user's local timezone**
+## Writing (create, update) and filtering
 
-### Step 2: Ask for Timezone
-**You:** "What timezone are you in?"
+| You send | Meaning |
+|---|---|
+| \`"2026-11-10T14:00:00"\` (no zone) | 14:00 in the user's Creatio time zone — what the user means by "at 2pm" |
+| \`"2026-11-10"\` on a date/time column | the user's midnight that day |
+| \`"2026-11-10T14:00:00+02:00"\` or \`"…T12:00:00Z"\` | that exact instant (use it when the user names another zone) |
+| \`"1990-12-07"\` on a Date column (BirthDate, …) | that calendar date — never shifted |
+| \`"09:30"\` on a Time column | that clock time — never shifted |
 
-**User might say:**
-- "UTC+3" or "GMT+3"
-- "Europe/Kiev" or "Europe/Warsaw"  
-- "EST" or "PST"
-- "My local time is 2pm now" (calculate offset)
+## Reading
 
-### Step 3: Convert to UTC
-Formula: **UTC = Local Time - Offset**
+- A date/time comes back in the user's zone, labelled with its offset:
+  \`"2026-11-10T14:00:00+02:00"\` — show the user "14:00" (and the date).
+- A Date column comes back as \`"YYYY-MM-DD"\`, a Time column as \`"HH:mm:ss"\`.
+- A missing value is \`null\`.
 
-Examples:
-- 2pm UTC+3 → 2pm - 3h = **11am UTC**
-- 9am UTC-5 (EST) → 9am - (-5h) = 9am + 5h = **2pm UTC**
-- 10pm UTC+0 → **10pm UTC** (no conversion)
+## Examples
 
-### Step 4: Format as ISO 8601 with Z suffix
-Format: \`YYYY-MM-DDTHH:mm:ss**Z**\`
+User: "Schedule a meeting tomorrow at 14:00 for an hour" (today is 2026-11-09)
+\`\`\`json
+{ "entity": "Activity", "data": { "StartDate": "2026-11-10T14:00:00", "DueDate": "2026-11-10T15:00:00" } }
+\`\`\`
 
-Examples:
-- \`2024-01-16T11:00:00Z\`
-- \`2024-12-25T14:30:00Z\`
-- \`2025-03-01T00:00:00Z\`
+User: "A call at 9:00 New York time"
+\`\`\`json
+{ "data": { "StartDate": "2026-11-10T09:00:00-05:00" } }
+\`\`\`
 
-**The Z suffix means UTC!** Never omit it.
+User: "Activities created this month" (November 2026)
+\`\`\`json
+{ "entity": "Activity", "filters": { "all": [
+  { "field": "CreatedOn", "op": "ge", "value": "2026-11-01" },
+  { "field": "CreatedOn", "op": "lt", "value": "2026-12-01" }
+] } }
+\`\`\`
 
----
+## Rules
 
-## 📋 Common Timezone Reference
-
-| Timezone          | Offset  | Example: 2pm local → UTC |
-|-------------------|---------|--------------------------|
-| UTC+0 (London)    | +0      | 2pm → 2pm UTC            |
-| UTC+1 (Paris)     | +1      | 2pm → 1pm UTC            |
-| UTC+2 (Kyiv)      | +2      | 2pm → 12pm UTC           |
-| UTC+3 (Moscow)    | +3      | 2pm → 11am UTC           |
-| UTC-5 (EST/NY)    | -5      | 2pm → 7pm UTC            |
-| UTC-8 (PST/LA)    | -8      | 2pm → 10pm UTC           |
-
----
-
-## 💡 Conversation Examples
-
-### Example 1: Clear timezone
-**User:** "Create task tomorrow at 9am EST"
-**You:** *(recognize EST = UTC-5)*
-- Tomorrow = 2024-01-16
-- 9am EST = 9am + 5h = 2pm UTC
-- Store: \`"StartDate": "2024-01-16T14:00:00Z"\`
-
-### Example 2: Ask for clarification
-**User:** "Meeting at 3pm"
-**You:** "What timezone are you in?"
-**User:** "UTC+3"
-**You:** *(calculate)*
-- 3pm UTC+3 = 3pm - 3h = 12pm UTC
-- Store: \`"StartDate": "2024-01-16T12:00:00Z"\`
-
-### Example 3: Relative time
-**User:** "Create task in 2 hours"
-**You:** "What timezone?"
-**User:** "It's 4pm here, UTC+2"
-**You:** *(calculate)*
-- Now: 4pm UTC+2 = 2pm UTC
-- In 2 hours: 2pm + 2h = 4pm UTC
-- Store: \`"StartDate": "2024-01-16T16:00:00Z"\`
-
----
-
-## 🚨 Critical Rules
-
-1. ⚠️ **ALWAYS ask timezone** - never assume!
-2. ⚠️ **ALWAYS use Z suffix** - indicates UTC
-3. ⚠️ **Subtract offset for east** (UTC+) - e.g., UTC+3 → subtract 3
-4. ⚠️ **Add offset for west** (UTC-) - e.g., UTC-5 → add 5
-5. ⚠️ **Store in UTC** - Creatio expects UTC, not local time
-
----
-
-## 🎯 Quick Checklist
-
-Before storing ANY date in Creatio:
-- [ ] Asked user for timezone?
-- [ ] Converted local time to UTC?
-- [ ] Used ISO 8601 format?
-- [ ] Added Z suffix?
-- [ ] Double-checked offset direction?
-
-If all ✅ → Good to go!
+- Relative dates ("tomorrow", "in 2 hours") are relative to the user's time: take "now" in
+  \`userInfo.timeZone\`.
+- Use an offset or Z only for an instant in another zone, or one you received with an offset.
+- Copying a value you read into a write or a filter keeps its meaning (it carries its offset).
+- Durations: DueDate = StartDate + duration, in the same zone.
 `.trim();
 
 const CONTACTID_GUIDE = `
@@ -311,7 +261,7 @@ Putting a user id into an owner field fails (or points at nobody) — owner/auth
 Call \`get-current-user-info\` once and reuse the answer for the conversation:
 
 \`\`\`json
-{ "success": true, "userInfo": { "id": "<SysAdminUnit id>", "contactId": "<Contact id>", "contactName": "…", "timeZoneOffsetHours": 2, "…": "…" } }
+{ "success": true, "userInfo": { "id": "<SysAdminUnit id>", "contactId": "<Contact id>", "contactName": "…", "timeZone": "Europe/Kyiv", "utcOffset": "+02:00", "…": "…" } }
 \`\`\`
 
 Records the user creates for themselves (tasks, meetings, leads, opportunities, cases) get their contact id as owner and author. Do not ask "for whom?" — only use someone else when the user says so ("a task for John").
@@ -618,7 +568,7 @@ Ask for what you need, no more: \`select\` the columns you will use and keep \`t
 | Text search in a column | \`{ field: "Name", op: "contains", value: "acme" }\` (case-insensitive) |
 | One of several values | \`{ field: "Stage.Name", in: ["Presentation", "Negotiation"] }\` |
 | Empty / not empty | \`{ field: "Email", op: "eq", value: null }\` / \`op: "ne"\` |
-| A date range | \`{ field: "CreatedOn", op: "ge", value: "2026-01-01T00:00:00Z" }\` + \`op: "lt"\` for the end (UTC, /datetime-guide) |
+| A date range | \`{ field: "CreatedOn", op: "ge", value: "2026-01-01" }\` + \`op: "lt"\` for the end (the user's time zone, /datetime-guide) |
 | AND / OR | \`filters: { all: [...], any: [...] }\` — \`all\` is AND, \`any\` is OR, and the two groups are combined by AND |
 | Newest / biggest first | \`orderBy: "CreatedOn desc"\`, \`orderBy: "Amount desc, Title asc"\` |
 | "How many …?" | \`count: true, top: 0\` → \`{ total, value: [] }\` — never page through rows to count them |
@@ -674,8 +624,9 @@ export const CREATE_ACTIVITY_PROMPT = {
 };
 export const DATETIME_PROMPT = {
 	name: 'datetime-guide',
-	title: 'DateTime and Timezone Guide',
-	description: 'How to ask users for timezone and convert to UTC for Creatio',
+	title: 'Dates and time zones',
+	description:
+		'How record dates follow the user’s Creatio time zone, with write, filter and read examples',
 	argsSchema: {},
 	callback: () => ({
 		messages: [

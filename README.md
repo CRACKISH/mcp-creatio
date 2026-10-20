@@ -352,13 +352,23 @@ selectable data API, chosen once per deployment via `CREATIO_MCP_CRUD_BACKEND`:
 Either way you query through the same tool surface: prefer the structured `filters` parameter — it
 works unchanged on both backends.
 
+### Dates and time zones
+
+Record dates work in the **user's Creatio time zone**, exactly as the Creatio UI shows them, on both
+backends. A date/time is read as that zone's wall clock labelled with its offset
+(`"2026-11-10T15:00:00+02:00"`); a value sent without an offset (`"2026-11-10T15:00:00"`) means that
+wall clock, and one with `Z` or an offset is that exact instant. Date columns (`BirthDate`) read and
+write as `YYYY-MM-DD` and are never shifted. The zone comes from the user's Creatio profile
+(daylight saving is applied per date), `get-current-user-info` returns it as `timeZone` / `utcOffset`,
+and the server tells the model this on connect (MCP `instructions`).
+
 ---
 
 ## Tools
 
 | Tool                             | Description                                                                                                                                              |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user                                                                                         |
+| `get-current-user-info`          | Fetch the Creatio contact details for the authenticated MCP user, with the time zone record dates use (`timeZone`, `utcOffset`)                          |
 | `list-entities`                  | List all available entity sets                                                                                                                           |
 | `describe-entity`                | Get schema for an entity (fields, types, keys). Routes through DataForge for richer column details when it is enabled, otherwise exact OData `$metadata` |
 | `read`                           | Query records: filters, select, expand, ordering, pagination (skip/top) and total count                                                                  |

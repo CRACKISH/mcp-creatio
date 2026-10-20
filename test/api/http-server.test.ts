@@ -84,6 +84,8 @@ describe('McpHandlers error branches', () => {
 			});
 		expect(res.status).toBe(200);
 		expect(res.headers['mcp-session-id']).toBeTruthy();
+		// The model learns the date contract before any tool call (clients add it to the prompt).
+		expect(res.text).toContain('Creatio profile time zone');
 	});
 
 	it('routes POST /mcp with an existing session id to its transport', async () => {

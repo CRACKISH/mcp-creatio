@@ -58,7 +58,7 @@ const entityName = (examples: string) =>
 	z.string().min(1).describe(`Entity (object schema) name, e.g. ${examples}.`);
 
 const DATES_RULE =
-	'Date/time values are UTC ISO 8601 with a Z suffix ("2026-03-01T09:30:00Z") — convert the user\'s local time first (/datetime-guide).';
+	'Date/times are in the user\'s Creatio time zone, as in the Creatio UI: "2026-03-01T09:30:00" is 09:30 there; a value with an offset or Z ("2026-03-01T09:30:00+02:00") is that exact instant. A Date column takes "YYYY-MM-DD". (/datetime-guide)';
 
 // --- Current user -----------------------------------------------------------------------------
 
@@ -68,9 +68,9 @@ export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
 export const getCurrentUserInfoDescriptor = makeToolDescriptor({
 	title: 'Get the current Creatio user',
 	description:
-		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZoneId, timeZoneOffsetHours, userRoles, ... } }. ' +
+		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZone, utcOffset, userRoles, ... } }. ' +
 		'Call it once before creating records owned by the user — owner/author lookups (OwnerId, AuthorId) take `userInfo.contactId`, not `userInfo.id` — or when a tool needs the user as a user/role (`adminUnitId` = `userInfo.id`). Reuse the result for the rest of the conversation; reads do not need it. ' +
-		"`timeZoneOffsetHours` is the user's Creatio time zone, useful when converting times (/datetime-guide). See /contactid-guide.",
+		'`timeZone` (IANA, e.g. "Europe/Kyiv") and `utcOffset` (today\'s, e.g. "+03:00") are the user\'s Creatio time zone — the one record dates are read and written in (/datetime-guide). See /contactid-guide.',
 	inputShape: getCurrentUserInfoInputShape,
 	annotations: READ_ONLY,
 });
@@ -134,7 +134,7 @@ const readInputShape = {
 			z.string().min(1).optional(),
 		)
 		.describe(
-			"Raw OData $filter (escape hatch; prefer `filters`). Strings in single quotes (escape ' as ''), GUIDs and dates unquoted, a lookup by its navigation id (`Account/Id eq <guid>`, not `AccountId`). Example: \"contains(Name,'Acme') and Type/Name eq 'Customer'\". AND-combined with `filters`.",
+			"Raw OData $filter (escape hatch; prefer `filters`). Strings in single quotes (escape ' as ''), GUIDs and dates unquoted (a raw filter date is a UTC instant: 2026-11-10T12:00:00Z), a lookup by its navigation id (`Account/Id eq <guid>`, not `AccountId`). Example: \"contains(Name,'Acme') and Type/Name eq 'Customer'\". AND-combined with `filters`.",
 		),
 	filters: filtersShape.optional(),
 	select: z
@@ -222,10 +222,10 @@ export function buildReadDescriptor(caps: ReadCapabilities) {
 			'`filters` take a column, a lookup id (`OwnerId` = a GUID) or a related column (`Account.Name`). ' +
 			rawFilter +
 			'`top` defaults to 50; page with `skip` + a stable `orderBy`; `count: true` adds the total ({ total, value }), with `top: 0` for the total alone. ' +
-			'Response: an array of rows; a missing value is null (text may be ""). ' +
+			'Response: an array of rows; a missing value is null (text may be ""); a date/time is in the user\'s Creatio time zone with its offset ("2026-11-10T15:00:00+02:00"), a Date column "YYYY-MM-DD". ' +
 			'An unknown entity or column fails as "unknown_column:Emial (Contact). Did you mean: Email?" — retry with the suggestion. ' +
 			'Example: { entity: "Opportunity", select: ["Title", "Amount", "Stage"], filters: { all: [{ field: "OwnerId", op: "eq", value: "<contactId>" }] }, orderBy: "Amount desc", top: 10 }. ' +
-			'More patterns: /query-guide. Dates in filters: /datetime-guide.',
+			'Date filter values follow the same zone ("2026-11-01" = the user\'s midnight). More patterns: /query-guide; dates: /datetime-guide.',
 		inputShape: buildReadInputShape(caps),
 		annotations: READ_ONLY,
 	});
@@ -332,7 +332,7 @@ const executeProcessInputShape = {
 		.record(z.string(), z.any())
 		.optional()
 		.describe(
-			`Process parameters by their codes, e.g. { "ContactId": "<guid>", "Amount": 1000, "SendNotification": true }. ${DATES_RULE}`,
+			'Process parameters by their codes, e.g. { "ContactId": "<guid>", "Amount": 1000, "SendNotification": true }. Values are passed to the process as written.',
 		),
 } as const;
 export const executeProcessInput = z.object(executeProcessInputShape);

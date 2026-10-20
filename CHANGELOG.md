@@ -4,6 +4,31 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dates were shifted by the user's time-zone offset on the default (DataService) backend.** A
+  `…Z` value had its zone stripped, so 12:00Z was stored as 12:00 in the user's Creatio time zone
+  (three hours off for a user in Kyiv in summer), and reads returned that zone's wall clock without
+  saying so. Verified against Creatio core and live on .NET Framework and .NET 8.
+
+### Changed
+
+- **Record dates work in the user's Creatio time zone, like the Creatio UI, on both backends.**
+  Reads return the wall clock labelled with the user's offset for that date
+  (`"2026-11-10T15:00:00+02:00"`); a value sent without an offset means that wall clock, one with `Z`
+  or an offset is that exact instant (also in filters, where `"2026-11-01"` is the user's midnight).
+  Date columns read and write as `YYYY-MM-DD` and Time columns as `HH:mm:ss` — never shifted (on
+  OData a birth date used to read as `1990-12-07T00:00:00Z`). The zone comes from the user's Creatio
+  profile, with daylight saving applied per date (Windows zone ids mapped to IANA from Unicode CLDR;
+  if a zone cannot be mapped, Creatio's current offset is used and a warning logged); it is resolved
+  once per user and cached for 15 minutes. Values the model copies from a read keep their meaning.
+- **`get-current-user-info` returns the user's `timeZone` (IANA) and today's `utcOffset`.**
+- **The server sends MCP `instructions` on connect**, so the model knows dates are in the user's
+  Creatio time zone (and to say so) before calling a tool; `/datetime-guide` rewritten — the model no
+  longer asks the user for a time zone or converts to UTC.
+
 ## [0.7.0]
 
 Record links, attachments, feature toggles from every source, "did you mean" errors, full support
