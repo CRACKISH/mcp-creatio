@@ -6,8 +6,28 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`get-guide` tool** — the model can read the usage guides itself (most clients never let the
+  model open MCP prompts, so the "/…-guide" pointers in tool descriptions were dead ends). The guides
+  stay available as prompts for the user; tool descriptions now point to `get-guide: <topic>`.
+
+- **`get-current-user-info` returns the user's `now` and `today`** (in their Creatio time zone), the
+  base for "tomorrow", "this month" or "overdue" — the model's own clock may be in another zone.
+- **`list-entities` takes `search`** (case-insensitive part of the name) instead of returning 1000+ names.
+
 ### Fixed
 
+- **OData: a date filter on a related column or without a known column type returned 500** — OData
+  rejects a bare date (`CreatedOn ge 2026-11-01`); it is now always sent as an instant, and a
+  related path (`Activity.StartDate`) takes its column kind from the related entity's schema on both
+  backends.
+- **The activity guide named a category id that does not exist** ("To do"), so an activity created by
+  the guide failed, and it had the model pick categories by name — "Call" exists under two types and
+  "Email" belongs to the Email type, giving a mismatched type/category. The guide now explains type vs
+  category the way Creatio itself creates activities (a meeting is a Task with the Meeting category and
+  `ShowInScheduler`; Email/Call types are not created by hand), with base-package ids for every
+  type, category, status and priority — verified on both runtimes and backends.
 - **Dates were shifted by the user's time-zone offset on the default (DataService) backend.** A
   `…Z` value had its zone stripped, so 12:00Z was stored as 12:00 in the user's Creatio time zone
   (three hours off for a user in Kyiv in summer), and reads returned that zone's wall clock without
@@ -25,6 +45,10 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   if a zone cannot be mapped, Creatio's current offset is used and a warning logged); it is resolved
   once per user and cached for 15 minutes. Values the model copies from a read keep their meaning.
 - **`get-current-user-info` returns the user's `timeZone` (IANA) and today's `utcOffset`.**
+- **`describe-entity` takes `entity`** like every other tool (`entitySet` is still accepted).
+- **Guides rewritten and verified live** — tagging (choose the storage the object already uses; ask the
+  user in plain words), system operations (filters by the plain FK column work on both backends), system
+  settings and feature toggles; no shouting, copyable tool-call JSON.
 - **The server sends MCP `instructions` on connect**, so the model knows dates are in the user's
   Creatio time zone (and to say so) before calling a tool; `/datetime-guide` rewritten — the model no
   longer asks the user for a time zone or converts to UTC.

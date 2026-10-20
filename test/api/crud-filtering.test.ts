@@ -99,9 +99,11 @@ describe('OData backend — read filter translation (full stack)', () => {
 	});
 
 	it('by date — ISO literal emitted UNQUOTED (OData v4 requires it; live 400 otherwise)', async () => {
+		// A bare date 500s on both runtimes (verified live): it is sent as the instant of the user's
+		// midnight — UTC here, the test harness's zone.
 		expect(
 			await filterFor({ all: [{ field: 'CreatedOn', op: 'ge', value: '2026-01-01' }] }),
-		).toBe('CreatedOn ge 2026-01-01');
+		).toBe('CreatedOn ge 2026-01-01T00:00:00Z');
 		expect(
 			await filterFor({
 				all: [{ field: 'CreatedOn', op: 'ge', value: '2026-06-01T00:00:00Z' }],

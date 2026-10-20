@@ -319,3 +319,176 @@ describe('get-current-user-info', () => {
 		}
 	});
 });
+
+// Schemas by name, for related-path resolution: ActivityParticipant.Activity → Activity,
+// Activity.Owner → Contact (BirthDate is a Date column).
+const SCHEMAS: Record<string, Array<[string, number, string?]>> = {
+	ActivityParticipant: [
+		['Id', 0],
+		['Activity', 10, 'Activity'],
+		['Participant', 10, 'Contact'],
+	],
+	Activity: [
+		['Id', 0],
+		['StartDate', 7],
+		['Owner', 10, 'Contact'],
+	],
+	Contact: [
+		['Id', 0],
+		['BirthDate', 8],
+		['CreatedOn', 7],
+	],
+};
+
+function schemaBody(name: string) {
+	const columns = SCHEMAS[name];
+	if (!columns) {
+		return {
+			success: false,
+			responseStatus: { Message: `Item with name "${name}" not found` },
+		};
+	}
+	const Items = Object.fromEntries(
+		columns.map(([column, dataValueType, referenceSchemaName], i) => [
+			`c${i}`,
+			{
+				name: column,
+				dataValueType,
+				...(referenceSchemaName ? { referenceSchemaName } : {}),
+			},
+		]),
+	);
+	return { success: true, schema: { name, columns: { Items } } };
+}
+
+function schemaHarness(other: (url: string) => Response) {
+	return makeHttpClientHarness((url, init) =>
+		url.endsWith('/RuntimeEntitySchemaRequest')
+			? jsonResponse(schemaBody(JSON.parse(String(init.body)).name))
+			: other(url),
+	);
+}
+
+describe('date filters on related paths resolve the related column through the schema', () => {
+	it('resolveTemporalKinds follows lookups; an unknown step resolves nothing', async () => {
+		const { client } = schemaHarness(() => jsonResponse({}));
+		const { DataServiceSchemaProvider } =
+			await import('../../src/creatio/services/dataservice/data-service-schema');
+		const { DataServiceTransport } =
+			await import('../../src/creatio/services/dataservice/data-service-transport');
+		const { resolveTemporalKinds } =
+			await import('../../src/creatio/services/column-schema-source');
+		const schema = new DataServiceSchemaProvider(new DataServiceTransport(client));
+		const kinds = await resolveTemporalKinds(schema, 'ActivityParticipant', [
+			'Activity.StartDate',
+			'Activity/Owner/BirthDate',
+			'Activity.Nope.CreatedOn',
+			'Missing',
+		]);
+		expect([...kinds]).toEqual([
+			['Activity.StartDate', 'datetime'],
+			['Activity/Owner/BirthDate', 'date'],
+		]);
+	});
+
+	it('DataService: a zoned related DateTime is converted, a related Date never shifted', async () => {
+		const { client, calls } = schemaHarness(() => jsonResponse({ success: true, rows: [] }));
+		const provider = new DataServiceCrudProvider(client, { clock: AZORES() });
+		await provider.read({
+			entity: 'ActivityParticipant',
+			columns: ['Id'],
+			filter: {
+				kind: 'group',
+				logic: 'and',
+				items: [
+					{
+						kind: 'condition',
+						field: 'Activity.StartDate',
+						op: 'ge',
+						value: '2026-11-10T15:00:00Z',
+					},
+					{
+						kind: 'condition',
+						field: 'Activity.Owner.BirthDate',
+						op: 'eq',
+						value: '1990-12-07T00:00:00Z',
+					},
+				],
+			},
+		});
+		const select = JSON.stringify(bodyOf(calls.find((c) => c.url.endsWith('/SelectQuery'))!));
+		expect(select).toContain('\\"2026-11-10T14:00:00\\"');
+		expect(select).toContain('\\"1990-12-07T00:00:00\\"');
+	});
+
+	// Live: `Activity/StartDate ge 2020-01-01` and `CreatedOn ge 2020-01-01` 500 on both runtimes;
+	// the same filter with a full `…T00:00:00Z` instant answers 200.
+	it('OData: a related or unresolvable date is always sent as a full instant', async () => {
+		const { client, calls } = schemaHarness(() => jsonResponse({ value: [] }));
+		const provider = createCrudProvider('odata', {
+			client,
+			metadataStore: {} as never,
+			clock: AZORES(),
+		});
+		await provider.read({
+			entity: 'ActivityParticipant',
+			filter: {
+				kind: 'group',
+				logic: 'and',
+				items: [
+					{
+						kind: 'condition',
+						field: 'Activity.StartDate',
+						op: 'ge',
+						value: '2026-11-10',
+					},
+					{
+						kind: 'condition',
+						field: 'Activity.Owner.BirthDate',
+						op: 'eq',
+						value: '1990-12-07',
+					},
+					{
+						kind: 'condition',
+						field: 'Unknown.When',
+						op: 'lt',
+						value: '2026-11-10T09:00:00',
+					},
+				],
+			},
+		});
+		const url = decodeURIComponent(calls.at(-1)!.url);
+		expect(url).toContain('Activity/StartDate ge 2026-11-10T01:00:00Z');
+		expect(url).toContain('Activity/Owner/BirthDate eq 1990-12-07T00:00:00Z');
+		expect(url).toContain('Unknown/When lt 2026-11-10T10:00:00Z');
+	});
+});
+
+describe('discovery tools', () => {
+	it('list-entities filters by a case-insensitive search', async () => {
+		const context = makeFakeContext();
+		(context.crud as any).listEntitySets = vi.fn(async () => [
+			'Invoice',
+			'InvoiceProduct',
+			'Contact',
+		]);
+		const server = new Server(new CreatioEngineManager(context as never), {});
+		const list = (server as any)._handlers.get('list-entities');
+		expect(await list({ search: 'invoice' })).toEqual({
+			results: ['Invoice', 'InvoiceProduct'],
+		});
+		expect((await list({})).results).toHaveLength(3);
+	});
+
+	it('describe-entity takes `entity` like every other tool, and still `entitySet`', async () => {
+		const context = makeFakeContext();
+		const server = new Server(new CreatioEngineManager(context as never), {});
+		const describe = (server as any)._handlers.get('describe-entity');
+		await describe({ entity: 'Contact' });
+		await describe({ entitySet: 'Account' });
+		expect((context.crud as any).describeEntity.mock.calls.map((c: unknown[]) => c[0])).toEqual(
+			['Contact', 'Account'],
+		);
+		await expect(describe({})).rejects.toThrow('entity is required');
+	});
+});

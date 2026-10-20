@@ -1,5 +1,6 @@
 import { CurrentUserInfo } from '../contracts';
 
+import { UserClock } from './user-clock';
 import { toIanaZone } from './windows-zones';
 import { UTC_ZONE, ZoneRules, fixedOffsetZone, formatOffset, ianaZone } from './zone-rules';
 
@@ -46,14 +47,22 @@ export function resolveUserZone(body: CurrentUserInfo, now: number = Date.now())
 		: { rules: fixedOffsetZone(reported), source: 'offset' };
 }
 
-/** The zone fields `get-current-user-info` adds for the model: the IANA zone and today's offset. */
+/**
+ * The zone fields `get-current-user-info` adds for the model: the IANA zone, today's offset, and the
+ * user's current date and time — what "tomorrow", "this month" or "overdue" are relative to (the
+ * model's own clock may be in another zone, or unknown).
+ */
 export function describeUserZone(
 	body: CurrentUserInfo,
 	now: number = Date.now(),
-): { timeZone?: string; utcOffset: string } {
+): { timeZone?: string; utcOffset: string; now: string; today: string } {
 	const zone = resolveUserZone(body, now);
+	const wholeSecond = new Date(Math.floor(now / 1000) * 1000).toISOString();
+	const local = String(new UserClock(zone.rules).fromInstant('datetime', wholeSecond));
 	return {
 		...(zone.timeZone ? { timeZone: zone.timeZone } : {}),
 		utcOffset: formatOffset(zone.rules.offsetMinutesAt(now)),
+		now: local,
+		today: local.slice(0, 10),
 	};
 }

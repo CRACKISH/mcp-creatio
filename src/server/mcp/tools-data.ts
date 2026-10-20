@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { GUIDES, GUIDE_NAMES } from './prompts-data';
+
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 
 // MCP tool annotations: hints a client uses to decide what it may run without asking the user.
@@ -58,7 +60,7 @@ const entityName = (examples: string) =>
 	z.string().min(1).describe(`Entity (object schema) name, e.g. ${examples}.`);
 
 const DATES_RULE =
-	'Date/times are in the user\'s Creatio time zone, as in the Creatio UI: "2026-03-01T09:30:00" is 09:30 there; a value with an offset or Z ("2026-03-01T09:30:00+02:00") is that exact instant. A Date column takes "YYYY-MM-DD". (/datetime-guide)';
+	'Date/times are in the user\'s Creatio time zone, as in the Creatio UI: "2026-03-01T09:30:00" is 09:30 there; a value with an offset or Z ("2026-03-01T09:30:00+02:00") is that exact instant. A Date column takes "YYYY-MM-DD". (get-guide: datetime-guide)';
 
 // --- Current user -----------------------------------------------------------------------------
 
@@ -68,9 +70,9 @@ export const getCurrentUserInfoInput = z.object(getCurrentUserInfoInputShape);
 export const getCurrentUserInfoDescriptor = makeToolDescriptor({
 	title: 'Get the current Creatio user',
 	description:
-		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZone, utcOffset, userRoles, ... } }. ' +
-		'Call it once before creating records owned by the user — owner/author lookups (OwnerId, AuthorId) take `userInfo.contactId`, not `userInfo.id` — or when a tool needs the user as a user/role (`adminUnitId` = `userInfo.id`). Reuse the result for the rest of the conversation; reads do not need it. ' +
-		'`timeZone` (IANA, e.g. "Europe/Kyiv") and `utcOffset` (today\'s, e.g. "+03:00") are the user\'s Creatio time zone — the one record dates are read and written in (/datetime-guide). See /contactid-guide.',
+		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZone, utcOffset, now, today, userRoles, ... } }. ' +
+		"Call it once before creating records owned by the user — owner/author lookups (OwnerId, AuthorId) take `userInfo.contactId`, not `userInfo.id` — or when a tool needs the user as a user/role (`adminUnitId` = `userInfo.id`). Also call it once when dates matter: `now` / `today` are the user's current date and time, the base for tomorrow, this month or overdue. Reuse the result for the rest of the conversation. " +
+		'`timeZone` (IANA, e.g. "Europe/Kyiv") and `utcOffset` (today\'s, e.g. "+03:00") are the user\'s Creatio time zone — the one record dates are read and written in (get-guide: datetime-guide). See get-guide: contactid-guide.',
 	inputShape: getCurrentUserInfoInputShape,
 	annotations: READ_ONLY,
 });
@@ -221,11 +223,11 @@ export function buildReadDescriptor(caps: ReadCapabilities) {
 			related +
 			'`filters` take a column, a lookup id (`OwnerId` = a GUID) or a related column (`Account.Name`). ' +
 			rawFilter +
-			'`top` defaults to 50; page with `skip` + a stable `orderBy`; `count: true` adds the total ({ total, value }), with `top: 0` for the total alone. ' +
+			'`top` defaults to 50; page with `skip` + a stable `orderBy`; `count: true` adds the total of all matches ({ total, value }) to any page — `top: 1` with `orderBy` gives the total and the first row in one call, `top: 0` the total alone. ' +
 			'Response: an array of rows; a missing value is null (text may be ""); a date/time is in the user\'s Creatio time zone with its offset ("2026-11-10T15:00:00+02:00"), a Date column "YYYY-MM-DD". ' +
 			'An unknown entity or column fails as "unknown_column:Emial (Contact). Did you mean: Email?" — retry with the suggestion. ' +
 			'Example: { entity: "Opportunity", select: ["Title", "Amount", "Stage"], filters: { all: [{ field: "OwnerId", op: "eq", value: "<contactId>" }] }, orderBy: "Amount desc", top: 10 }. ' +
-			'Date filter values follow the same zone ("2026-11-01" = the user\'s midnight). More patterns: /query-guide; dates: /datetime-guide.',
+			'Date filter values follow the same zone ("2026-11-01" = the user\'s midnight). More patterns: get-guide: query-guide; dates: get-guide: datetime-guide.',
 		inputShape: buildReadInputShape(caps),
 		annotations: READ_ONLY,
 	});
@@ -249,8 +251,8 @@ export const createDescriptor = makeToolDescriptor({
 	title: 'Create a record',
 	description:
 		"Create one record: { entity, data } → the new record's id. Check required columns and types with describe-entity first; send only the columns you set. " +
-		'Owner/author lookups (OwnerId, AuthorId, …) of records the user creates for themselves get their contact id — `userInfo.contactId` from get-current-user-info — unless the user names someone else (/contactid-guide). ' +
-		'Activities (tasks, meetings, calls): follow /create-activity-guide. Tags: /tagging-guide. ' +
+		'Owner/author lookups (OwnerId, AuthorId, …) of records the user creates for themselves get their contact id — `userInfo.contactId` from get-current-user-info — unless the user names someone else (get-guide: contactid-guide). ' +
+		'Activities (tasks, meetings, calls): follow get-guide: create-activity-guide. Tags: get-guide: tagging-guide. ' +
 		'An unknown column fails as "unknown_column:X (Entity). Did you mean: …?". ' +
 		'Example: { entity: "Account", data: { Name: "Acme Corp", Phone: "+1 234 567", OwnerId: "<contactId>" } }.',
 	inputShape: createInputShape,
@@ -270,8 +272,8 @@ export const updateDescriptor = makeToolDescriptor({
 	title: 'Update a record',
 	description:
 		'Change columns of one record by id; columns you leave out keep their values. ' +
-		'Resolve lookup ids instead of guessing them (e.g. a new StatusId from ActivityStatus via read); owner/user lookups take a contact id (/contactid-guide). ' +
-		'Example: { entity: "Activity", id: "<id>", data: { StartDate: "2026-03-02T12:00:00Z", DueDate: "2026-03-02T12:30:00Z" } }.',
+		'Resolve lookup ids instead of guessing them (e.g. a new StatusId from ActivityStatus via read); owner/user lookups take a contact id (get-guide: contactid-guide). ' +
+		'Example: { entity: "Activity", id: "<id>", data: { StartDate: "2026-03-02T12:00:00", DueDate: "2026-03-02T12:30:00" } } (the user\'s Creatio time zone).',
 	inputShape: updateInputShape,
 	annotations: CHANGES,
 });
@@ -293,26 +295,40 @@ export const deleteDescriptor = makeToolDescriptor({
 
 // --- Schema discovery ----------------------------------------------------------------------------
 
-export const listEntitiesInput = z.object({});
+const listEntitiesInputShape = {
+	search: z
+		.string()
+		.min(1)
+		.optional()
+		.describe('Part of the name, case-insensitive (e.g. "invoice"). Omit for all names.'),
+} as const;
+
+export const listEntitiesInput = z.object(listEntitiesInputShape);
 
 export const listEntitiesDescriptor = makeToolDescriptor({
 	title: 'List entities',
 	description:
-		'All entity (object schema) names available to this server — usually 1000+. ' +
-		'To find an entity by meaning prefer dataforge-similar-tables (when available) or global-search; use this list to check an exact name. Then describe-entity.',
-	inputShape: {},
+		'Entity (object schema) names available to this server — 1000+ in all, so pass `search` (e.g. "invoice" → Invoice, InvoiceProduct, …). ' +
+		'To find an entity by meaning prefer dataforge-similar-tables or global-search when they are in your tool list. Response: { results: [names] }. Then describe-entity.',
+	inputShape: listEntitiesInputShape,
 	annotations: READ_ONLY,
 });
 
 const describeEntityInputShape = {
-	entitySet: entityName('"Contact", "Account"'),
+	entity: entityName('"Contact", "Account"').optional(),
+	entitySet: z.string().min(1).optional().describe('Old name of `entity`; still accepted.'),
 } as const;
-export const describeEntityInput = z.object(describeEntityInputShape);
+export const describeEntityInput = z
+	.object(describeEntityInputShape)
+	.refine((input) => Boolean(input.entity ?? input.entitySet), {
+		message: 'entity is required',
+		path: ['entity'],
+	});
 
 export const describeEntityDescriptor = makeToolDescriptor({
 	title: 'Describe an entity',
 	description:
-		'Columns of one entity — names, types, required/nullable and its key — to plan a read or a write without guessing column names. ' +
+		'Columns of one entity ({ entity: "Contact" }) — names, types, required/nullable and its key — to plan a read or a write without guessing column names. ' +
 		'Response: { source, entitySet, ... } where `source` is "dataforge" (richer column details, when DataForge is enabled), "dataservice" or "odata" (the active backend\'s schema). ' +
 		'An unknown entity fails as "unknown_entity:X. Did you mean: …?".',
 	inputShape: describeEntityInputShape,
@@ -342,7 +358,7 @@ export const executeProcessDescriptor = makeToolDescriptor({
 	description:
 		'Start a Creatio business process by its schema name, with optional parameters, and return its result. ' +
 		'A process can change any data it is designed to — make sure the user wants it run. ' +
-		'User/contact parameters take a contact id (/contactid-guide).',
+		'User/contact parameters take a contact id (get-guide: contactid-guide).',
 	inputShape: executeProcessInputShape,
 	annotations: RUNS,
 });
@@ -361,16 +377,16 @@ export const querySysSettingsInput = z.object(querySysSettingsInputShape);
 export const querySysSettingsDescriptor = makeToolDescriptor({
 	title: 'Read system settings',
 	description:
-		"Current values and metadata of system settings by code. Response: the platform's answer — a success flag, a values map by code (each with its `value`) and `notFoundSettings` for unknown codes. See /sys-settings-guide.",
+		"Current values and metadata of system settings by code. Response: the platform's answer — a success flag, a values map by code (each with its `value`) and `notFoundSettings` for unknown codes. See get-guide: sys-settings-guide.",
 	inputShape: querySysSettingsInputShape,
 	annotations: READ_ONLY,
 });
 
 const SYS_SETTING_VALUE_TYPE_DESC =
-	'Value type name (Text, Boolean, Integer, Lookup, DateTime, …) — the full list is in /sys-settings-guide.';
+	'Value type name (Text, Boolean, Integer, Lookup, DateTime, …) — the full list is in get-guide: sys-settings-guide.';
 
 const SYS_SETTING_REFERENCE_SCHEMA_DESC =
-	'Entity schema UId the lookup points to; required only when valueTypeName is "Lookup" (how to find it: /sys-settings-guide).';
+	'Entity schema UId the lookup points to; required only when valueTypeName is "Lookup" (how to find it: get-guide: sys-settings-guide).';
 
 const sysSettingDefinitionFieldShape = {
 	code: z.string().min(1).describe('Unique setting code (e.g. "UsrMaxRetries").'),
@@ -406,7 +422,7 @@ export const createSysSettingInput = z.object(createSysSettingInputShape);
 export const createSysSettingDescriptor = makeToolDescriptor({
 	title: 'Create a system setting',
 	description:
-		'Create a new system setting (its definition) and optionally set its first value. Value types and lookup settings: /sys-settings-guide.',
+		'Create a new system setting (its definition) and optionally set its first value. Value types and lookup settings: get-guide: sys-settings-guide.',
 	inputShape: createSysSettingInputShape,
 	annotations: ADDS,
 });
@@ -441,7 +457,7 @@ export const updateSysSettingDefinitionInput = z.object(updateSysSettingDefiniti
 export const updateSysSettingDefinitionDescriptor = makeToolDescriptor({
 	title: 'Change a system setting definition',
 	description:
-		"Change a setting's metadata (name, description, value type, cache / personal flags, lookup schema) — not its value (use set-sys-settings-value). See /sys-settings-guide.",
+		"Change a setting's metadata (name, description, value type, cache / personal flags, lookup schema) — not its value (use set-sys-settings-value). See get-guide: sys-settings-guide.",
 	inputShape: updateSysSettingDefinitionInputShape,
 	annotations: CHANGES,
 });
@@ -463,7 +479,7 @@ export const refreshFeatureCacheInput = z.object(refreshFeatureCacheInputShape);
 export const refreshFeatureCacheDescriptor = makeToolDescriptor({
 	title: 'Refresh the feature-toggle cache',
 	description:
-		'Make Creatio re-read feature-toggle states for all users. set-feature-state already does this; use it after changing `Feature` / `AdminUnitFeatureState` rows with create / update / delete. See /feature-toggle-guide.',
+		'Make Creatio re-read feature-toggle states for all users. set-feature-state already does this; use it after changing `Feature` / `AdminUnitFeatureState` rows with create / update / delete. See get-guide: feature-toggle-guide.',
 	inputShape: refreshFeatureCacheInputShape,
 	annotations: REFRESHES,
 });
@@ -507,7 +523,7 @@ export const listFeaturesDescriptor = makeToolDescriptor({
 	description:
 		'Feature toggles from every source — DB rows and also web.config, package metadata and GlobalAppSettings features — ordered by code. ' +
 		'Each: { code, name, description?, source, enabledByDefault, enabledForCurrentUser }. Response: { items, hasMore } — page with `skip` while hasMore is true. ' +
-		'Per-user/role overrides of one feature: get-feature. See /feature-toggle-guide.',
+		'Per-user/role overrides of one feature: get-feature. See get-guide: feature-toggle-guide.',
 	inputShape: listFeaturesInputShape,
 	annotations: READ_ONLY,
 });
@@ -544,12 +560,30 @@ export const setFeatureStateDescriptor = makeToolDescriptor({
 	title: 'Turn a feature toggle on or off',
 	description:
 		"Change a feature's default state, or override it for one user/role, for features from any source. The first change to a web.config / metadata feature gives it a DB row, which then takes precedence over that source (the Creatio feature page behaves the same). " +
-		'Returns the feature as in get-feature plus `cacheCleared`. "feature_state_not_applied:<code>" means Creatio did not save it. `cacheCleared: false` means it IS saved but the instance could not refresh its cache (seen on .NET 8), so it may take effect later — tell the user. See /feature-toggle-guide.',
+		'Returns the feature as in get-feature plus `cacheCleared`. "feature_state_not_applied:<code>" means Creatio did not save it. `cacheCleared: false` means it IS saved but the instance could not refresh its cache (seen on .NET 8), so it may take effect later — tell the user. See get-guide: feature-toggle-guide.',
 	inputShape: setFeatureStateInputShape,
 	annotations: CHANGES,
 });
 
 // --- Links and attachments --------------------------------------------------------------------------
+
+// --- Guides ---------------------------------------------------------------------------------------
+
+const getGuideInputShape = {
+	topic: z.enum(GUIDE_NAMES).describe('The guide to read.'),
+} as const;
+
+export const getGuideInput = z.object(getGuideInputShape);
+
+export const getGuideDescriptor = makeToolDescriptor({
+	title: 'Read a usage guide',
+	description:
+		'Step-by-step guidance for multi-step Creatio work — read the matching guide before such a task, once per conversation. Topics: ' +
+		GUIDES.map((g) => `${g.name} (${g.description})`).join('; ') +
+		'. Returns the guide as Markdown.',
+	inputShape: getGuideInputShape,
+	annotations: READ_ONLY,
+});
 
 const getRecordUrlInputShape = {
 	entity: entityName('"Contact", "Opportunity"'),
@@ -610,7 +644,7 @@ export const upsertAdminOperationInput = z.object(upsertAdminOperationInputShape
 export const upsertAdminOperationDescriptor = makeToolDescriptor({
 	title: 'Create or update a system operation',
 	description:
-		'Create a system operation (SysAdminOperation) — omit `id` — or update one by `id`. The platform blocks the generic create/update tools for this table; reading it works with read. Returns the operation id. See /admin-operation-guide.',
+		'Create a system operation (SysAdminOperation) — omit `id` — or update one by `id`. The platform blocks the generic create/update tools for this table; reading it works with read. Returns the operation id. See get-guide: admin-operation-guide.',
 	inputShape: upsertAdminOperationInputShape,
 	annotations: CHANGES,
 });
@@ -627,7 +661,7 @@ export const deleteAdminOperationInput = z.object(deleteAdminOperationInputShape
 export const deleteAdminOperationDescriptor = makeToolDescriptor({
 	title: 'Delete system operations',
 	description:
-		'Delete system operations by id, together with their grants. The generic delete tool is blocked for this table. Confirm with the user first. See /admin-operation-guide.',
+		'Delete system operations by id, together with their grants. The generic delete tool is blocked for this table. Confirm with the user first. See get-guide: admin-operation-guide.',
 	inputShape: deleteAdminOperationInputShape,
 	annotations: CHANGES,
 });
@@ -650,7 +684,7 @@ export const setAdminOperationGranteeInput = z.object(setAdminOperationGranteeIn
 export const setAdminOperationGranteeDescriptor = makeToolDescriptor({
 	title: 'Grant or deny a system operation',
 	description:
-		'Allow or deny a system operation for users/roles. Repeating it for the same operation and user/role updates the existing grant instead of adding another. See /admin-operation-guide.',
+		'Allow or deny a system operation for users/roles. Repeating it for the same operation and user/role updates the existing grant instead of adding another. See get-guide: admin-operation-guide.',
 	inputShape: setAdminOperationGranteeInputShape,
 	annotations: CHANGES,
 });

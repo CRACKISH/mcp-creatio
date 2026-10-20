@@ -23,7 +23,7 @@ import { DataForgeToolPreparer } from './dataforge/dataforge-tool-preparer';
 import { buildFilterNode, parseOrderBy } from './filters';
 import { GlobalSearchClient } from './globalsearch/globalsearch-client';
 import { GlobalSearchToolPreparer } from './globalsearch/globalsearch-tool-preparer';
-import { ALL_PROMPTS } from './prompts-data';
+import { ALL_PROMPTS, guideText } from './prompts-data';
 import { SERVER_INSTRUCTIONS } from './server-instructions';
 import { DEFAULT_TENANT_KEY, TenantToolRegistry, TenantToolState } from './tenant-tool-registry';
 import { ToolHandler, ToolPreparer, ToolRegistrar } from './tool-preparer';
@@ -50,6 +50,8 @@ import {
 	getCurrentUserInfoInput,
 	getFeatureDescriptor,
 	getFeatureInput,
+	getGuideDescriptor,
+	getGuideInput,
 	getRecordUrlDescriptor,
 	getRecordUrlInput,
 	listEntitiesDescriptor,
@@ -422,13 +424,21 @@ export class Server {
 				name: 'list-entities',
 				descriptor: listEntitiesDescriptor,
 				input: listEntitiesInput,
-				run: async () => ({ results: await crud.listEntitySets() }),
+				run: async ({ search }) => {
+					const names = await crud.listEntitySets();
+					const needle = search?.toLowerCase();
+					return {
+						results: needle
+							? names.filter((n) => n.toLowerCase().includes(needle))
+							: names,
+					};
+				},
 			},
 			{
 				name: 'describe-entity',
 				descriptor: describeEntityDescriptor,
 				input: describeEntityInput,
-				run: ({ entitySet }) => this._describeEntity(entitySet),
+				run: ({ entity, entitySet }) => this._describeEntity((entity ?? entitySet)!),
 			},
 			{
 				name: 'read',
@@ -441,6 +451,12 @@ export class Server {
 				descriptor: querySysSettingsDescriptor,
 				input: querySysSettingsInput,
 				run: ({ sysSettingCodes }) => sysSettings.queryValues(sysSettingCodes),
+			},
+			{
+				name: 'get-guide',
+				descriptor: getGuideDescriptor,
+				input: getGuideInput,
+				run: async ({ topic }) => guideText(topic),
 			},
 			{
 				name: 'get-record-url',

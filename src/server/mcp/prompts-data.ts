@@ -1,189 +1,140 @@
-const DEFAULT_ACTIVITY_IDS = {
+/**
+ * Guides for multi-step Creatio work. Each is served two ways: as an MCP prompt the user can invoke
+ * (`/query-guide`) and through the `get-guide` tool, which the model can call itself — most clients
+ * do not let the model open prompts, so tool descriptions point to `get-guide`.
+ *
+ * Every fact here is verified against a live Creatio (.NET Framework and .NET 8, both CRUD backends).
+ */
+
+// Base-package ids, the same on every Creatio instance (CrtBase seed data / ActivityConsts; verified on
+// 10.2 .NET Framework and .NET 8). Names can be renamed per instance, so the guide goes by id.
+const ACTIVITY_IDS = {
 	TYPE_TASK: 'fbe0acdc-cfc0-df11-b00f-001d60e938c6',
-	CATEGORY_TODO: 'f2c0ce0e-cfc1-df11-b00f-001d60e938c6',
+	TYPE_CALL: 'e1831dec-cfc0-df11-b00f-001d60e938c6',
+	CATEGORY_TODO: 'f51c4643-58e6-df11-971b-001d60e938c6',
+	CATEGORY_MEETING: '42c74c49-58e6-df11-971b-001d60e938c6',
+	CATEGORY_CALL_TASK: '03df85bf-6b19-4dea-8463-d5d49b80bb28',
+	CATEGORY_PAPERWORK: '2365ae4f-58e6-df11-971b-001d60e938c6',
+	CATEGORY_CALL_CALL: 'e52bd583-7825-e011-8165-00155d043204',
 	STATUS_NOT_STARTED: '384d4b84-58e6-df11-971b-001d60e938c6',
+	STATUS_IN_PROGRESS: '394d4b84-58e6-df11-971b-001d60e938c6',
+	STATUS_COMPLETED: '4bdbb88f-58e6-df11-971b-001d60e938c6',
+	STATUS_CANCELED: '201cfba8-58e6-df11-971b-001d60e938c6',
+	PRIORITY_HIGH: 'd625a9fc-7ee6-df11-971b-001d60e938c6',
 	PRIORITY_MEDIUM: 'ab96fa02-7fe6-df11-971b-001d60e938c6',
+	PRIORITY_LOW: 'ac96fa02-7fe6-df11-971b-001d60e938c6',
 } as const;
 
-const ACTIVITY_TYPE_TABLE = `
-| User says / intent | TypeId → Type (fixed) | Category (set via ActivityCategoryId) |
-|--------------------|-----------------------|---------------------------------------|
-| task / todo (default) | Task                | To do                                 |
-| meeting / meet / sync | Task                | Meeting                               |
-| call / phone          | Task                | Call                                  |
-| email / mail          | Task                | Email                                 |
+const QUERY_GUIDE = `
+# Querying Creatio data
 
-💡 We deliberately keep Type always = Task for speed. Change only if user explicitly insists: "Use real meeting type".
+## 1. Find the entity
+- You know the name (\`Contact\`, \`Opportunity\`) → go to step 2.
+- You know the meaning ("support tickets", "invoices") → \`dataforge-similar-tables\` when available; otherwise check names with \`list-entities\` (1000+ names, so search it for a word).
+- You are looking for one specific record by name or number ("Andrew Baker", "INV-1024") → \`global-search\` when available: it finds it in any entity and tells you which.
+
+## 2. Check the columns
+\`describe-entity\` lists the columns, their types and which are required. Use the exact names it returns. A wrong name is rejected with a suggestion — \`unknown_column:Emial (Contact). Did you mean: Email?\` — so retry with the suggestion instead of guessing.
+
+## 3. Read
+Ask for what you need, no more: \`select\` the columns you will use and keep \`top\` small (default 50).
+
+| Need | How |
+|------|-----|
+| A column of a related record | \`select: ["Name", "Account.Name"]\` (on the OData backend: \`expand: ["Account"]\`) |
+| Filter by a related record's id | \`{ field: "AccountId", op: "eq", value: "<guid>" }\` |
+| Filter by a related record's name | \`{ field: "Account.Name", op: "eq", value: "Acme" }\` |
+| Text search in a column | \`{ field: "Name", op: "contains", value: "acme" }\` (case-insensitive) |
+| One of several values | \`{ field: "Stage.Name", in: ["Presentation", "Negotiation"] }\` |
+| Empty / not empty | \`{ field: "Email", op: "eq", value: null }\` / \`op: "ne"\` |
+| A date range | \`{ field: "CreatedOn", op: "ge", value: "2026-01-01" }\` + \`op: "lt"\` for the end (in the user's time zone — datetime-guide) |
+| AND / OR | \`filters: { all: [...], any: [...] }\` — \`all\` is AND, \`any\` is OR, and the two groups are combined by AND |
+| Newest / biggest first | \`orderBy: "CreatedOn desc"\`, \`orderBy: "Amount desc, Title asc"\` |
+| "How many …?" | \`count: true, top: 0\` → \`{ total, value: [] }\` — never page through rows to count them |
+| The next page | same query with \`skip\` += \`top\` and a stable \`orderBy\` |
+
+What comes back:
+- A missing value is \`null\` (a text column may also be \`""\`).
+- A lookup column you select by itself (\`Account\`) is \`{ value, displayValue }\` on the DataService backend; on OData select its id (\`AccountId\`) and \`expand\` the record for its name.
+- A date/time is in the user's Creatio time zone with its offset (\`"2026-11-10T14:00:00+02:00"\`); a Date column is \`"YYYY-MM-DD"\`.
+- Ids are GUIDs. Never invent one: resolve a lookup value by reading its table (\`ActivityPriority\` by \`Name\`) or with \`dataforge-lookup-values\`.
+
+## 4. Present the results
+- Mentioning a specific record? Add its link: \`get-record-url { entity, id }\`.
+- The user asks about a record's documents? \`list-record-files { entity, id }\` lists its files and links; hand the user the \`downloadUrl\`.
+- Prefer names over ids in your answer; keep ids for follow-up calls.
+- Times: show them as read (the user's Creatio time zone) and say so when it may matter.
+
+## 5. People: user id vs contact id
+Owner / author / responsible columns point to a **Contact**: use \`userInfo.contactId\` from \`get-current-user-info\` for the current user. Tools that take a user or role (\`set-feature-state\`, \`set-admin-operation-grantee\`) want a **SysAdminUnit** id: \`userInfo.id\`. See contactid-guide.
 `.trim();
 
-const CREATE_ACTIVITY_WORKFLOW = `
-# Create an activity in Creatio
+const CREATE_ACTIVITY_GUIDE = `
+# Creating activities (tasks, meetings, calls)
 
-First get the current user once with \`get-current-user-info\` and reuse it: an activity needs \`OwnerId\` and \`AuthorId\`, both \`userInfo.contactId\` (the contact id, not \`userInfo.id\`) unless the user names someone else.
+An activity has a **type** and a **category**, and they are easy to mix up:
+- The **type** (\`TypeId\`) is the kind of record. Everything a user plans — a task, a meeting, a call — is type **Task**; that is what Creatio's own pages, the calendar and the task list create and show.
+- The **category** (\`ActivityCategoryId\`) says what the task is about. Each category belongs to exactly one type, and the same name can exist under two types ("Call" is both a Task category and a Call-type category).
+- Send **both**, and a matching pair. Creatio does not check the pair, and it fills an omitted type with Task — so sending only a category of another type saves a broken activity.
 
-## Why Simplified?
-Business usage: almost all activities should just appear in calendar quickly. So we hardcode **Type = Task** and only adjust the **Category** to reflect intent (meeting / call / email / todo). This minimizes API calls and cognitive load.
+## 1. Pick type, category and calendar flag
 
-If user explicitly insists: "Use real meeting type" / "Set actual Call type" → THEN switch to extended lookup mode (ActivityType + ActivityCategory must match). Otherwise stay in fast mode.
+| The user asks for | TypeId | ActivityCategoryId | ShowInScheduler |
+|---|---|---|---|
+| a meeting, appointment, sync | Task \`${ACTIVITY_IDS.TYPE_TASK}\` | Meeting \`${ACTIVITY_IDS.CATEGORY_MEETING}\` | true |
+| a task, to-do, reminder, "send an email to …" | Task | To do \`${ACTIVITY_IDS.CATEGORY_TODO}\` | false |
+| a call to make ("call Acme at 10") | Task | Call \`${ACTIVITY_IDS.CATEGORY_CALL_TASK}\` | true when it has a set time the user wants in the calendar, else false |
+| paperwork | Task | Paper work \`${ACTIVITY_IDS.CATEGORY_PAPERWORK}\` | false |
 
-⚠️ ABSOLUTE RULE:
-Always set **TypeId = Task** for intents like "meeting", "meet", "sync", "call", "phone", "email", "mail", "todo", "task" UNLESS (and only unless) the user explicitly demands a non-Task type using phrases such as:
-"real meeting type", "actual meeting type", "true call type", "use real ActivityType", "not a task", "change the Type itself", "use Visit type", "use Call type id".
+\`ShowInScheduler: true\` puts the activity in the calendar; Creatio sets it for meetings and clears it for the other categories, but only in its own pages — set it yourself.
 
-Plain requests like "create a meeting", "schedule a call", "create email follow-up" DO *NOT* justify changing Type. Treat them as Category changes only.
+These ids are the same on every Creatio. Do not create other types by hand:
+- **Email** activities are real emails from the mail integration; creating one may queue an email. For "email Bob" create a To do task.
+- **Call** type (\`${ACTIVITY_IDS.TYPE_CALL}\` with its own Call category \`${ACTIVITY_IDS.CATEGORY_CALL_CALL}\`) is for telephony records and does not show in the calendar or task list — use it only when the user explicitly asks for that type.
+- **Visit** exists only in field-sales products.
+If the user names a category this table lacks (a custom one), read it with its type: \`read\` ActivityCategory — \`select: ["Id", "Name", "ActivityTypeId"], filters: { all: [{ field: "Name", op: "contains", value: "<name>" }] }\` — and send that \`ActivityTypeId\` as \`TypeId\`.
 
-🚫 NEVER perform ActivityType lookups for Meeting/Call/Email unless escalation trigger is present. Doing so wastes calls and breaks the 99% optimization goal.
+## 2. Owner, status, priority
+- \`OwnerId\` and \`AuthorId\`: \`userInfo.contactId\` from \`get-current-user-info\` (once per conversation) — the contact id, not \`userInfo.id\` — unless the user names someone else (contactid-guide).
+- Status: Not started \`${ACTIVITY_IDS.STATUS_NOT_STARTED}\`, In progress \`${ACTIVITY_IDS.STATUS_IN_PROGRESS}\`, Completed \`${ACTIVITY_IDS.STATUS_COMPLETED}\`, Canceled \`${ACTIVITY_IDS.STATUS_CANCELED}\`.
+- Priority: High \`${ACTIVITY_IDS.PRIORITY_HIGH}\`, Medium \`${ACTIVITY_IDS.PRIORITY_MEDIUM}\`, Low \`${ACTIVITY_IDS.PRIORITY_LOW}\`.
 
-❌ WRONG (for ordinary meeting request): Query ActivityType 'Visit' then set TypeId=Visit.
-✅ RIGHT: Keep TypeId=Task; lookup only ActivityCategory 'Meeting'.
+## 3. Times
+- Send times as the user says them — they are in the user's Creatio time zone (\`"2026-11-10T14:00:00"\`); do not convert to UTC or ask for a zone. "Tomorrow", "Friday": count from \`userInfo.today\`. A time in another zone ("10:00 New York time") goes with its offset (\`"2026-11-11T10:00:00-05:00"\`); read the activity back to quote the user's time (datetime-guide).
+- Always send \`StartDate\` and \`DueDate\`: Creatio defaults both to "now". Without a duration use 30 minutes, as the Creatio activity page does.
+- A day without a time ("on Friday"): 09:00–09:30 that day, and tell the user you picked 09:00.
+- A reminder ("remind me 15 minutes before"): \`RemindToOwner: true\` and \`RemindToOwnerDate\` (a time like \`StartDate\`). "Remind me to X on Friday" alone is a To do task for Friday.
+- Details the user gives ("about the renewal") go into the \`Title\`, longer text into \`Notes\`.
 
----
-## 📋 STEP 1: Parse Intent → Decide Category (Type fixed = Task)
-
-Ask (if unclear): "What kind of activity? (task / meeting / call / email)". Default = task.
-
-${ACTIVITY_TYPE_TABLE}
-
-GUIDs we already have (hardcoded):
-- TypeId (Task): ${DEFAULT_ACTIVITY_IDS.TYPE_TASK}
-- Default Category (To do): ${DEFAULT_ACTIVITY_IDS.CATEGORY_TODO}
-- Default Status (Not started): ${DEFAULT_ACTIVITY_IDS.STATUS_NOT_STARTED}
-- Default Priority (Medium): ${DEFAULT_ACTIVITY_IDS.PRIORITY_MEDIUM}
-
-If category ≠ To do (e.g. Meeting / Call / Email) and you don't have its GUID cached:
-1. \`read\` ActivityCategory: \`select: ["Id"], filters: { all: [{ field: "Name", op: "eq", value: "Meeting" }] }, top: 1\`
-2. Use returned Id as ActivityCategoryId
-
-Do NOT query ActivityType unless user demands non-Task type explicitly.
-
----
-## 👤 STEP 2: Resolve ContactId (Owner/Author) - USE get-current-user-info!
-
-🎯 **DEFAULT BEHAVIOR: Activities are ALWAYS created for the current user!**
-
-Unless the user **explicitly** requests to create an activity for someone else (e.g., "create a task for John", "schedule meeting for Anna"), 
-**ALWAYS** use the current user's ContactId as both OwnerId and AuthorId.
-
-### Get Current User ContactId:
-
-Call \`get-current-user-info\` (no parameters) once and use \`userInfo.contactId\` for OwnerId and AuthorId.
-
-⚠️ CRITICAL: 
-- Never use SysAdminUnit.Id for Owner/Author fields. Always use ContactId!
-- By default, OwnerId = AuthorId = current user's ContactId
-- Only change if user explicitly says "for [other person]"
-
-See /contactid-guide prompt for detailed explanation.
-
----
-## ⏰ STEP 3: Dates and times
-
-Send times as the user says them, in their Creatio time zone ("2026-11-10T14:00:00") — the server applies the zone; do not ask for it. See /datetime-guide.
-
----
-## 🔨 STEP 4: Construct Payload
-
-Base payload:
+## 4. Create
 \`\`\`json
-{
-  "entity": "Activity",
-  "data": {
-    "Title": "<title>",
-    "TypeId": "${DEFAULT_ACTIVITY_IDS.TYPE_TASK}",
-    "ActivityCategoryId": "<category-guid>",
-    "StartDate": "<start, e.g. 2026-11-10T14:00:00>",
-    "DueDate": "<due>",
-    "StatusId": "${DEFAULT_ACTIVITY_IDS.STATUS_NOT_STARTED}",
-    "OwnerId": "<contactId>",
-    "AuthorId": "<contactId>",
-    "PriorityId": "${DEFAULT_ACTIVITY_IDS.PRIORITY_MEDIUM}",
-    "ShowInScheduler": true
-  }
-}
+{ "entity": "Activity", "data": {
+  "Title": "Meeting with Acme",
+  "TypeId": "${ACTIVITY_IDS.TYPE_TASK}",
+  "ActivityCategoryId": "${ACTIVITY_IDS.CATEGORY_MEETING}",
+  "ShowInScheduler": true,
+  "StartDate": "2026-11-10T14:00:00",
+  "DueDate": "2026-11-10T15:00:00",
+  "StatusId": "${ACTIVITY_IDS.STATUS_NOT_STARTED}",
+  "PriorityId": "${ACTIVITY_IDS.PRIORITY_MEDIUM}",
+  "OwnerId": "<userInfo.contactId>",
+  "AuthorId": "<userInfo.contactId>"
+} }
 \`\`\`
+Connect it to what it is about when the user names it: \`AccountId\`, \`ContactId\`, \`OpportunityId\`, \`LeadId\`, \`CaseId\` (ids from \`read\`; never guess).
 
-**CRITICAL:** Always set \`"ShowInScheduler": true\` for meetings/calls/events so they appear in the calendar!
-Only set to false if user explicitly requests the activity to be hidden from calendar.
+## 5. Participants
+Creatio adds the owner (and the activity's \`ContactId\`) as participants itself — do not add them. For anyone else: find the contact (\`read\` Contact by \`Name\` with \`contains\`; ask if several match), then
+\`{ "entity": "ActivityParticipant", "data": { "ActivityId": "<activity id>", "ParticipantId": "<contact id>" } }\` — one per person.
 
-If user supplies duration only (e.g. 30m) → compute DueDate = StartDate + duration.
+## 6. Finding and changing activities
+- "My tasks" / "my to-dos": \`read\` Activity with \`OwnerId\` = the user's contact id and \`ActivityCategoryId\` = To do (meetings and calls are type Task too — filter by category, or say what the list contains). Open ones: \`Status.Finish\` = false (Finish is true for Completed and Canceled); overdue: also \`DueDate\` < \`userInfo.now\`.
+- A meeting on a day: Activity with \`StartDate\` ≥ that day and < the next day, plus \`OwnerId\`, \`ContactId\` or \`Title\` \`contains\`. Meetings the user only takes part in: \`read\` ActivityParticipant with \`ParticipantId\` = their contact id and \`Activity.StartDate\` in the window, \`select: ["ActivityId"]\`. Several matches → ask which one.
+- Reschedule: \`update\` \`StartDate\` and \`DueDate\` together (keep the duration). Participants are not notified — say so if it matters.
+- Done / cancelled: \`update\` \`StatusId\` (Completed / Canceled).
 
----
-## 👥 STEP 5: Add Participants (Optional)
-
-If user requests to add participants to a meeting/call/activity:
-- User says: "add John to the meeting", "invite Anna", "add participant [Name]"
-
-### How to Add Participants:
-
-1. **Find the Contact:** Query Contact entity by Name to get ContactId
-   \`\`\`json
-   {
-     "entity": "Contact",
-     "filters": { "all": [{ "field": "Name", "op": "contains", "value": "John" }] },
-     "select": ["Id", "Name"],
-     "top": 5
-   }
-   \`\`\`
-
-2. **Create ActivityParticipant record:**
-   \`\`\`json
-   {
-     "entity": "ActivityParticipant",
-     "data": {
-       "ActivityId": "<activity-guid>",
-       "ParticipantId": "<contact-guid>"
-     }
-   }
-   \`\`\`
-
-⚠️ **IMPORTANT:**
-- ActivityId = GUID of the Activity (meeting/call/task)
-- ParticipantId = ContactId of the person to add
-- **NO other fields needed!** Just these two fields are sufficient.
-- You can add multiple participants by creating multiple ActivityParticipant records
-
-### Example:
-User: "Add John and Mary to tomorrow's meeting"
-1. Create Activity → get activityId
-2. Find Contact "John" → get johnContactId
-3. Create ActivityParticipant { ActivityId: activityId, ParticipantId: johnContactId }
-4. Find Contact "Mary" → get maryContactId
-5. Create ActivityParticipant { ActivityId: activityId, ParticipantId: maryContactId }
-
----
-## ✅ Example (Meeting intent, fast mode)
-
-User: "Schedule meeting tomorrow 14:00" → StartDate "<tomorrow>T14:00:00" (the user's Creatio time zone).
-1. Resolve the owner: \`get-current-user-info\` → \`userInfo.contactId\` (once)
-2. Lookup ActivityCategory 'Meeting' (if not cached)
-3. Create with Type=Task, Category=Meeting
-
----
-## 🔁 Escalation to Extended Mode (Rare)
-Trigger only if user supplies explicit escalation phrase (contains one of: "real", "actual", "true", "non-task", "not a task", "use real type", "use Visit type", "use Call type", "change the TypeId"). Simple intent words (meeting/call/email) are NOT escalation.
-If triggered:
-1. Query ActivityType by Name (Call / Email / Visit)
-2. Query matching ActivityCategory
-3. Replace TypeId with looked up Id. (Ensure combination is valid.)
-
----
-## 🚨 Common Mistakes
-❌ Unnecessary lookups for Meeting/Call when fast mode sufficient
-❌ Using SysAdminUnit.Id instead of ContactId
-❌ Converting times to UTC yourself (send the user's time as is; an offset only for another zone)
-❌ Mismatching explicit non-Task request (ignore only if user accepts fast mode)
-❌ Adding extra fields to ActivityParticipant (only ActivityId + ParticipantId needed!)
-❌ Forgetting to create ActivityParticipant records when user asks to add participants
-
----
-## 🧠 Decision Heuristics
-If user is vague: default Category = To do.
-If keywords: "meeting", "meet", "sync" → Meeting category.
-"call", "phone" → Call category.
-"email", "mail" → Email category.
-Explicit: "task" / nothing → To do.
-
-Return the minimal number of read calls (cache category GUIDs when first resolved in session).
+## 7. Confirm
+Tell the user what you created or changed — title, date and time (in their Creatio time zone), what it is (meeting / task / call) — with its link (\`get-record-url\`).
 `.trim();
 
 const DATETIME_GUIDE = `
@@ -215,6 +166,12 @@ server, so a date in winter may carry a different offset than today.
   \`"2026-11-10T14:00:00+02:00"\` — show the user "14:00" (and the date).
 - A Date column comes back as \`"YYYY-MM-DD"\`, a Time column as \`"HH:mm:ss"\`.
 - A missing value is \`null\`.
+
+## Telling the user
+
+Times you show or confirm are in the user's Creatio time zone. Say so when it may differ from where
+the user is ("14:00 in your Creatio time zone, Europe/Kyiv"), and when the user names another zone,
+confirm both ("09:00 New York = 16:00 your time").
 
 ## Examples
 
@@ -252,7 +209,7 @@ A person who uses Creatio has two records, and each kind of field wants a differ
 
 | Record | Id | Used by |
 |--------|----|---------|
-| **Contact** (the person in the CRM) | \`userInfo.contactId\` | Owner, Author, Responsible, Manager, CreatedBy, ParticipantId — every CRM lookup to a person |
+| **Contact** (the person in the CRM) | \`userInfo.contactId\` | Owner, Author, Responsible, Manager, ParticipantId, and the audit columns CreatedBy / ModifiedBy — every CRM lookup to a person |
 | **SysAdminUnit** (the login account / role) | \`userInfo.id\` | users and roles in permissions: \`set-feature-state\`, \`set-admin-operation-grantee\` |
 
 Putting a user id into an owner field fails (or points at nobody) — owner/author fields always take the **contact** id.
@@ -273,697 +230,203 @@ Records the user creates for themselves (tasks, meetings, leads, opportunities, 
 ## Someone else
 - Their **contact**: \`read\` Contact — \`select: ["Id", "Name"], filters: { all: [{ field: "Name", op: "contains", value: "John" }] }\`. If several match, ask the user which one.
 - Their **user account** (for permissions): \`read\` SysAdminUnit — \`select: ["Id", "Name", "ContactId"], filters: { all: [{ field: "Name", op: "eq", value: "John Smith" }] }\`. Its \`ContactId\` is the same person's contact id.
-- A **role**: \`read\` SysAdminUnit by role \`Name\` (e.g. "All employees").
+- A **role**: \`read\` SysAdminUnit by role \`Name\` (e.g. "All employees"). \`SysAdminUnitTypeValue\` tells them apart: 4 = user (5 portal user, 7 service user); 0 organization, 1 division, 2 manager, 3 team, 6 functional role are roles.
 `.trim();
 
 const TAGGING_GUIDE = `
-# 🏷️ Tagging Records in Creatio
+# Tagging records
 
-## 🚨 CRITICAL DECISION: Which Tag System?
+Creatio keeps tags in one of two ways, and an instance usually has both:
 
-Creatio has TWO tagging systems that may coexist:
+| Storage | Tags | Links (tag ↔ record) |
+|---|---|---|
+| The object's own tag list | \`<Entity>Tag\` { Name } — e.g. \`ContactTag\` | \`<Entity>InTag\` { TagId, EntityId } |
+| Shared tags | \`Tag\` { Name, EntitySchemaName } | \`TagInRecord\` { TagId, RecordId, RecordSchemaName } |
 
-### 1️⃣ LEGACY System (Entity-Specific)
-- Uses: \`<Entity>Tag\` and \`<Entity>InTag\` tables
-- Examples: \`ActivityTag\` + \`ActivityInTag\`, \`AccountTag\` + \`AccountInTag\`
-- Fields: \`TagId\` (from <Entity>Tag), \`EntityId\` (record GUID)
+## 1. Choose the storage
+1. The user named one → use it.
+2. Otherwise use the one this object already uses. Count both (\`count: true, top: 0\`): \`<Entity>InTag\`, and \`TagInRecord\` with \`RecordSchemaName\` = the entity. An unknown \`<Entity>InTag\` (unknown_entity) means only shared tags exist.
+3. Both in use → ask the user in plain words: "Contacts keep tags in two places — their own tag list and Creatio's shared tags. Which should I use?" Neither in use (or no own list) → shared tags.
 
-### 2️⃣ NEW System (Universal)
-- Uses: \`Tag\` and \`TagInRecord\` tables
-- Fields: \`TagId\`, \`RecordId\`, \`RecordSchemaName\`
+## 2. Add a tag
+1. Find the tag by name — own list: \`read\` \`<Entity>Tag\` (e.g. \`AccountTag\`) by \`Name\`; shared: \`read\` \`Tag\` by \`Name\` and \`EntitySchemaName\` = the entity. Create it if missing — \`{ Name }\` / \`{ Name, EntitySchemaName }\` is all it needs — and mention that you created a new tag.
+2. Skip if the record already has it: \`read\` the link table by the tag id and the record id.
+3. Link:
+   - own list: \`{ "entity": "ContactInTag", "data": { "TagId": "<tag id>", "EntityId": "<record id>" } }\`
+   - shared: \`{ "entity": "TagInRecord", "data": { "TagId": "<tag id>", "RecordId": "<record id>", "RecordSchemaName": "Contact" } }\`
 
-Which one to use is decided by the flow below: the only system that exists, the one the user named, or — when both exist — the user's answer.
-
----
-
-## ⚡ Quick Decision Flow
-
-**MANDATORY behavior:**
-1. Check if \`<Entity>Tag\` exists (e.g., \`ActivityTag\`)
-2. If BOTH systems exist (Legacy AND Universal):
-   → **ALWAYS ASK USER**: "Which tagging system should I use: legacy (ActivityTag/ActivityInTag) or universal (Tag/TagInRecord)?"
-   → Wait for explicit user response - NO DEFAULT!
-   → User must choose: "legacy" or "universal"
-3. If ONLY legacy exists → Use legacy (no question needed)
-4. If ONLY universal exists → Use universal (no question needed)
-
-**CRITICAL:** Never auto-choose when both systems are available! Always ask and wait for clear answer!
-
----
-
-## 📋 STEP-BY-STEP WORKFLOW
-
-### Step 1: Identify Target Entity & Record
-- Extract entity name (Activity, Contact, Account, etc.)
-- Get record GUID (from context or ask user)
-- Store as: \`entityName\`, \`recordId\`
-
-### Step 2: Choose System (MANDATORY CHECK!)
-
-**Always perform this check:**
-
-1. Try describe-entity on \`<Entity>Tag\` (e.g., "ActivityTag")
-2. Try describe-entity on \`Tag\` 
-3. Determine availability:
-   - BOTH exist → **ASK USER MANDATORY**: "I found both tagging systems. Which one should I use: legacy (<Entity>Tag) or universal (Tag)?"
-   - ONLY legacy exists → Use legacy automatically
-   - ONLY universal exists → Use universal automatically
-   - NEITHER exists → Error (cannot tag)
-
-**User response handling:**
-- "legacy" / "old" / "entity-specific" / "<Entity>Tag" → useLegacy = true
-- "universal" / "new" / "Tag" / "TagInRecord" → useLegacy = false
-- If unclear response → Ask again for clarification
-
-**NEVER skip the question when both systems are present!**
-**NEVER assume a default - wait for explicit user choice!**
-
-### Step 3: Resolve or Create Tag
-
-**Tag name can be ANY value provided by user** (e.g., "VIP", "Urgent", "Follow-up", "Important", etc.)
-
-**For LEGACY system:**
-1. Try to find existing tag: read <Entity>Tag where Name eq '<TagName>' select Id top 1
-2. If not found, create it: create <Entity>Tag with Name: "<TagName>"
-3. Returns tag Id (GUID)
-
-**For UNIVERSAL system:**
-1. Try to find existing tag: read Tag where Name eq '<TagName>' and EntitySchemaName eq '<Entity>' select Id top 1
-2. If not found, create it: create Tag with Name: "<TagName>", EntitySchemaName: "<Entity>"
-3. Returns tag Id (GUID)
-
-### Step 4: Check if Already Tagged
-Avoid duplicate links!
-
-**LEGACY:**
-- read <Entity>InTag where TagId eq <tag-guid> and EntityId eq <record-guid> select Id top 1
-
-**UNIVERSAL:**
-- read TagInRecord where TagId eq <tag-guid> and RecordId eq <record-guid> select Id top 1
-
-### Step 5: Create Link (if not exists)
-
-**LEGACY:**
-- create <Entity>InTag with TagId: <tag-guid>, EntityId: <record-guid>
-
-**UNIVERSAL:**
-- create TagInRecord with TagId: <tag-guid>, RecordId: <record-guid>, RecordSchemaName: "<Entity>"
-
----
-
-## 💡 Examples
-
-### Example 1: Add "VIP" tag to Activity (Standard Request)
-
-User: "Add tag VIP to this meeting"
-
-LLM Actions:
-1. Detect: Entity = Activity, recordId from context
-2. Check: ActivityTag exists? YES. Tag exists? YES (BOTH found!)
-3. ASK USER: "Which tagging system should I use: legacy (ActivityTag) or universal (Tag)?"
-4. User: "legacy"
-5. Query: ActivityTag where Name='VIP' (found: "9dd32c9f...")
-6. Check: ActivityInTag link exists? NO
-7. Create: ActivityInTag with TagId: "9dd32c9f...", EntityId: "meeting-id"
-8. Report: "Added VIP tag to meeting using legacy system"
-
-### Example 2: User explicitly wants universal system
-
-User: "Add tag Important using the new universal tag system"
-
-LLM Actions:
-1. User specified "new universal" (useLegacy = false, skip question!)
-2. Query: Tag where Name='Important' and EntitySchemaName='Activity'
-3. If not found: Create Tag with Name: "Important", EntitySchemaName: "Activity"
-4. Create: TagInRecord with TagId, RecordId, RecordSchemaName: "Activity"
-5. Report: "Added Important tag using universal system"
-
-### Example 3: Legacy system doesn't exist
-
-User: "Add tag to CustomEntity"
-
-LLM Actions:
-1. Check: CustomEntityTag exists? NO
-2. Auto-fallback: Use universal system
-3. Query/Create in Tag table
-4. Link via TagInRecord
-
----
-
-## 🚨 Common Mistakes to Avoid
-
-❌ **WRONG:** Auto-choosing system when both exist
-✅ **RIGHT:** ALWAYS ask user when both legacy and universal are available
-
-❌ **WRONG:** Creating duplicate tags without checking
-✅ **RIGHT:** Always check existence first
-
-❌ **WRONG:** Not checking if link already exists
-✅ **RIGHT:** Query <Entity>InTag or TagInRecord before creating
-
-❌ **WRONG:** Skipping the mandatory question
-✅ **RIGHT:** If both systems exist, MUST ask user which one to use
-
----
-
-## 📊 Quick Reference Table
-
-| Entity    | Tag Table      | Link Table        | Tag Field | Record Field |
-|-----------|----------------|-------------------|-----------|--------------|
-| Activity  | ActivityTag    | ActivityInTag     | TagId     | EntityId     |
-| Account   | AccountTag     | AccountInTag      | TagId     | EntityId     |
-| Contact   | ContactTag     | ContactInTag      | TagId     | EntityId     |
-| Lead      | LeadTag        | LeadInTag         | TagId     | EntityId     |
-| Case      | CaseTag        | CaseInTag         | TagId     | EntityId     |
-| *Universal* | Tag          | TagInRecord       | TagId     | RecordId     |
-
----
-
-## ✅ Final Checklist
-
-Before creating a tag link:
-- [ ] Entity and record GUID identified
-- [ ] System auto-detected (legacy preferred)
-- [ ] Tag resolved or created in correct table
-- [ ] Existing link checked (no duplicates)
-- [ ] Link created in correct table
-- [ ] User notified of success
-
----
-
-## 🎯 Remember
-
-**The Golden Rule:** When BOTH systems exist - ALWAYS ASK USER (no defaults!)
-
-Question format: "I found both tagging systems for <Entity>. Which should I use: legacy (<Entity>Tag) or universal (Tag)?"
-
-**Wait for explicit answer!** Do not proceed until user chooses.
-
-Only skip question if:
-- ONLY legacy exists → Use legacy automatically
-- ONLY universal exists → Use universal automatically
-- User already specified in original request (e.g., "use new tag system")
-
-**Tag names:** Can be ANY value user provides (VIP, Urgent, Important, Follow-up, etc.)
-
-**DO NOT assume or auto-choose when both are present!**
-`.trim();
-
-const SYS_SETTINGS_VALUE_TYPES_TABLE = `
-| valueTypeName | Display label           |
-| ------------- | ----------------------- |
-| Binary        | BLOB                    |
-| Boolean       | Boolean                 |
-| DateTime      | Date/Time               |
-| Date          | Date                    |
-| Time          | Time                    |
-| Integer       | Integer                 |
-| Money         | Currency (0.01)         |
-| Float         | Decimal                 |
-| Lookup        | Lookup                  |
-| ShortText     | Text (50 characters)    |
-| MediumText    | Text (250 characters)   |
-| LongText      | Text (500 characters)   |
-| Text          | Text                    |
-| MaxSizeText   | Unlimited length text   |
-| SecureText    | Encrypted string        |
+## 3. List or remove
+- A record's tags: \`read\` the link table by \`EntityId\` / \`RecordId\` with \`select: ["Tag"]\` (DataService) or \`expand: ["Tag"]\` (OData).
+- Removing a tag from a record deletes the link row, not the tag (other records may use it).
 `.trim();
 
 const SYS_SETTINGS_GUIDE = `
-# ⚙️ Creating Creatio System Settings
+# System settings
 
-## Supported valueTypeName values
-Always use the **value** column (not the display label) when filling \`definition.valueTypeName\`.
+## Find existing settings
+\`read\` the \`VwSysSetting\` view — \`select: ["Id", "Code", "Name", "ValueTypeName", "IsPersonal", "IsCacheable"]\`, filtered by \`Code\` or \`Name\` with \`contains\`. Read values with \`query-sys-settings\` by code; change them with \`set-sys-settings-value\` (confirm with the user first — settings affect the whole instance).
 
-${SYS_SETTINGS_VALUE_TYPES_TABLE}
+## Create a setting
+\`create-sys-setting { definition: { code, name, valueTypeName, … }, initialValue? }\`. \`valueTypeName\` is one of:
 
-## Discovering existing system settings
-To inspect what system settings already exist (names, codes, value types, cache flags, etc.), query the 
-\`VwSysSetting\` view via the standard \`read\` tool. Example:
+| valueTypeName | Shown in Creatio as |
+|---|---|
+| Text, ShortText, MediumText, LongText, MaxSizeText | Text (unlimited / 50 / 250 / 500 / unlimited) |
+| SecureText | Encrypted string |
+| Integer, Float, Money | Integer, Decimal, Currency |
+| Boolean | Boolean |
+| DateTime, Date, Time | Date/Time, Date, Time |
+| Lookup | Lookup — also needs \`referenceSchemaUId\` |
+| Binary | BLOB |
 
-\`\`\`json
-{
-	"entity": "VwSysSetting",
-	"select": [
-		"Id",
-		"Name",
-		"Code",
-		"Description",
-		"ValueTypeName",
-		"IsPersonal",
-		"IsCacheable"
-	],
-	"top": 50
-}
-\`\`\`
+A Lookup setting points to an object by its schema UId: \`read\` \`VwWorkspaceObjects\` — \`select: ["UId", "Name"], filters: { all: [{ field: "Name", op: "eq", value: "Account" }] }\` — and pass \`UId\` as \`referenceSchemaUId\`.
 
-Filter by \`Code\` or \`Name\` to narrow results (e.g., \`"filters":{"all":[{"field":"Code","op":"contains","value":"Product"}]}\`).
-This is the fastest way to learn which settings already exist before inserting new ones.
-
-## Lookup referenceSchemaUId
-- Required only when \`valueTypeName = "Lookup"\`.
-- Set \`definition.referenceSchemaUId\` to the EntitySchema UId of the lookup target.
-- Fetch the UId from \`VwWorkspaceObjects\` by filtering on the schema name.
-
-### Example MCP read request
-\`\`\`json
-{
-	"entity": "VwWorkspaceObjects",
-	"filters": {
-		"all": [
-			{ "field": "Name", "op": "eq", "value": "Account" }
-		]
-	},
-	"select": ["UId", "Name", "Caption"]
-}
-\`\`\`
-
-Use the returned \`UId\` as \`referenceSchemaUId\` inside the \`create-sys-setting\` tool payload.
-
-## Quick workflow reminder
-1. Insert sys setting metadata via \`create-sys-setting\`.
-2. Optionally include \`initialValue\` to write the first value immediately.
-3. For additional updates later, call \`set-sys-settings-value\`.
+## Change a definition
+\`update-sys-setting-definition { id, definition }\` — Creatio requires \`code\`, \`name\` and \`valueTypeName\` every time; send the current values for those you keep.
 `.trim();
-
-const QUERY_GUIDE = `
-# Querying Creatio data
-
-## 1. Find the entity
-- You know the name (\`Contact\`, \`Opportunity\`) → go to step 2.
-- You know the meaning ("support tickets", "invoices") → \`dataforge-similar-tables\` when available; otherwise check names with \`list-entities\` (1000+ names, so search it for a word).
-- You are looking for one specific record by name or number ("Andrew Baker", "INV-1024") → \`global-search\` when available: it finds it in any entity and tells you which.
-
-## 2. Check the columns
-\`describe-entity\` lists the columns, their types and which are required. Use the exact names it returns. A wrong name is rejected with a suggestion — \`unknown_column:Emial (Contact). Did you mean: Email?\` — so retry with the suggestion instead of guessing.
-
-## 3. Read
-Ask for what you need, no more: \`select\` the columns you will use and keep \`top\` small (default 50).
-
-| Need | How |
-|------|-----|
-| A column of a related record | \`select: ["Name", "Account.Name"]\` (on the OData backend: \`expand: ["Account"]\`) |
-| Filter by a related record's id | \`{ field: "AccountId", op: "eq", value: "<guid>" }\` |
-| Filter by a related record's name | \`{ field: "Account.Name", op: "eq", value: "Acme" }\` |
-| Text search in a column | \`{ field: "Name", op: "contains", value: "acme" }\` (case-insensitive) |
-| One of several values | \`{ field: "Stage.Name", in: ["Presentation", "Negotiation"] }\` |
-| Empty / not empty | \`{ field: "Email", op: "eq", value: null }\` / \`op: "ne"\` |
-| A date range | \`{ field: "CreatedOn", op: "ge", value: "2026-01-01" }\` + \`op: "lt"\` for the end (the user's time zone, /datetime-guide) |
-| AND / OR | \`filters: { all: [...], any: [...] }\` — \`all\` is AND, \`any\` is OR, and the two groups are combined by AND |
-| Newest / biggest first | \`orderBy: "CreatedOn desc"\`, \`orderBy: "Amount desc, Title asc"\` |
-| "How many …?" | \`count: true, top: 0\` → \`{ total, value: [] }\` — never page through rows to count them |
-| The next page | same query with \`skip\` += \`top\` and a stable \`orderBy\` |
-
-What comes back:
-- A missing value is \`null\` (a text column may also be \`""\`).
-- A lookup column you select by itself (\`Account\`) is \`{ value, displayValue }\` on the DataService backend; on OData select its id (\`AccountId\`) and \`expand\` the record for its name.
-- Ids are GUIDs. Never invent one: resolve a lookup value by reading its table (\`ActivityPriority\` by \`Name\`) or with \`dataforge-lookup-values\`.
-
-## 4. Present the results
-- Mentioning a specific record? Add its link: \`get-record-url { entity, id }\`.
-- The user asks about a record's documents? \`list-record-files { entity, id }\` lists its files and links; hand the user the \`downloadUrl\`.
-- Prefer names over ids in your answer; keep ids for follow-up calls.
-
-## 5. People: user id vs contact id
-Owner / author / responsible columns point to a **Contact**: use \`userInfo.contactId\` from \`get-current-user-info\` for the current user. Tools that take a user or role (\`set-feature-state\`, \`set-admin-operation-grantee\`) want a **SysAdminUnit** id: \`userInfo.id\`. See /contactid-guide.
-`.trim();
-
-export const QUERY_PROMPT = {
-	name: 'query-guide',
-	title: 'Querying Creatio data',
-	description:
-		'How to find the right entity and columns, read with filters / related columns / sorting / paging / counting, and present results with record links and attachments',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: { type: 'text' as const, text: QUERY_GUIDE },
-			},
-		],
-	}),
-};
-
-export const CREATE_ACTIVITY_PROMPT = {
-	name: 'create-activity-guide',
-	title: 'Create Activity in Creatio',
-	description:
-		'Complete step-by-step guide for creating Activities (tasks/meetings/calls) in Creatio',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: {
-					type: 'text' as const,
-					text: CREATE_ACTIVITY_WORKFLOW,
-				},
-			},
-		],
-	}),
-};
-export const DATETIME_PROMPT = {
-	name: 'datetime-guide',
-	title: 'Dates and time zones',
-	description:
-		'How record dates follow the user’s Creatio time zone, with write, filter and read examples',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: {
-					type: 'text' as const,
-					text: DATETIME_GUIDE,
-				},
-			},
-		],
-	}),
-};
-
-export const CONTACTID_PROMPT = {
-	name: 'contactid-guide',
-	title: 'People: contact id vs user id',
-	description:
-		'Which id a person field takes (a Contact id for owners/authors, a SysAdminUnit id for users and roles in permissions) and how to get the current user and other people',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: {
-					type: 'text' as const,
-					text: CONTACTID_GUIDE,
-				},
-			},
-		],
-	}),
-};
-
-export const TAGGING_PROMPT = {
-	name: 'tagging-guide',
-	title: 'Tagging Records (New & Legacy Systems)',
-	description:
-		'Guide for adding tags to records using Tag/TagInRecord or legacy <Entity>Tag / <Entity>InTag tables',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: { type: 'text' as const, text: TAGGING_GUIDE },
-			},
-		],
-	}),
-};
-
-export const SYS_SETTINGS_PROMPT = {
-	name: 'sys-settings-guide',
-	title: 'Creatio System Settings Guide',
-	description:
-		'Value type options and lookup reference instructions for create-sys-setting / set-sys-settings-value workflows',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: { type: 'text' as const, text: SYS_SETTINGS_GUIDE },
-			},
-		],
-	}),
-};
 
 const FEATURE_TOGGLE_GUIDE = `
-# 🚦 Feature Toggling Guide for Creatio
+# Feature toggles
 
-## 🧭 Quick Map
-
-A feature can come from several **sources**: a DB row (\`DbFeatureProvider\`), \`web.config\`, package \`Metadata\`, or \`GlobalAppSettings\`. A DB row always wins over the others. Each feature has a **default state** (for everyone) and optional **per-user/role overrides** (\`SysAdminUnit\` — a user or a role).
+A feature comes from a **source**: a DB row (\`DbFeatureProvider\`), \`web.config\`, package \`Metadata\` or \`GlobalAppSettings\`; a DB row always wins. Each feature has a **default state** (for everyone) and optional **overrides** for users or roles (\`SysAdminUnit\` ids — not contact ids).
 
 Which tools you have depends on the server's CRUD backend:
 
-| Backend                    | Tools                                                                 | Sees                  |
-|----------------------------|-----------------------------------------------------------------------|-----------------------|
-| DataService (default)      | \`list-features\`, \`get-feature\`, \`set-feature-state\`                    | Features from **every** source |
-| OData                      | generic \`read\` / \`create\` / \`update\` / \`delete\` + \`refresh-feature-cache\` | Only DB rows (\`Feature\` table) |
+| Backend | Tools | Sees |
+|---|---|---|
+| DataService (default) | \`list-features\`, \`get-feature\`, \`set-feature-state\` | features from every source (what the Creatio feature page shows) |
+| OData | \`read\` / \`create\` / \`update\` / \`delete\` on the tables + \`refresh-feature-cache\` | only DB rows (\`Feature\` table) |
 
-If \`list-features\` is available, use it — it is the same data the Creatio feature page shows.
+## DataService backend
+1. Find: \`list-features { search }\` (part of the code), optionally \`source\` / \`enabledForCurrentUser\`; page with \`skip\` while \`hasMore\`.
+2. Inspect: \`get-feature { code }\` — default state, the current user's state, \`overrides\`.
+3. Change the default: \`set-feature-state { code, state: "enabled" | "disabled" }\`.
+4. Override for a user or role: add \`adminUnitId\` (\`read\` SysAdminUnit by \`Name\` — contactid-guide tells users from roles); remove it with \`state: "inherit"\`.
+5. "Only for role X": the override turns it on for X, so the default must be off — if \`get-feature\` shows it enabled by default, ask before turning the default off. Other overrides listed by \`get-feature\` still apply; mention them.
 
----
+\`set-feature-state\` clears the cache and re-reads the feature. \`cacheCleared: false\` means the change is saved but takes effect only after Creatio refreshes — tell the user. Changing a web.config / Metadata / GlobalAppSettings feature creates its DB row, which then takes precedence (the Creatio feature page does the same). A new feature: \`create\` a \`Feature\` row (\`Code\`, \`Name\`, \`DefaultState\`), then use the tools above.
 
-## ✅ DataService backend (feature tools)
+## OData backend
+Tables: \`Feature\` (\`Code\`, \`Name\`, \`Description\`, \`DefaultState\`) and \`AdminUnitFeatureState\` (\`FeatureId\`, \`SysAdminUnitId\`, \`FeatureState\`). States are integers: 0 = disabled, 1 = enabled.
+- Change the default: \`update\` the \`Feature\` row → \`{ "DefaultState": 1 }\`.
+- Override: \`read\` \`AdminUnitFeatureState\` by \`FeatureId\` + \`SysAdminUnitId\`; \`update\` it if it exists, else \`create\` it. Remove: \`delete\` the row.
+- Delete a feature: its \`AdminUnitFeatureState\` rows first, then the \`Feature\` row.
+- After every write: \`refresh-feature-cache { featureCode }\`, or users keep the old state.
 
-1. **Find a feature:** \`list-features\` with \`search\` (substring of the code), optionally \`source\` / \`enabledForCurrentUser\`; page with \`skip\` while \`hasMore\` is true.
-2. **Inspect it:** \`get-feature { code }\` → default state, effective state for the MCP user, \`overrides\`.
-3. **Change the default:** \`set-feature-state { code, state: "enabled" | "disabled" }\`.
-4. **Override for a user/role:** \`set-feature-state { code, state, adminUnitId }\` — \`adminUnitId\` is \`SysAdminUnit.Id\` (NOT a ContactId); resolve it with \`read\` on \`SysAdminUnit\` filtered by \`Name\`.
-5. **Remove an override:** \`set-feature-state { code, state: "inherit", adminUnitId }\`.
-
-\`set-feature-state\` clears that feature's cache and returns the re-read feature, so no \`refresh-feature-cache\` is needed. If the result has \`cacheCleared: false\`, the change is saved but the instance could not clear its cache (seen on .NET 8): it may take effect only after Creatio refreshes — tell the user. Changing a \`web.config\` / \`Metadata\` / \`GlobalAppSettings\` feature creates its \`Feature\` DB row; from then on the DB value takes precedence over the original source — exactly what the Creatio feature page does.
-
-To create a brand-new feature, \`create\` a \`Feature\` row (\`Code\`, \`Name\`, \`DefaultState\`), then use the tools above.
-
----
-
-## 🗄️ OData backend (tables)
-
-Only DB-backed features are reachable: \`Feature\` (catalog: \`Code\`, \`Name\`, \`Description\`, \`DefaultState\`) and \`AdminUnitFeatureState\` (overrides: \`FeatureId\`, \`SysAdminUnitId\`, \`FeatureState\`). \`DefaultState\` / \`FeatureState\` are **Int32: 0 = disabled, 1 = enabled** — never booleans.
-
-- **List / find:** \`read\` on \`Feature\` (filter \`Code\`).
-- **Change the default:** \`update\` \`Feature\` → \`{ "DefaultState": 1 }\`.
-- **Override for a user/role:** \`read\` \`AdminUnitFeatureState\` by \`FeatureId\` + \`SysAdminUnitId\`; \`update\` the row if it exists, otherwise \`create\` it.
-- **Remove an override:** \`delete\` that \`AdminUnitFeatureState\` row.
-- **Delete a feature:** delete its \`AdminUnitFeatureState\` rows first, then the \`Feature\` row.
-
-After **every** write call \`refresh-feature-cache\` with the feature \`Code\` (or with no arguments to clear all), otherwise users keep seeing the old state.
-
----
-
-## ❌ Common Mistakes
-
-- ❌ Passing a \`ContactId\` as \`adminUnitId\` / \`SysAdminUnitId\` — overrides use \`SysAdminUnit.Id\`.
-- ❌ Reading only the \`Feature\` table on the DataService backend — it misses web.config / metadata features; use \`list-features\`.
-- ❌ (OData) Sending \`true\`/\`false\` for \`DefaultState\` / \`FeatureState\`, or forgetting \`refresh-feature-cache\` after a write.
-- ❌ (OData) Creating a duplicate \`AdminUnitFeatureState\` for the same \`(FeatureId, SysAdminUnitId)\` instead of updating it.
-- ❌ A \`Code\` not matching \`^[a-zA-Z]+[a-zA-Z0-9-_.]*$\` — the platform validator rejects it.
+A feature \`Code\` must match \`^[a-zA-Z]+[a-zA-Z0-9-_.]*$\`.
 `.trim();
-
-export const FEATURE_TOGGLE_PROMPT = {
-	name: 'feature-toggle-guide',
-	title: 'Creatio Feature Toggle Guide',
-	description:
-		'How to list, inspect and change Creatio feature toggles (default state and per-user/role overrides) on the DataService and OData backends, and when to call refresh-feature-cache',
-	argsSchema: {},
-	callback: () => ({
-		messages: [
-			{
-				role: 'user' as const,
-				content: { type: 'text' as const, text: FEATURE_TOGGLE_GUIDE },
-			},
-		],
-	}),
-};
 
 const ADMIN_OPERATION_GUIDE = `
-# 🛡️ Creatio System Operations (SysAdminOperation) Guide
+# System operations (permissions)
 
-## 🧭 Quick Map
+System operations (\`SysAdminOperation\`: \`Code\`, \`Name\`, \`Description\`) gate admin abilities such as \`CanManageAdministration\` or \`CanUseODataService\`. Who may run one is in \`SysAdminOperationGrantee\` (\`SysAdminOperationId\`, \`SysAdminUnitId\`, \`CanExecute\`, \`Position\`).
 
-Creatio system operations are admin-level permission flags that gate features such as \`CanUseODataService\`, \`CanManageAdministration\`, \`CanChangeAdminOperationGrantee\`, etc. They live in two database tables:
+Read both with \`read\`; write only with the dedicated tools — Creatio blocks the generic create / update / delete on these tables:
 
-| Table                       | Holds                                                          | OData reachable? |
-|-----------------------------|----------------------------------------------------------------|------------------|
-| \`SysAdminOperation\`         | The operation definition: Name, Code, Description              | Read ✅ / Write ❌ |
-| \`SysAdminOperationGrantee\`  | Per-admin-unit grants (FK to operation + SysAdminUnit + allow) | Read ✅ / Write ❌ |
+| Need | Tool |
+|---|---|
+| Create an operation, or rename / re-describe one | \`upsert-admin-operation\` (omit \`id\` to create; \`code\` is always required) |
+| Delete operations (their grants go with them) | \`delete-admin-operation { ids }\` |
+| Allow or deny for users / roles | \`set-admin-operation-grantee { adminOperationId, adminUnitIds, canExecute }\` |
+| Remove a grant entirely | \`delete-admin-operation-grantee { ids }\` |
 
-Modification of both tables is blocked through OData v4 (\`DataServiceRestrictedModifySchemas\` in \`Web.config\`). All writes go through Creatio's dedicated **\`/0/rest/RightsService/\`** endpoints, wrapped by these MCP tools:
+## Recipes
+- Find an operation: \`read\` SysAdminOperation — \`select: ["Id", "Code", "Name"], filters: { all: [{ field: "Code", op: "eq", value: "CanManageAdministration" }] }\`.
+- Its grants: \`read\` SysAdminOperationGrantee — \`select: ["Id", "SysAdminUnit", "CanExecute"], filters: { all: [{ field: "SysAdminOperationId", op: "eq", value: "<operation id>" }] }\`.
+- A user or role to grant: \`read\` SysAdminUnit by \`Name\` → its \`Id\` (a SysAdminUnit id, not a contact id). Pass all of them in one \`adminUnitIds\` call.
+- Flip allow ↔ deny: \`set-admin-operation-grantee\` again with the other \`canExecute\` — it updates the existing grant.
 
-| Need                                     | Tool                                  |
-|------------------------------------------|---------------------------------------|
-| Read catalog / grant rows                | Standard \`read\` on the two entities  |
-| Create or rename an operation            | \`upsert-admin-operation\`             |
-| Delete operation(s)                      | \`delete-admin-operation\`             |
-| Grant or revoke for users/roles          | \`set-admin-operation-grantee\`        |
-| Remove a specific grant row by Id        | \`delete-admin-operation-grantee\`     |
-
-⚠️ Do NOT attempt \`create\` / \`update\` / \`delete\` on \`SysAdminOperation\` or \`SysAdminOperationGrantee\` through the generic OData tools — Creatio rejects those writes.
-
----
-
-## 📋 SysAdminOperation Columns
-
-| Column          | Type     | Notes                                                              |
-|-----------------|----------|--------------------------------------------------------------------|
-| \`Id\`            | Guid     | Primary key                                                        |
-| \`Code\`          | string   | Operation code, e.g., \`CanUseODataService\`. Conventionally PascalCase. |
-| \`Name\`          | string   | Display name                                                       |
-| \`Description\`   | string   | Optional description                                               |
-
-## 📋 SysAdminOperationGrantee Columns
-
-| Column                  | Type    | Notes                                                                       |
-|-------------------------|---------|-----------------------------------------------------------------------------|
-| \`Id\`                    | Guid    | Primary key                                                                 |
-| \`SysAdminOperationId\`   | Guid    | FK to \`SysAdminOperation\`                                                   |
-| \`SysAdminUnitId\`        | Guid    | FK to \`SysAdminUnit\` (use SysAdminUnit.Id, NOT ContactId)                   |
-| \`CanExecute\`            | bool    | \`true\` = allow, \`false\` = deny                                            |
-| \`Position\`              | Int32   | Order within conflicting rules; lower wins for the same admin unit          |
-
----
-
-## 🛠️ Common Workflows
-
-### 1. List system operations
-
-\`\`\`json
-{
-  "entity": "SysAdminOperation",
-  "select": ["Id", "Code", "Name", "Description"],
-  "top": 200,
-  "orderBy": "Code asc"
-}
-\`\`\`
-
-### 2. Look up an operation by code
-
-\`\`\`json
-{
-  "entity": "SysAdminOperation",
-  "filters": { "all": [ { "field": "Code", "op": "eq", "value": "CanUseODataService" } ] },
-  "select": ["Id", "Code", "Name", "Description"],
-  "top": 1
-}
-\`\`\`
-
-### 3. Create a new system operation
-
-Call \`upsert-admin-operation\` without an \`id\`:
-
-\`\`\`json
-{
-  "name": "Can do MCP test",
-  "code": "CanDoMcpTest",
-  "description": "Demo operation managed via MCP"
-}
-\`\`\`
-
-The response includes the generated \`id\`. Capture it for the grant step.
-
-### 4. Rename / re-describe an existing operation
-
-Call \`upsert-admin-operation\` with the existing \`id\`:
-
-\`\`\`json
-{
-  "id": "<operation-guid>",
-  "name": "Can do MCP test (renamed)",
-  "code": "CanDoMcpTest",
-  "description": "Updated description"
-}
-\`\`\`
-
-Code is required even when unchanged.
-
-### 5. Grant the operation to a user or role
-
-Resolve the SysAdminUnit first:
-
-\`\`\`json
-{
-  "entity": "SysAdminUnit",
-  "filters": { "all": [ { "field": "Name", "op": "eq", "value": "Supervisor" } ] },
-  "select": ["Id", "Name", "SysAdminUnitTypeValue"],
-  "top": 1
-}
-\`\`\`
-
-Then call \`set-admin-operation-grantee\`:
-
-\`\`\`json
-{
-  "adminOperationId": "<operation-guid>",
-  "adminUnitIds": ["<sysadminunit-guid-1>", "<sysadminunit-guid-2>"],
-  "canExecute": true
-}
-\`\`\`
-
-Use \`canExecute: false\` to deny instead of allow. The service upserts the grantee rows internally — repeated calls for the same pair update the existing row instead of duplicating it.
-
-### 6. Inspect current grants for an operation
-
-⚠️ **Filter via the navigation property, not the raw FK column.** Creatio OData v4 rejects direct \`SysAdminOperationId eq <guid>\` / \`SysAdminUnitId eq <guid>\` filters on this entity with HTTP 500. Use \`SysAdminOperation/Id\` and \`SysAdminUnit/Id\` instead:
-
-\`\`\`json
-{
-  "entity": "SysAdminOperationGrantee",
-  "filters": { "all": [ { "field": "SysAdminOperation/Id", "op": "eq", "value": "<operation-guid>" } ] },
-  "select": ["Id", "SysAdminOperationId", "SysAdminUnitId", "CanExecute", "Position"]
-}
-\`\`\`
-
-### 7. Remove a specific grant row
-
-Use the row Id from step 6:
-
-\`\`\`json
-{ "ids": ["<grantee-guid>"] }
-\`\`\`
-
-Call \`delete-admin-operation-grantee\`. Prefer toggling \`canExecute\` via \`set-admin-operation-grantee\` if the goal is to flip allow ↔ deny rather than fully remove the rule.
-
-### 8. Delete an operation entirely
-
-\`\`\`json
-{ "ids": ["<operation-guid-1>", "<operation-guid-2>"] }
-\`\`\`
-
-Call \`delete-admin-operation\`. RightsService cascades cleanup of related grantee rows.
-
----
-
-## ❌ Common Mistakes
-
-- ❌ Trying to write to \`SysAdminOperation\` or \`SysAdminOperationGrantee\` via the generic OData \`create\` / \`update\` / \`delete\` tools — these tables are in \`DataServiceRestrictedModifySchemas\`.
-- ❌ Passing the all-zero GUID as \`id\` to \`upsert-admin-operation\` to "create" — RightsService rejects it. Omit \`id\` and let the tool generate a fresh one.
-- ❌ Using \`ContactId\` instead of \`SysAdminUnit.Id\` for grantees.
-- ❌ Forgetting to confirm with \`read\` that the change landed — RightsService responses return \`success: true\` only when the underlying entity actually saved.
-- ❌ Granting the operation to many units one by one — pass the full \`adminUnitIds\` array in a single call.
-- ❌ Filtering \`SysAdminOperationGrantee\` by the raw \`SysAdminOperationId\` / \`SysAdminUnitId\` columns — Creatio OData returns HTTP 500 for those. Use the navigation property syntax \`SysAdminOperation/Id\` / \`SysAdminUnit/Id\`.
-
----
-
-## ✅ Final Checklist
-
-Before reporting a system-operation change as done:
-- [ ] Used \`SysAdminOperation\` / \`SysAdminOperationGrantee\` only for reading.
-- [ ] Used \`upsert-admin-operation\` / \`delete-admin-operation\` for catalog writes.
-- [ ] Used \`set-admin-operation-grantee\` / \`delete-admin-operation-grantee\` for grants.
-- [ ] Resolved each principal through \`SysAdminUnit\` (Id, not ContactId).
-- [ ] Re-read the affected rows to confirm the change landed.
+Confirm with the user before granting, denying or deleting, and re-read the rows afterwards to report the result.
 `.trim();
 
-export const ADMIN_OPERATION_PROMPT = {
-	name: 'admin-operation-guide',
-	title: 'Creatio System Operations (SysAdminOperation) Guide',
-	description:
-		'How to manage SysAdminOperation and SysAdminOperationGrantee via the dedicated RightsService tools (upsert/delete operation, set/delete grantee), with reads still routed through the standard OData read tool',
+interface Guide {
+	readonly name: string;
+	readonly title: string;
+	readonly description: string;
+	readonly text: string;
+}
+
+/** Every guide, by name. The names are the `get-guide` topics and the prompt names. */
+export const GUIDES = [
+	{
+		name: 'query-guide',
+		title: 'Querying Creatio data',
+		description:
+			'How to find the right entity and columns, read with filters / related columns / sorting / paging / counting, and present results with record links and attachments',
+		text: QUERY_GUIDE,
+	},
+	{
+		name: 'create-activity-guide',
+		title: 'Creating activities',
+		description:
+			'Tasks, meetings and calls: owner, type and category ids, times, participants, and confirming to the user',
+		text: CREATE_ACTIVITY_GUIDE,
+	},
+	{
+		name: 'datetime-guide',
+		title: 'Dates and time zones',
+		description:
+			'How record dates follow the user’s Creatio time zone, with write, filter and read examples',
+		text: DATETIME_GUIDE,
+	},
+	{
+		name: 'contactid-guide',
+		title: 'People: contact id vs user id',
+		description:
+			'Which id a person field takes (a Contact id for owners/authors, a SysAdminUnit id for users and roles in permissions) and how to get the current user and other people',
+		text: CONTACTID_GUIDE,
+	},
+	{
+		name: 'tagging-guide',
+		title: 'Tagging records',
+		description:
+			'Adding, listing and removing tags in the object’s own tag list or Creatio’s shared tags, and choosing between them',
+		text: TAGGING_GUIDE,
+	},
+	{
+		name: 'sys-settings-guide',
+		title: 'System settings',
+		description:
+			'Finding, creating and changing system settings: value types, lookup settings, definitions',
+		text: SYS_SETTINGS_GUIDE,
+	},
+	{
+		name: 'feature-toggle-guide',
+		title: 'Feature toggles',
+		description:
+			'Listing, inspecting and changing feature toggles (default state and per-user/role overrides) on the DataService and OData backends',
+		text: FEATURE_TOGGLE_GUIDE,
+	},
+	{
+		name: 'admin-operation-guide',
+		title: 'System operations (permissions)',
+		description:
+			'Creating system operations (SysAdminOperation) and granting or denying them to users and roles',
+		text: ADMIN_OPERATION_GUIDE,
+	},
+] as const satisfies readonly Guide[];
+
+export type GuideName = (typeof GUIDES)[number]['name'];
+
+export const GUIDE_NAMES = GUIDES.map((g) => g.name) as [GuideName, ...GuideName[]];
+
+/** The guides as MCP prompts (user-invoked: `/query-guide`). */
+export const ALL_PROMPTS = GUIDES.map((guide) => ({
+	name: guide.name,
+	title: guide.title,
+	description: guide.description,
 	argsSchema: {},
 	callback: () => ({
 		messages: [
 			{
 				role: 'user' as const,
-				content: { type: 'text' as const, text: ADMIN_OPERATION_GUIDE },
+				content: { type: 'text' as const, text: guide.text },
 			},
 		],
 	}),
-};
+}));
 
-export const ALL_PROMPTS = [
-	QUERY_PROMPT,
-	CREATE_ACTIVITY_PROMPT,
-	DATETIME_PROMPT,
-	CONTACTID_PROMPT,
-	TAGGING_PROMPT,
-	SYS_SETTINGS_PROMPT,
-	FEATURE_TOGGLE_PROMPT,
-	ADMIN_OPERATION_PROMPT,
-] as const;
+/** The text of a guide, for the `get-guide` tool. */
+export function guideText(name: GuideName): string {
+	return GUIDES.find((g) => g.name === name)!.text;
+}

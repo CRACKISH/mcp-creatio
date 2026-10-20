@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CreatioEngineManager } from '../../src/creatio';
 import { Server } from '../../src/server/mcp';
 import { ALL_PROMPTS } from '../../src/server/mcp/prompts-data';
+import { SERVER_INSTRUCTIONS } from '../../src/server/mcp/server-instructions';
 import * as toolsData from '../../src/server/mcp/tools-data';
 import { makeFakeContext } from '../support/fake-context';
 
@@ -42,7 +43,11 @@ const exportedDescriptors = [
 	] as const,
 ];
 
-const guideLinks = (text: string) => [...text.matchAll(/\/([a-z-]+-guide)\b/g)].map((m) => m[1]!);
+/** Every guide name a text points to (`get-guide: query-guide`, `/query-guide`, "the query-guide"). */
+const guideLinks = (text: string) =>
+	[...text.matchAll(/\b([a-z]+(?:-[a-z]+)*-guide)\b/g)]
+		.map((m) => m[1]!)
+		.filter((name) => name !== 'get-guide');
 
 const promptTexts = ALL_PROMPTS.map((p) => {
 	const message = p.callback().messages[0]!;
@@ -66,18 +71,39 @@ describe('tool surface contract (MCP best practices)', () => {
 		}
 	});
 
-	it('every /…-guide a tool or prompt mentions exists', () => {
+	it('every guide a tool, prompt or the instructions mention exists', () => {
 		const prompts = new Set(ALL_PROMPTS.map((p) => p.name));
 		const texts = [
 			...exportedDescriptors.map(
 				([name, d]) => [name, `${d.title} ${d.description}`] as const,
 			),
 			...promptTexts.map((p) => [p.name, p.text] as const),
+			['instructions', SERVER_INSTRUCTIONS] as const,
 		];
 		for (const [where, text] of texts) {
 			for (const link of guideLinks(text)) {
-				expect(prompts.has(link), `${where} → /${link}`).toBe(true);
+				expect(prompts.has(link), `${where} → ${link}`).toBe(true);
 			}
+		}
+	});
+
+	// Most clients never let the model open MCP prompts, so every guide must be reachable through
+	// the get-guide tool, and the instructions must name every topic.
+	it('every guide is a get-guide topic, listed in the instructions', async () => {
+		const server = new Server(new CreatioEngineManager(makeFakeContext() as never), {
+			readonlyMode: true,
+		});
+		const getGuide = (server as any)._handlers.get('get-guide');
+		for (const { name, text } of promptTexts) {
+			expect(await getGuide({ topic: name })).toBe(text);
+			expect(SERVER_INSTRUCTIONS).toContain(name);
+		}
+		await expect(getGuide({ topic: 'nope' })).rejects.toThrow();
+	});
+
+	it('no tool tells the model to send UTC dates (they are in the user’s Creatio time zone)', () => {
+		for (const [name, d] of exportedDescriptors) {
+			expect(JSON.stringify(d), name).not.toMatch(/\d{2}:\d{2}(:\d{2})?Z/);
 		}
 	});
 

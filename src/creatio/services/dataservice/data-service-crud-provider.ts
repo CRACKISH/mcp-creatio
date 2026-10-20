@@ -12,10 +12,11 @@ import {
 } from '../../contracts';
 import {
 	TemporalKind,
-	hasTemporalFilterValue,
 	mapTemporalFilterValues,
 	temporalColumns,
+	temporalFilterFields,
 } from '../../temporal';
+import { resolveTemporalKinds } from '../column-schema-source';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { LookupNames, needsLookupNames } from '../lookup-path';
@@ -152,16 +153,21 @@ export class DataServiceCrudProvider implements CrudProvider {
 		query: ReadQuery,
 	): Promise<{ query: ReadQuery; lookups?: LookupNames }> {
 		const expand = Boolean(query.order?.length) && !query.columns?.length;
-		const temporal = hasTemporalFilterValue(query.filter);
-		if (!expand && !temporal && !needsLookupNames(query)) {
+		const temporalFields = temporalFilterFields(query.filter);
+		if (!expand && !temporalFields.length && !needsLookupNames(query)) {
 			return { query };
 		}
 		const types = await this._schema.columnTypes(query.entity);
-		if (temporal) {
-			const clock = await this._clock.current();
+		if (temporalFields.length) {
+			// DataService reads a zone-less value in the user's zone whatever the column kind, so a
+			// path the schema cannot resolve keeps its value; a zoned one is converted as a DateTime.
+			const [kinds, clock] = await Promise.all([
+				resolveTemporalKinds(this._schema, query.entity, temporalFields),
+				this._clock.current(),
+			]);
 			query = {
 				...query,
-				filter: mapTemporalFilterValues(query.filter!, temporalColumns(types), (kind, v) =>
+				filter: mapTemporalFilterValues(query.filter!, kinds, (kind, v) =>
 					clock.toWallClock(kind, v),
 				),
 			};

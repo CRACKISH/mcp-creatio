@@ -278,7 +278,33 @@ describe('the user zone from GetCurrentUserInfo', () => {
 				{ userInfo: { timeZoneId: 'FLE Standard Time', timeZoneOffsetHours: 3 } },
 				now,
 			),
-		).toEqual({ timeZone: 'Europe/Kiev', utcOffset: '+03:00' });
-		expect(describeUserZone({ userInfo: {} }, now)).toEqual({ utcOffset: '+00:00' });
+		).toEqual({
+			timeZone: 'Europe/Kiev',
+			utcOffset: '+03:00',
+			now: '2026-10-20T15:00:00+03:00',
+			today: '2026-10-20',
+		});
+		expect(describeUserZone({ userInfo: {} }, now)).toEqual({
+			utcOffset: '+00:00',
+			now: '2026-10-20T12:00:00+00:00',
+			today: '2026-10-20',
+		});
+	});
+
+	// "Today" is the user's date, not the server's: 23:30 UTC is already tomorrow in Kyiv.
+	it("gives the user's own date near midnight, without fractions of a second", () => {
+		const late = Date.parse('2026-10-20T23:30:00.789Z');
+		expect(
+			describeUserZone(
+				{ userInfo: { timeZoneId: 'FLE Standard Time', timeZoneOffsetHours: 3 } },
+				late,
+			),
+		).toMatchObject({ now: '2026-10-21T02:30:00+03:00', today: '2026-10-21' });
+		expect(
+			describeUserZone(
+				{ userInfo: { timeZoneId: 'Alaskan Standard Time', timeZoneOffsetHours: -8 } },
+				late,
+			),
+		).toMatchObject({ now: '2026-10-20T15:30:00-08:00', today: '2026-10-20' });
 	});
 });

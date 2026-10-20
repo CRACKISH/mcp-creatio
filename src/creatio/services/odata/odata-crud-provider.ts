@@ -10,12 +10,13 @@ import {
 	ReadResult,
 } from '../../contracts';
 import {
+	TemporalKind,
 	UserClock,
-	hasTemporalFilterValue,
 	mapTemporalFilterValues,
 	temporalColumns,
+	temporalFilterFields,
 } from '../../temporal';
-import { ColumnSchemaSource } from '../column-schema-source';
+import { ColumnSchemaSource, resolveTemporalKinds } from '../column-schema-source';
 import { assertEntityName } from '../entity-name';
 import { CreatioHttpClient } from '../http-client';
 import { GUID_RE } from '../identifiers';
@@ -111,19 +112,29 @@ export class ODataCrudProvider implements CrudProvider {
 		return out;
 	}
 
-	/** The read's date/time filter values as UTC instants, by their columns' kinds. */
+	/**
+	 * The read's date/time filter values as UTC instants, by their columns' kinds (related paths
+	 * included). OData rejects a bare date (`ge 2026-11-01` 500s on both runtimes), so a value whose
+	 * column kind is unknown is still sent as an instant — of the user's wall clock.
+	 */
 	private async _filterToInstants(query: ReadQuery): Promise<ReadQuery> {
-		if (!hasTemporalFilterValue(query.filter)) {
+		const fields = temporalFilterFields(query.filter);
+		if (!fields.length) {
 			return query;
 		}
-		const types = this._schema
-			? await this._schema.columnTypes(query.entity)
-			: new Map<string, number>();
-		const clock = await this._clock.current();
+		const [kinds, clock] = await Promise.all([
+			this._schema
+				? resolveTemporalKinds(this._schema, query.entity, fields)
+				: new Map<string, TemporalKind>(),
+			this._clock.current(),
+		]);
 		return {
 			...query,
-			filter: mapTemporalFilterValues(query.filter!, temporalColumns(types), (kind, v) =>
-				clock.toInstant(kind, v),
+			filter: mapTemporalFilterValues(
+				query.filter!,
+				kinds,
+				(kind, v) => clock.toInstant(kind, v),
+				() => 'datetime',
 			),
 		};
 	}

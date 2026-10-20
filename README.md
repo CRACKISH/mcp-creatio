@@ -380,6 +380,7 @@ and the server tells the model this on connect (MCP `instructions`).
 | `set-sys-settings-value`         | Update one or more system setting values                                                                                                                 |
 | `create-sys-setting`             | Create a new system setting (with optional initial value)                                                                                                |
 | `update-sys-setting-definition`  | Modify system setting metadata (name, value type, cache flags, lookup reference)                                                                         |
+| `get-guide`                      | Step-by-step usage guides the model reads before multi-step work (querying, activities, dates, people, tags, settings, features, permissions)            |
 | `get-record-url`                 | Link that opens a record in Creatio (Creatio picks the classic or Freedom UI page); built locally, no request                                            |
 | `list-record-files`              | A record's attachments (files and links) from both storages (`<Entity>File`, `SysFile`); metadata + download link, never the content                     |
 | `list-features`                  | _DataService backend._ List feature toggles from every source with their default and current-user state; paged by `hasMore`                              |
@@ -404,9 +405,12 @@ Ask for exactly the data you need — the AI doesn't have to know OData:
 - **Readable results** — an empty value is `null`, a lookup reads as `{ value, displayValue }`, and a
   mistyped entity or column comes back with "Did you mean …?".
 
-The `/query-guide` prompt walks an agent through finding the entity, its columns, and the common query
-patterns; every tool also carries MCP annotations (read-only / destructive / idempotent) so clients can
-run reads without asking and confirm destructive calls.
+**Guidance for the model.** On connect the server sends MCP `instructions` (the date contract, which
+id a person field takes, when to confirm, which guide to read). The guides — querying, creating
+activities, dates, people, tagging, system settings, feature toggles, system operations — are both
+prompts the user can invoke (`/query-guide`, …) and a `get-guide` tool the model calls itself (most
+clients never let the model open prompts). Every tool also carries MCP annotations (read-only /
+destructive / idempotent) so clients can run reads without asking and confirm destructive calls.
 
 ### DataForge tools (registered only when DataForge is enabled)
 

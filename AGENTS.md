@@ -517,11 +517,18 @@ If adding new auth provider:
 > first-call re-login latency. `CREATIO_MCP_KEEPALIVE_SECONDS` controls it — **default 300s (5 min)**,
 > `0` disables. NOT used for broker/delegated/gateway (per-user / per-request, no shared session).
 
-## 14. Prompts Extension
+## 14. Guides, prompts and instructions
 
-- Add new prompt object in `prompts-data.ts` (`name`, `title`, `description`, `argsSchema`, `callback`).
-- Keep names unique and descriptive.
-- Avoid external network calls inside prompt callbacks.
+- A guide is one entry in `GUIDES` (`prompts-data.ts`: `name`, `title`, `description`, `text`). Each is
+  served as an MCP prompt (user-invoked `/name`) AND through the read-only `get-guide` tool — the
+  model cannot open prompts in most clients, so tool descriptions reference guides as
+  `get-guide: <name>`, never `/<name>`. `tool-surface.test.ts` checks every reference resolves and
+  that `SERVER_INSTRUCTIONS` lists every guide.
+- `SERVER_INSTRUCTIONS` (`server-instructions.ts`) is sent on initialize: only the rules the model
+  needs before ANY call (date contract, ids, confirmation, which guide to read). Keep it short.
+- Write guides for the model: verified facts only (run the recipe live on both backends), tool-call
+  JSON it can copy, no shouting / emoji noise; plain words for questions it should ask the user.
+- No network calls in guides or prompt callbacks.
 
 ## 15. Code Style & Engineering Principles
 
