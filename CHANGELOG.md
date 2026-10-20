@@ -4,7 +4,14 @@ All notable changes to **mcp-creatio** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.0]
+
+Dates in the user's Creatio time zone on both backends, and guidance the model can actually use:
+MCP instructions, a `get-guide` tool, and guides rewritten from how Creatio itself works.
+
+> **Behavior change:** `read` returns date/times labelled with the user's offset
+> (`"2026-11-10T15:00:00+02:00"`) and Date columns as `YYYY-MM-DD`; a date/time sent without an
+> offset means the user's Creatio time zone.
 
 ### Added
 
@@ -46,6 +53,7 @@ All notable changes to **mcp-creatio** are documented here. The format follows
   once per user and cached for 15 minutes. Values the model copies from a read keep their meaning.
 - **`get-current-user-info` returns the user's `timeZone` (IANA) and today's `utcOffset`.**
 - **`describe-entity` takes `entity`** like every other tool (`entitySet` is still accepted).
+- **Releases are published to npm from CI** (trusted publishing, with npm provenance).
 - **Guides rewritten and verified live** — tagging (choose the storage the object already uses; ask the
   user in plain words), system operations (filters by the plain FK column work on both backends), system
   settings and feature toggles; no shouting, copyable tool-call JSON.
@@ -456,6 +464,7 @@ Live-regressed across all transports vs a real Creatio; 537 tests, 94.5% line co
 - Baseline: Creatio MCP server (CRUD, schema inspection, process execution, sys settings,
   admin operations) over OData, with stdio + HTTP run modes and legacy/OAuth2 authentication.
 
+[0.8.0]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.8.0
 [0.7.0]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.7.0
 [0.6.8]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.8
 [0.6.7]: https://github.com/CRACKISH/mcp-creatio/releases/tag/v0.6.7
