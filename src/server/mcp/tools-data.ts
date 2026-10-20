@@ -72,7 +72,7 @@ export const getCurrentUserInfoDescriptor = makeToolDescriptor({
 	description:
 		'Returns the Creatio user this server acts as: { success, userInfo: { id, contactId, contactName, email, cultureInfo, timeZone, utcOffset, now, today, userRoles, ... } }. ' +
 		"Call it once before creating records owned by the user — owner/author lookups (OwnerId, AuthorId) take `userInfo.contactId`, not `userInfo.id` — or when a tool needs the user as a user/role (`adminUnitId` = `userInfo.id`). Also call it once when dates matter: `now` / `today` are the user's current date and time, the base for tomorrow, this month or overdue. Reuse the result for the rest of the conversation. " +
-		'`timeZone` (IANA, e.g. "Europe/Kyiv") and `utcOffset` (today\'s, e.g. "+03:00") are the user\'s Creatio time zone — the one record dates are read and written in (get-guide: datetime-guide). See get-guide: contactid-guide.',
+		'`timeZone` (IANA, e.g. "Europe/Kyiv") and `utcOffset` (today\'s, e.g. "+02:00") are the user\'s Creatio time zone — the one record dates are read and written in (get-guide: datetime-guide). See get-guide: contactid-guide.',
 	inputShape: getCurrentUserInfoInputShape,
 	annotations: READ_ONLY,
 });

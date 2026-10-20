@@ -41,9 +41,10 @@ Ask for what you need, no more: \`select\` the columns you will use and keep \`t
 
 | Need | How |
 |------|-----|
-| A column of a related record | \`select: ["Name", "Account.Name"]\` (on the OData backend: \`expand: ["Account"]\`) |
+| A column of a related record | \`select: ["Name", "Account.Name"]\` — or, if \`read\` has an \`expand\` parameter (OData backend), \`select: ["AccountId"], expand: ["Account"]\` |
 | Filter by a related record's id | \`{ field: "AccountId", op: "eq", value: "<guid>" }\` |
 | Filter by a related record's name | \`{ field: "Account.Name", op: "eq", value: "Acme" }\` |
+| A record by its name | \`{ field: "Name", op: "eq", value: "Acme Corp" }\` first; nothing found → \`contains\`; several found → ask the user which one |
 | Text search in a column | \`{ field: "Name", op: "contains", value: "acme" }\` (case-insensitive) |
 | One of several values | \`{ field: "Stage.Name", in: ["Presentation", "Negotiation"] }\` |
 | Empty / not empty | \`{ field: "Email", op: "eq", value: null }\` / \`op: "ne"\` |
@@ -55,9 +56,16 @@ Ask for what you need, no more: \`select\` the columns you will use and keep \`t
 
 What comes back:
 - A missing value is \`null\` (a text column may also be \`""\`).
-- A lookup column you select by itself (\`Account\`) is \`{ value, displayValue }\` on the DataService backend; on OData select its id (\`AccountId\`) and \`expand\` the record for its name.
+- A lookup column you select by itself (\`Account\`, \`ModifiedBy\`) is \`{ value, displayValue }\`. If \`read\` has an \`expand\` parameter (OData backend), select its id (\`AccountId\`) and \`expand\` the record for its name instead.
 - A date/time is in the user's Creatio time zone with its offset (\`"2026-11-10T14:00:00+02:00"\`); a Date column is \`"YYYY-MM-DD"\`.
 - Ids are GUIDs. Never invent one: resolve a lookup value by reading its table (\`ActivityPriority\` by \`Name\`) or with \`dataforge-lookup-values\`.
+
+Periods, from \`userInfo.today\` (get-current-user-info), each as \`ge\` the first day and \`lt\` the day after the last, and say which dates you used:
+- this week: Monday to Sunday around today; this month / quarter / year: the calendar one around today;
+- last week / month / quarter / year: the calendar one before; "recent" / "lately": ask, or take the last 30 days and say so.
+- "we" / "our": everything the user can see — no owner filter; "my": \`OwnerId\` = the user's contact id.
+
+Activities (tasks, meetings, calendar, overdue): create-activity-guide, section 6, has the ready queries.
 
 ## 4. Present the results
 - Mentioning a specific record? Add its link: \`get-record-url { entity, id }\`.
@@ -82,8 +90,8 @@ An activity has a **type** and a **category**, and they are easy to mix up:
 | The user asks for | TypeId | ActivityCategoryId | ShowInScheduler |
 |---|---|---|---|
 | a meeting, appointment, sync | Task \`${ACTIVITY_IDS.TYPE_TASK}\` | Meeting \`${ACTIVITY_IDS.CATEGORY_MEETING}\` | true |
-| a task, to-do, reminder, "send an email to …" | Task | To do \`${ACTIVITY_IDS.CATEGORY_TODO}\` | false |
-| a call to make ("call Acme at 10") | Task | Call \`${ACTIVITY_IDS.CATEGORY_CALL_TASK}\` | true when it has a set time the user wants in the calendar, else false |
+| a task, to-do, "remind me to …", "send an email to …" | Task | To do \`${ACTIVITY_IDS.CATEGORY_TODO}\` | false |
+| a call to make ("call Acme at 10") | Task | Call \`${ACTIVITY_IDS.CATEGORY_CALL_TASK}\` | true when it has a time of day, false for "call Acme sometime this week" |
 | paperwork | Task | Paper work \`${ACTIVITY_IDS.CATEGORY_PAPERWORK}\` | false |
 
 \`ShowInScheduler: true\` puts the activity in the calendar; Creatio sets it for meetings and clears it for the other categories, but only in its own pages — set it yourself.
@@ -95,6 +103,7 @@ These ids are the same on every Creatio. Do not create other types by hand:
 If the user names a category this table lacks (a custom one), read it with its type: \`read\` ActivityCategory — \`select: ["Id", "Name", "ActivityTypeId"], filters: { all: [{ field: "Name", op: "contains", value: "<name>" }] }\` — and send that \`ActivityTypeId\` as \`TypeId\`.
 
 ## 2. Owner, status, priority
+Required: \`Title\`, \`StartDate\`, \`DueDate\`, the category (with its type), status and priority — Creatio fills status Not started and priority Medium when you leave them out; send them to set another value.
 - \`OwnerId\` and \`AuthorId\`: \`userInfo.contactId\` from \`get-current-user-info\` (once per conversation) — the contact id, not \`userInfo.id\` — unless the user names someone else (contactid-guide).
 - Status: Not started \`${ACTIVITY_IDS.STATUS_NOT_STARTED}\`, In progress \`${ACTIVITY_IDS.STATUS_IN_PROGRESS}\`, Completed \`${ACTIVITY_IDS.STATUS_COMPLETED}\`, Canceled \`${ACTIVITY_IDS.STATUS_CANCELED}\`.
 - Priority: High \`${ACTIVITY_IDS.PRIORITY_HIGH}\`, Medium \`${ACTIVITY_IDS.PRIORITY_MEDIUM}\`, Low \`${ACTIVITY_IDS.PRIORITY_LOW}\`.
@@ -103,7 +112,7 @@ If the user names a category this table lacks (a custom one), read it with its t
 - Send times as the user says them — they are in the user's Creatio time zone (\`"2026-11-10T14:00:00"\`); do not convert to UTC or ask for a zone. "Tomorrow", "Friday": count from \`userInfo.today\`. A time in another zone ("10:00 New York time") goes with its offset (\`"2026-11-11T10:00:00-05:00"\`); read the activity back to quote the user's time (datetime-guide).
 - Always send \`StartDate\` and \`DueDate\`: Creatio defaults both to "now". Without a duration use 30 minutes, as the Creatio activity page does.
 - A day without a time ("on Friday"): 09:00–09:30 that day, and tell the user you picked 09:00.
-- A reminder ("remind me 15 minutes before"): \`RemindToOwner: true\` and \`RemindToOwnerDate\` (a time like \`StartDate\`). "Remind me to X on Friday" alone is a To do task for Friday.
+- A reminder pops up for the owner in Creatio: \`RemindToOwner: true\` and \`RemindToOwnerDate\` (a time like \`StartDate\`). "Remind me to X on Friday" → a To do for Friday with the reminder at its start; "remind me 15 minutes before" → \`StartDate\` minus 15 minutes.
 - Details the user gives ("about the renewal") go into the \`Title\`, longer text into \`Notes\`.
 
 ## 4. Create
@@ -130,11 +139,12 @@ Creatio adds the owner (and the activity's \`ContactId\`) as participants itself
 ## 6. Finding and changing activities
 - "My tasks" / "my to-dos": \`read\` Activity with \`OwnerId\` = the user's contact id and \`ActivityCategoryId\` = To do (meetings and calls are type Task too — filter by category, or say what the list contains). Open ones: \`Status.Finish\` = false (Finish is true for Completed and Canceled); overdue: also \`DueDate\` < \`userInfo.now\`.
 - A meeting on a day: Activity with \`StartDate\` ≥ that day and < the next day, plus \`OwnerId\`, \`ContactId\` or \`Title\` \`contains\`. Meetings the user only takes part in: \`read\` ActivityParticipant with \`ParticipantId\` = their contact id and \`Activity.StartDate\` in the window, \`select: ["ActivityId"]\`. Several matches → ask which one.
+- "My calendar this week": Activity with \`ShowInScheduler\` = true, \`OwnerId\` = the user's contact id and \`StartDate\` in the week (Monday to the next Monday, from \`userInfo.today\`), \`orderBy: "StartDate asc"\`; add the meetings they only take part in (participant query above, then \`read\` those ids with \`{ field: "Id", in: [...] }\`). Leave out Canceled (\`${ACTIVITY_IDS.STATUS_CANCELED}\`).
 - Reschedule: \`update\` \`StartDate\` and \`DueDate\` together (keep the duration). Participants are not notified — say so if it matters.
 - Done / cancelled: \`update\` \`StatusId\` (Completed / Canceled).
 
 ## 7. Confirm
-Tell the user what you created or changed — title, date and time (in their Creatio time zone), what it is (meeting / task / call) — with its link (\`get-record-url\`).
+Tell the user what you created or changed — title, date and time (in their Creatio time zone), what it is (meeting / task / call), the assumptions you made (time, duration) — with its link (\`get-record-url\`). Creatio sends no invitation or notice to participants for activities created or moved here: say so when other people take part.
 `.trim();
 
 const DATETIME_GUIDE = `
@@ -156,7 +166,7 @@ server, so a date in winter may carry a different offset than today.
 |---|---|
 | \`"2026-11-10T14:00:00"\` (no zone) | 14:00 in the user's Creatio time zone — what the user means by "at 2pm" |
 | \`"2026-11-10"\` on a date/time column | the user's midnight that day |
-| \`"2026-11-10T14:00:00+02:00"\` or \`"…T12:00:00Z"\` | that exact instant (use it when the user names another zone) |
+| \`"2026-11-10T14:00:00+02:00"\` or \`"…T12:00:00Z"\` | that exact instant (use it when the user names another zone — with that zone's offset **on that date**: New York is -05:00 in winter, -04:00 in summer) |
 | \`"1990-12-07"\` on a Date column (BirthDate, …) | that calendar date — never shifted |
 | \`"09:30"\` on a Time column | that clock time — never shifted |
 
@@ -171,7 +181,7 @@ server, so a date in winter may carry a different offset than today.
 
 Times you show or confirm are in the user's Creatio time zone. Say so when it may differ from where
 the user is ("14:00 in your Creatio time zone, Europe/Kyiv"), and when the user names another zone,
-confirm both ("09:00 New York = 16:00 your time").
+confirm both ("09:00 New York = 16:00 your time") — read the record back and quote the time it shows rather than converting yourself.
 
 ## Examples
 
@@ -245,7 +255,7 @@ Creatio keeps tags in one of two ways, and an instance usually has both:
 
 ## 1. Choose the storage
 1. The user named one → use it.
-2. Otherwise use the one this object already uses. Count both (\`count: true, top: 0\`): \`<Entity>InTag\`, and \`TagInRecord\` with \`RecordSchemaName\` = the entity. An unknown \`<Entity>InTag\` (unknown_entity) means only shared tags exist.
+2. Otherwise use the one this object already uses. Count both over the whole object (\`count: true, top: 0\`, no record filter): \`<Entity>InTag\` (Account → \`AccountInTag\`, Contact → \`ContactInTag\`), and \`TagInRecord\` with \`RecordSchemaName\` = the entity. An unknown \`<Entity>InTag\` (unknown_entity) means only shared tags exist.
 3. Both in use → ask the user in plain words: "Contacts keep tags in two places — their own tag list and Creatio's shared tags. Which should I use?" Neither in use (or no own list) → shared tags.
 
 ## 2. Add a tag
@@ -301,7 +311,7 @@ Which tools you have depends on the server's CRUD backend:
 1. Find: \`list-features { search }\` (part of the code), optionally \`source\` / \`enabledForCurrentUser\`; page with \`skip\` while \`hasMore\`.
 2. Inspect: \`get-feature { code }\` — default state, the current user's state, \`overrides\`.
 3. Change the default: \`set-feature-state { code, state: "enabled" | "disabled" }\`.
-4. Override for a user or role: add \`adminUnitId\` (\`read\` SysAdminUnit by \`Name\` — contactid-guide tells users from roles); remove it with \`state: "inherit"\`.
+4. Override for a user or role: add \`adminUnitId\` (\`read\` SysAdminUnit by \`Name\` with \`SysAdminUnitTypeValue\` — contactid-guide tells users from roles; if the name matches several, ask which); remove it with \`state: "inherit"\`.
 5. "Only for role X": the override turns it on for X, so the default must be off — if \`get-feature\` shows it enabled by default, ask before turning the default off. Other overrides listed by \`get-feature\` still apply; mention them.
 
 \`set-feature-state\` clears the cache and re-reads the feature. \`cacheCleared: false\` means the change is saved but takes effect only after Creatio refreshes — tell the user. Changing a web.config / Metadata / GlobalAppSettings feature creates its DB row, which then takes precedence (the Creatio feature page does the same). A new feature: \`create\` a \`Feature\` row (\`Code\`, \`Name\`, \`DefaultState\`), then use the tools above.
